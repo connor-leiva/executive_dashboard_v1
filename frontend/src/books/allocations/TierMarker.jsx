@@ -43,14 +43,31 @@ export function TierCode({ tier }) {
 
 /* The row treatment for a tier. Returned as a style object rather than applied here, because
    the caller owns its own layout and a component that reached into it would fight every table
-   it appears in. */
+   it appears in.
+
+   BACKGROUND AND EDGE ONLY. Two things moved out of here (U12, U13):
+
+   The Tier 3 inset was `0 0 0 3px`, a ring on all FOUR sides, which is what a focused row
+   looks like -- so every driven row read as selected and the one a reader had actually
+   clicked did not stand out. 7.2 asked for a left edge, and `inset 3px 0 0` is a left edge.
+
+   The weight was on the ROW, so a Tier 1 row bolded its method sentence and its zeros along
+   with its name. Weight is a signal about WHICH RULE THIS IS, so it belongs on the name;
+   applied to a figure it says something about the money that is not true. `tierWeight` is
+   the same scale, for the caller to put on the name span. */
 export function tierRowStyle(tier) {
   if (tier === 3) {
-    return { background: L.flagBg, boxShadow: `inset 0 0 0 3px ${L.flagEdge}`, fontWeight: 500 };
+    return { background: L.flagBg, boxShadow: `inset 3px 0 0 0 ${L.flagEdge}` };
   }
-  if (tier === 1) return { background: L.paper, fontWeight: 700 };
-  if (tier === 2) return { background: L.paper, fontWeight: 600 };
-  return { background: L.paper, color: L.muted, fontWeight: 400 };
+  if (tier === 4) return { background: L.paper, color: L.muted };
+  return { background: L.paper };
+}
+
+export function tierWeight(tier) {
+  if (tier === 1) return 700;
+  if (tier === 2) return 600;
+  if (tier === 3) return 500;
+  return 400;
 }
 
 export function TierLabel({ tier, tiers }) {

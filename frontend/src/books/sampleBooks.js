@@ -549,7 +549,7 @@ export const sampleAllocRules = {
       1: { count: 0, pool_amount: 0, pending_count: 0 },
       2: { count: 0, pool_amount: 0, pending_count: 0 },
       3: { count: 2, pool_amount: 1600, pending_count: 1 },
-      4: { count: 0, pool_amount: 0, pending_count: 0 },
+      4: { count: 1, pool_amount: 0, pending_count: 0 },
     },
     tiers: [
       { tier: 1, code: "T1", label: "Direct", gloss: "One entity carries the whole cost." },
@@ -585,7 +585,8 @@ export const sampleAllocRules = {
       ],
       targets_label: "The Forum 50%, beCollective 30%, stays on Spring B 20%",
       to_partners_by_target: { "biz-forum": 500, "biz-bc": 300 },
-      pool_amount: 1000, to_partners: 800, retained: 200, pending: [],
+      pool_amount: 1000, to_partners: 800, retained: 200, unresolved: 0,
+      pending: [],
     },
     {
       id: "rule-staff", pool_name: "Staff time", scope_kind: "vendor", pattern: "A Contractor",
@@ -604,8 +605,27 @@ export const sampleAllocRules = {
       // on the server and zero here taught the opposite, that an unresolved pool vanishes.
       targets_label: "By Staff time commitment",
       to_partners_by_target: {},
-      pool_amount: 600, to_partners: 0, retained: 600,
+      pool_amount: 600, to_partners: 0, retained: 600, unresolved: 600,
       pending: [{ month: "2026-07-01", reason: "no_driver_values", amount: 600 }],
+    },
+    {
+      // A rule with nothing booked this month, so the fold row has something to fold. In a
+      // real November 31 of 46 rules look like this, which is why they fold (D4).
+      id: "rule-quiet", pool_name: "Software", scope_kind: "vendor", pattern: "A Tool",
+      pool_business_id: "biz-pool",
+      current: {
+        id: "v1", version: 1, tier: 4, method: "retained", effective_from: "2026-01-01",
+        reach: "forward", rationale: "Only this entity uses it.",
+        is_current: true, approved_by: { id: "u1", name: "Spring" }, targets: null,
+      },
+      versions: [
+        { id: "v1", version: 1, tier: 4, method: "retained", effective_from: "2026-01-01",
+          reach: "forward", rationale: "Only this entity uses it.", is_current: true,
+          approved_by: { id: "u1", name: "Spring" }, created_at: "2026-01-05T10:00:00Z" },
+      ],
+      targets_label: "Stays on Spring B",
+      to_partners_by_target: {},
+      pool_amount: 0, to_partners: 0, retained: 0, unresolved: 0, pending: [],
     },
   ],
   months: ["2026-07-01"],

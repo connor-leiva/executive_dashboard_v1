@@ -1007,6 +1007,45 @@ payload shape.
    real API. No product change.
 
 ### Phase 3
+
+**Done 2026-11-04.** §6.1, the Rules ledger.
+
+- `tierRowStyle` returns background and edge only; `tierWeight` is new, for the name span.
+  The Tier 3 inset is `inset 3px 0 0` -- a left edge, not the four-sided ring that made every
+  driven row look selected (U12).
+- Order: pending first by `unresolved`, then by what the books hold, then by name (principle
+  2). `unresolved` added to the rules payload rather than summed from `pending` in the
+  browser, which would be money arithmetic (B6).
+- Rules with nothing booked fold into one line, open on click, never dropped (D4).
+- Columns are `Pool | Goes to | In the books | To partners | Stayed`. A pending row shows a
+  third line, "{Month} not resolved: {reason}", and "pending" in place of a zero in To
+  partners.
+- Search over pool name, pattern and entity names. Hover states on rows.
+
+**Gate as measured**, read off the running prod build rather than by eye:
+- Pending rules first: the driven rule with an uncommitted month sorts above the resolved one.
+- The fold row reads "1 rule with nothing booked in July 2026" and opens.
+- Tier 3 `boxShadow` computes to `rgb(224, 196, 118) 3px 0px 0px 0px inset`: left edge only.
+- Weight is on the name alone. Measured per row: name 500, row 400, figure 400. **No row has
+  a bold number**, and zero renders at 400 in `Money` whatever the tier.
+- Search narrows the ledger to the matching rule (the fixture restatement of the audit's
+  "searching jacob", per §0.1 item 11 -- the original gate names a real payee).
+- Greyscale: tier survives as marker SHAPE (filled square, ring, ring, nothing), the `T1` to
+  `T4` code, the row background and the left edge. No tier is carried by hue alone, which is
+  the parent spec's rule and matters here because three entities share one accent.
+- `grep "inset 0 0 0"` -> 0. Raw hex -> 0. Em or en dashes -> 0. `+= Number(` -> 0.
+  `"0 to 1"` -> 1, in the driver input, which Phase 5 replaces.
+
+**Corrected while building:**
+1. **§9.2 and §6.1 disagree about the figure's weight.** §9.2's recipe says In the books
+   carries tier weight; §6.1 says the name is "the ONLY weighted text in the row"; the phase
+   gate says "no row has bold numbers". §6.1 and the gate win, so the figure has one weight
+   at every tier. Recorded because it is a deliberate deviation from a §9 recipe, and Phase 7
+   compares against §9.
+2. **The sample fixture gained a rule with nothing booked.** Without one the fold row could
+   not be exercised at all, and the demo workspace is where a state with no tenant data gets
+   seen.
+
 ### Phase 4
 ### Phase 5
 ### Phase 6

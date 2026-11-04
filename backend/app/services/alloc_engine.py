@@ -1251,6 +1251,10 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
             # Derived, so it absorbs nothing: whatever did not leave stayed, including the
             # rounding residue and any month that did not resolve.
             "retained": kept,
+            # The ledger orders pending rules first, BY THIS FIGURE. Sent rather than summed
+            # from `pending` in the browser, because that is money arithmetic and this page
+            # does none (B6, and the module's standing rule).
+            "unresolved": money.get("unresolved_amount", ZERO),
             "to_partners_by_target": by_target.get(rule.id, {}),
             # Built here, not in the browser: it is a sentence made of entity names and
             # shares, and principle 4 keeps both on this side of the wire.

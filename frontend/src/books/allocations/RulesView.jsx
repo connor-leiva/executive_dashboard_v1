@@ -11,7 +11,7 @@ import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
 import { methodLabel, reasonOf, scopeLabel, fmtMonth } from "./words.js";
 import { Button, Chip, Input } from "./controls.jsx";
-import { TierMarker, TierCode, tierRowStyle } from "./TierMarker.jsx";
+import { TierMarker, TierCode, tierRowStyle, tierWeight } from "./TierMarker.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -178,6 +178,7 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
   const [tier, setTier] = useState(null);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
+  const [foldOpen, setFoldOpen] = useState(false);
 
   const businesses = data?.businesses || [];
   const meta = data?.meta || {};
@@ -206,6 +207,22 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
       .join(" ").toLowerCase();
     return hay.includes(needle);
   });
+
+  /* ORDER: pending first by what has not resolved, then by what the books hold, then by
+     name. Principle 2 -- what needs a person comes first, amount before name. A ledger
+     sorted alphabetically puts Active Campaign at 0.00 above a rule holding 5,500 that
+     nobody has resolved. */
+  const sorted = [...rules].sort((a, b) =>
+    Number(!!b.pending?.length) - Number(!!a.pending?.length)
+    || Number(b.unresolved || 0) - Number(a.unresolved || 0)
+    || Number(b.pool_amount || 0) - Number(a.pool_amount || 0)
+    || String(a.pool_name).localeCompare(String(b.pool_name)));
+  /* Rules with nothing booked this month fold into one line. In November 31 of 46 rules sit
+     at 0.00, and a screen of zeros is a screen a reader scrolls past -- including past the
+     rows that are not zero. Folded, never dropped (D4). */
+  const live = sorted.filter((r) => Number(r.pool_amount || 0) !== 0 || r.pending?.length);
+  const quiet = sorted.filter((r) => !live.includes(r));
+  const shown = foldOpen ? [...live, ...quiet] : live;
 
   if (!all.length) {
     return (
@@ -265,13 +282,15 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
                       borderBottom: `1px solid ${L.ruleHeader}` }}>
           <span />
           <span style={EYEBROW}>Pool</span>
-          <span className="al-hide-narrow" style={EYEBROW}>Method</span>
+          <span className="al-hide-narrow" style={EYEBROW}>Goes to</span>
           <span style={{ ...EYEBROW, textAlign: "right" }}>In the books</span>
           <span className="al-hide-narrow" style={{ ...EYEBROW, textAlign: "right" }}>To partners</span>
-          <span className="al-hide-narrow" style={{ ...EYEBROW, textAlign: "right" }}>Retained</span>
+          {/* "Stayed" in the UI only: the engine calls it retained and the payload
+              still does, but a reader is being told where the money went. */}
+          <span className="al-hide-narrow" style={{ ...EYEBROW, textAlign: "right" }}>Stayed</span>
         </div>
 
-        {rules.map((r) => {
+        {shown.map((r) => {
           const t = r.current?.tier ?? 0;
           const isOpen = open === r.id;
           const anyPending = (r.pending || []).length > 0;
@@ -280,7 +299,7 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
               <div role="button" tabIndex={0}
                 onClick={() => setOpen(isOpen ? null : r.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen(isOpen ? null : r.id); }}
-                className="al-rules-row"
+                className={`al-rules-row al-row-hover${t === 3 ? " al-t3" : ""}`}
                 style={{ display: "grid",
                          gap: 10, padding: "12px 16px", cursor: "pointer",
                          borderBottom: `1px solid ${L.ruleLine}`, ...tierRowStyle(t) }}>
@@ -288,24 +307,48 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
                   <TierMarker tier={t} />
                 </span>
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ fontFamily: F.body, fontSize: 13, color: L.deep,
-                                 fontWeight: "inherit" }}>{r.pool_name}</span>
-                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                  {/* THE ONLY WEIGHTED TEXT IN THE ROW. Weight says which rule this is, so
+                      it belongs on the name: on the row it bolded the method sentence and
+                      the zeros too, which says something about the money that is not
+                      true (U13). */}
+                  <span style={{ fontFamily: F.body, fontSize: 13.5,
+                                 color: t === 4 ? L.muted : L.deep,
+                                 fontWeight: tierWeight(t) }}>{r.pool_name}</span>
+                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.faint,
                                  display: "block", overflow: "hidden",
                                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     <TierCode tier={t} /> {scopeLabel(meta, r.scope_kind)} {r.pattern}
                   </span>
+                  {anyPending && (
+                    <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk,
+                                   display: "block", overflow: "hidden",
+                                   textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {fmtMonth(r.pending[0].month)} not resolved:{" "}
+                      {reasonOf(meta, r.pending[0].reason)?.label}
+                    </span>
+                  )}
                 </span>
                 <span className="al-hide-narrow"
-                      style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                      style={{ fontFamily: F.body, fontSize: 12, color: L.bodyDim,
                                minWidth: 0 }}>
                   {r.targets_label || methodLabel(meta, r.current?.method)
                     || "No current version."}
                 </span>
-                <Money v={r.pool_amount} />
-                <span className="al-hide-narrow"><Money v={r.to_partners} /></span>
+                {/* NO tier weight on the figure. 9.2's recipe gives it one, and 6.1 says
+                    the name is the only weighted text in the row; 6.1 wins, because U13's
+                    defect WAS a bold number and the phase gate is "no row has bold
+                    numbers". A single weight also lets the money column scan as one
+                    column rather than as four sizes of importance. */}
+                <Money v={r.pool_amount} size={13.5} />
                 <span className="al-hide-narrow">
-                  <Money v={r.retained} tone={anyPending ? L.flagInk : undefined} />
+                  {anyPending && !Number(r.to_partners)
+                    ? <span style={{ fontFamily: F.num, fontSize: 12, color: L.flagInk,
+                                     display: "block", textAlign: "right" }}>pending</span>
+                    : <Money v={r.to_partners} size={12} tone={Number(r.to_partners)
+                                                               ? L.accentInk : undefined} />}
+                </span>
+                <span className="al-hide-narrow">
+                  <Money v={r.retained} size={12} />
                 </span>
               </div>
               {isOpen && (
@@ -315,6 +358,22 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
             </div>
           );
         })}
+
+        {!!quiet.length && (
+          <button onClick={() => setFoldOpen(!foldOpen)}
+                  className="al-ctl"
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%",
+                           padding: "11px 18px", background: L.controls, border: "none",
+                           borderTop: `1px solid ${L.ruleLine}`, cursor: "pointer",
+                           fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                           textAlign: "left" }}>
+            <span aria-hidden style={{ display: "inline-block",
+                                       transform: foldOpen ? "rotate(90deg)" : "none",
+                                       transition: "transform 130ms" }}>&rsaquo;</span>
+            {quiet.length} rule{quiet.length === 1 ? "" : "s"} with nothing booked in{" "}
+            {monthLabel}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -474,6 +474,7 @@ async def alloc_list_rules(period: str | None = None,
                      "pool_amount": money(r["pool_amount"]),
                      "to_partners": money(r["to_partners"]),
                      "retained": money(r["retained"]),
+                     "unresolved": money(r["unresolved"]),
                      "to_partners_by_target": {b: money(a) for b, a
                                                in r["to_partners_by_target"].items()},
                      "pending": [{**p, "amount": money(p["amount"])} for p in r["pending"]]}
