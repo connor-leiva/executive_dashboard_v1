@@ -354,14 +354,10 @@ def show(plans, driven=()):
 
 
 async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_history=False):
-    from app.db import SessionLocal
-    from app.models import AllocationDriver, Business, User
-    from app.services import alloc_drivers, alloc_rules
-
-    from sqlalchemy import select
-
-    from app.models import Tenant
-
+    # CONFIG BEFORE IMPORTS. These checks need nothing but the environment, and importing the
+    # app first meant a missing dependency buried the answer to "which database is this
+    # pointing at" under a traceback. Cheap questions get asked first.
+    #
     # SAY WHICH DATABASE THIS IS, ALWAYS. The failure that costs an afternoon is not a crash,
     # it is writing 46 rules into the local development database and reading the empty
     # Allocations page in production wondering why. `DATABASE_URL` unset falls back to local
@@ -373,6 +369,21 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
         sys.exit("That is the local development database, which is several migrations behind "
                  "and is not where your books live. Set DATABASE_URL to the production "
                  "database before wiring.")
+
+    try:
+        from sqlalchemy import select
+
+        from app.db import SessionLocal
+        from app.models import AllocationDriver, Business, Tenant, User
+        from app.services import alloc_drivers, alloc_rules
+    except ImportError as e:
+        # Almost always the system Python rather than the project's: `python` on PATH has none
+        # of the app's dependencies. The traceback names `jose` or `fastapi` and reads like a
+        # broken install, so say the actual cause.
+        venv = pathlib.Path(__file__).resolve().parents[1] / ".venv" / "Scripts" / "python.exe"
+        sys.exit(f"Could not import the app ({e}).\n"
+                 f"This usually means it ran on the system Python instead of the project's. "
+                 f"Use:\n  {venv}\ninstead of `python`.")
 
     tenant = os.environ.get("TENANT_ID")
     actor_email = os.environ.get("ACTOR_EMAIL")
