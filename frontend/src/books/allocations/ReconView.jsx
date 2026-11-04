@@ -7,9 +7,17 @@
    `unresolved` is the column this view exists for. A rule whose driver month was never committed
    resolves nothing while its pool still sits in the books, and a screen showing only `resolved`
    would make that rule look finished. */
+import { useState } from "react";
 import { LEDGER as L, LEDGER_FONT as F } from "../../theme.js";
 import Money from "./Money.jsx";
 import { reasonOf, scopeLabel, fmtMonth } from "./words.js";
+import { Button } from "./controls.jsx";
+
+/* Where a reason's fix lives. `meta.reasons[code].target` is the server's word for it; this
+   maps the ones the Allocations page itself can reach to a sub-view. Targets outside the
+   page (mapping, integrations, QuickBooks) fall back to Rules rather than pretending to
+   navigate somewhere this component cannot reach. */
+const TARGET_VIEW = { drivers: "drivers", rule: "rules", rules: "rules" };
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
@@ -21,6 +29,7 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
 
 
 export default function ReconView({ data, month, go = () => {} }) {
+  const [foldOpen, setFoldOpen] = useState(false);
   const meta = data?.meta || {};
   const rules = data?.rules || [];
   const months = data?.months || [];
@@ -40,6 +49,18 @@ export default function ReconView({ data, month, go = () => {} }) {
     );
   }
 
+  /* Pending first by amount, then rules with activity, then the quiet ones folded away
+     (6.4, principle 2). A pending row offered no way to fix it, so the action comes from
+     the reason and lands on the view that fixes it. */
+  const sorted = [...rules].sort((a, b) =>
+    Number(!!b.pending?.length) - Number(!!a.pending?.length)
+    || Number(b.unresolved_amount || 0) - Number(a.unresolved_amount || 0)
+    || Number(b.pool_amount || 0) - Number(a.pool_amount || 0)
+    || String(a.pool_name).localeCompare(String(b.pool_name)));
+  const live = sorted.filter((r) => Number(r.pool_amount || 0) !== 0 || r.pending?.length);
+  const quiet = sorted.filter((r) => !live.includes(r));
+  const shown = foldOpen ? [...live, ...quiet] : live;
+
   return (
     <div style={{ display: "grid", gap: 18 }}>
       <div style={{ background: L.paper, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
@@ -50,10 +71,12 @@ export default function ReconView({ data, month, go = () => {} }) {
           <span style={EYEBROW}>Pool</span>
           <span style={{ ...EYEBROW, textAlign: "right" }}>In the books</span>
           <span className="al-hide-narrow" style={{ ...EYEBROW, textAlign: "right" }}>Resolved</span>
-          <span style={{ ...EYEBROW, textAlign: "right" }}>Unresolved</span>
-          <span className="al-hide-narrow" style={{ ...EYEBROW, textAlign: "right" }}>Variance</span>
+          {/* VARIANCE IS GONE (U6, D3). It was `resolved - pool` beside `pool - resolved`:
+              the same figure with the sign flipped, so every pending pool was reported
+              twice, once in gold and once in parentheses. The API field stays. */}
+          <span style={{ ...EYEBROW, textAlign: "right" }}>Not resolved</span>
         </div>
-        {rules.map((r) => (
+        {shown.map((r) => (
           <div key={r.rule_id}>
             <div className="al-recon-row" style={{ display: "grid",
                           gap: 10, padding: "12px 16px",
@@ -71,23 +94,50 @@ export default function ReconView({ data, month, go = () => {} }) {
               <Money v={r.pool_amount} />
               <span className="al-hide-narrow"><Money v={r.resolved_amount} /></span>
               <Money v={r.unresolved_amount}
-                     tone={r.unresolved_amount ? L.flagInk : L.muted} />
-              <span className="al-hide-narrow"><Money v={r.variance} /></span>
+                     tone={r.unresolved_amount ? L.flagInk : undefined} />
             </div>
             {(r.pending || []).map((p, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between",
                                     gap: 12, padding: "8px 16px 8px 30px",
                                     background: L.flagBg,
                                     borderBottom: `1px solid ${L.ruleLine}` }}>
-                <span style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk }}>
+                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk,
+                               flex: "1 1 auto", minWidth: 0 }}>
                   {fmtMonth(p.month)} · {reasonOf(meta, p.reason)?.label
                     || "Not resolved, and the engine did not say why"}
                 </span>
-                <Money v={p.amount} tone={L.flagInk} />
+                <Money v={p.amount} size={12.5} tone={L.flagInk} />
+                {/* EVERY PENDING ITEM LINKS TO ITS FIX (principle 5). The action and the
+                    view it lands on come from `meta.reasons`, so a new reason arrives as a
+                    server change with no edit here. */}
+                {reasonOf(meta, p.reason)?.action && (
+                  <Button kind="quiet" size="card"
+                          onClick={() => go(TARGET_VIEW[reasonOf(meta, p.reason).target]
+                                            || "rules")}>
+                    {reasonOf(meta, p.reason).action}
+                    {reasonOf(meta, p.reason).target === "drivers"
+                      ? ` ${fmtMonth(p.month)}` : ""} &rsaquo;
+                  </Button>
+                )}
               </div>
             ))}
           </div>
         ))}
+
+        {!!quiet.length && (
+          <button onClick={() => setFoldOpen(!foldOpen)} className="al-ctl"
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%",
+                           padding: "11px 16px", background: L.controls, border: "none",
+                           borderTop: `1px solid ${L.ruleLine}`, cursor: "pointer",
+                           fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                           textAlign: "left" }}>
+            <span aria-hidden style={{ display: "inline-block",
+                                       transform: foldOpen ? "rotate(90deg)" : "none",
+                                       transition: "transform 130ms" }}>&rsaquo;</span>
+            {quiet.length} rule{quiet.length === 1 ? "" : "s"} with nothing booked in{" "}
+            {month && month !== "ytd" ? fmtMonth(month) : "this span"}
+          </button>
+        )}
       </div>
 
       {check && (

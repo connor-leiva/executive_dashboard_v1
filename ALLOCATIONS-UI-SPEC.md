@@ -1135,6 +1135,32 @@ payload shape.
    "0.7000" -- the same mismatch the input had, in the other direction.
 
 ### Phase 6
+
+**Done 2026-11-04.** §6.4.
+
+- Variance removed from the view (U6, D3). It was `resolved - pool` printed beside
+  `pool - resolved`: the same figure with its sign flipped, so every pending pool was
+  reported twice on one row, once in gold and once in parentheses. The API field stays.
+- Columns are `Rule | In the books | Resolved | Not resolved`, and the grid templates now
+  carry four tracks against four children (three at 820, where Resolved hides).
+- Pending rules first by amount, then rules with activity, then the quiet ones folded.
+- Every pending row carries its fix: the action text and the view it lands on come from
+  `meta.reasons[code]`, so a new reason arrives as a server change with no edit here.
+
+**Gate as measured:**
+- No "Variance" anywhere in rendered copy; the only remaining mention is a comment saying
+  why the grid has four tracks.
+- Headers read Pool, In the books, Resolved, Not resolved; four tracks, four visible
+  children, measured.
+- The pending row reads "July 2026 . No driver numbers committed" with a
+  "Commit July 2026 >" link, and clicking it lands on **Drivers**.
+- Zero rules fold. The footer reads "Covering July 2026." rather than a period token.
+
+**Deviation from §6.4 to settle in Phase 7:** the spec asks that below 660px the three
+figures stack right-aligned under the rule name with inline labels, as the mockup's `.ar-figs`
+does. This build keeps three columns at that width instead, which fits and needs no new
+markup. Phase 7 compares it against the mockup and decides.
+
 ### Phase 7
 
 ---

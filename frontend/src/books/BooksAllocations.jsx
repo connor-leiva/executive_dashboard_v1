@@ -178,7 +178,10 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
         .al-rules-row {
           grid-template-columns: 28px minmax(0,2fr) minmax(0,1.3fr) repeat(3,minmax(0,1fr));
         }
-        .al-recon-row { grid-template-columns: minmax(0,2fr) repeat(4, minmax(0,1fr)); }
+        /* FOUR tracks, four children: Rule, In the books, Resolved, Not resolved.
+           Variance left the view in Phase 6, so a fifth track would be an empty
+           column and the figures would sit under the wrong headers again. */
+        .al-recon-row { grid-template-columns: minmax(0,2fr) repeat(3, minmax(0,1fr)); }
         .al-partner-row { grid-template-columns: minmax(0,2fr) repeat(2, minmax(0,1fr)); }
         .al-partner-figs { grid-template-columns: repeat(5, minmax(0,1fr)); }
         /* The driver commit form: entity, how it is answered, the number. The track count
@@ -273,6 +276,7 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
         @media (max-width: 820px) {
           .al-rules-row { grid-template-columns: 22px minmax(0,1.6fr) minmax(0,1fr); }
           .al-rules-row > .al-hide-narrow { display: none; }
+          /* Resolved hides here, so three children and three tracks. */
           .al-recon-row { grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr); }
           .al-recon-row > .al-hide-narrow { display: none; }
           .al-partner-figs { grid-template-columns: repeat(3, minmax(0,1fr)); }
