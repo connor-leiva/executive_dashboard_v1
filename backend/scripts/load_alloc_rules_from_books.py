@@ -499,7 +499,17 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
         # about the books rather than a row somebody forgot to add.
         if find("SB Coaching") is None:
             sys.exit(f"The pool entity is not in this workspace. Present: {sorted(biz)}")
-        pool = find("SB Coaching")
+
+        # HOLD IDS, NOT ORM OBJECTS, ACROSS THE LOOP. `s.rollback()` expires every object in
+        # the session, so the first refused rule left `biz` full of expired Businesses, and the
+        # next rule's `find(b).id` tried to reload one. That is implicit IO, which an
+        # AsyncSession refuses with MissingGreenlet, and it killed the run mid-way with rules
+        # already written and no summary printed. A UUID read once cannot expire.
+        from types import SimpleNamespace
+        ids = {b: find(b).id for b in BRANDS if find(b) is not None}
+        pool_id = ids["SB Coaching"]
+        # Same reasoning: the services only ever read `.id` off the actor.
+        actor_ref = SimpleNamespace(id=actor.id)
 
         absent = sorted(b for b in BRANDS if find(b) is None)
         if absent:
@@ -525,15 +535,15 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
             kw = {"method": p["method"], "effective_from": effective_from, "reach": reach,
                   "rationale": p["rationale"]}
             if p["method"] == "direct":
-                kw["targets"] = [{"business_id": str(find(p["direct_to"]).id), "share": "1"}]
+                kw["targets"] = [{"business_id": str(ids[p["direct_to"]]), "share": "1"}]
             elif p["method"] == "split":
-                kw["targets"] = [{"business_id": str(find(b).id), "share": str(v)}
+                kw["targets"] = [{"business_id": str(ids[b]), "share": str(v)}
                                  for b, v in p["shares"].items() if v > 0]
             try:
                 await alloc_rules.create_applied_rule(
-                    s, tenant, actor, scope_kind=p["scope_kind"], pattern=p["pattern"],
+                    s, tenant, actor_ref, scope_kind=p["scope_kind"], pattern=p["pattern"],
                     pool_name=p["item"][:80] or pool_name_default,
-                    source_business_id=pool.id, **kw)
+                    source_business_id=pool_id, **kw)
                 made += 1
             except Exception as e:                       # the product's own refusal, surfaced
                 # ROLL BACK BEFORE THE NEXT ONE. `create_applied_rule` flushes before it
@@ -557,19 +567,22 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
             AllocationDriver.key == DRIVER_KEY))).scalars().first()
         if drv is None:
             drv = await alloc_drivers.create_driver(
-                s, tenant, actor, key=DRIVER_KEY, label=DRIVER_LABEL, kind="split",
+                s, tenant, actor_ref, key=DRIVER_KEY, label=DRIVER_LABEL, kind="split",
                 unit="percent")
             print(f"created driver {drv.key!r}")
         else:
             print(f"reusing driver {drv.key!r}")
+        # Captured now, for the same reason the entity ids are: a later rollback would expire
+        # `drv`, and reading `.id` off an expired object is implicit IO.
+        drv_id = drv.id
 
         dmade, dfailed = 0, []
         for d in driven:
             try:
                 await alloc_rules.create_applied_rule(
-                    s, tenant, actor, scope_kind="account", pattern=d["pattern"],
-                    pool_name=d["item"][:80], source_business_id=pool.id,
-                    method="driven", driver_id=drv.id, driver_subject=d["item"],
+                    s, tenant, actor_ref, scope_kind="account", pattern=d["pattern"],
+                    pool_name=d["item"][:80], source_business_id=pool_id,
+                    method="driven", driver_id=drv_id, driver_subject=d["item"],
                     effective_from=effective_from, reach=reach, rationale=d["rationale"])
                 dmade += 1
             except Exception as e:
@@ -593,12 +606,12 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
             for mn, rows in d["months"]:
                 for brand, share in rows.items():
                     by_month[mn].append({"subject": d["item"],
-                                         "business_id": str(find(brand).id),
+                                         "business_id": str(ids[brand]),
                                          "value_kind": "share", "value": str(share)})
         for mn in sorted(by_month):
             try:
                 await alloc_drivers.commit_month(
-                    s, tenant, actor, drv.id, period=dt.date(effective_from.year, mn, 1),
+                    s, tenant, actor_ref, drv_id, period=dt.date(effective_from.year, mn, 1),
                     rows=by_month[mn],
                     note="From the audited books workbook, decided in the Oct 14 meeting.")
                 print(f"  committed month {mn:>2}: {len(by_month[mn])} values")
