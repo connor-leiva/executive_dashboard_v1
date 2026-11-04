@@ -508,6 +508,10 @@ def main():
     ap.add_argument("--wire", action="store_true", help="actually create the rules")
     ap.add_argument("--from", dest="month", default=None, help="effective month, YYYY-MM")
     ap.add_argument("--reach", default="forward", choices=("forward", "from_date", "retro"))
+    ap.add_argument("--skip-open", action="store_true",
+                    help="hold back every rule whose reason is still a question, exactly the "
+                         "ones listed under STILL A QUESTION, so they keep arriving in the "
+                         "exception queue")
     ap.add_argument("--skip-items", default="",
                     help="comma-separated Item names to hold back, so they keep arriving in "
                          "the exception queue instead of being settled by a rule")
@@ -527,6 +531,12 @@ def main():
     detect_shared_payees(plans)
 
     held = {x.strip().lower() for x in a.skip_items.split(",") if x.strip()}
+    if a.skip_open:
+        # Derived, never retyped. The same list the dry run prints under STILL A QUESTION. A
+        # hand-copied version of it is how a name that was in no workbook ("George") reached a
+        # command line, and the only reason that was caught is the check below.
+        held |= {p["item"].lower() for p in plans + driven
+                 if OPEN_QUESTION.search(p.get("rationale") or "")}
     if held:
         found = {p["item"].lower() for p in plans + driven}
         unknown = sorted(held - found)
