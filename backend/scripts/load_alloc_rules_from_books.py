@@ -358,12 +358,39 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
     from app.models import AllocationDriver, Business, User
     from app.services import alloc_drivers, alloc_rules
 
+    from sqlalchemy import select
+
+    from app.models import Tenant
+
+    # SAY WHICH DATABASE THIS IS, ALWAYS. The failure that costs an afternoon is not a crash,
+    # it is writing 46 rules into the local development database and reading the empty
+    # Allocations page in production wondering why. `DATABASE_URL` unset falls back to local
+    # SQLite silently, so the fallback is refused outright rather than reported.
+    url = os.environ.get("DATABASE_URL") or ""
+    shown = re.sub(r"//[^@]*@", "//", url) or "(DATABASE_URL is not set)"
+    print(f"database: {shown}")
+    if not url or url.startswith("sqlite"):
+        sys.exit("That is the local development database, which is several migrations behind "
+                 "and is not where your books live. Set DATABASE_URL to the production "
+                 "database before wiring.")
+
     tenant = os.environ.get("TENANT_ID")
     actor_email = os.environ.get("ACTOR_EMAIL")
     if not tenant or not actor_email:
-        sys.exit("Set TENANT_ID and ACTOR_EMAIL to wire. Refusing to guess which workspace.")
-
-    from sqlalchemy import select
+        # Rather than send somebody hunting for a UUID, show the ones that are there.
+        async with SessionLocal() as s:
+            rows = list((await s.execute(select(Tenant))).scalars())
+            print("\nWorkspaces in that database:")
+            for t in rows:
+                print(f"  TENANT_ID={t.id}   {getattr(t, 'slug', '') or ''} "
+                      f"{getattr(t, 'name', '') or ''}")
+            if tenant:
+                users = list((await s.execute(select(User).where(
+                    User.tenant_id == tenant))).scalars())
+                print("\nUsers in that workspace (pick yours for ACTOR_EMAIL):")
+                for u in users[:20]:
+                    print(f"  ACTOR_EMAIL={u.email}")
+        sys.exit("\nSet TENANT_ID and ACTOR_EMAIL from the list above, then run it again.")
     async with SessionLocal() as s:
         biz = {b.name: b for b in (await s.execute(
             select(Business).where(Business.tenant_id == tenant))).scalars()}
