@@ -294,6 +294,8 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     that maps to no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
     if key in ROSTER_KEYS:
         return await _roster_records(key, s, tenant_id, business_id, week_start, week_end, group, limit)
+    if key and key.startswith("sympli_"):
+        return await scorecard_sympli.records(key, s, tenant_id, business_id, week_start, week_end, group, limit)
     if key == "forum_members_added":
         return await _forum_member_records(s, tenant_id, business_id, week_start, week_end, limit)
     if key == "forum_vip_guests_added":
@@ -713,7 +715,8 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
     async with session_factory() as s:                  # read the work list up front, read-only
         metrics = (await s.execute(
             select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardMetric.source_spec,
-                   ScorecardGroup.business_id, ScorecardGroup.key, ScorecardGroup.sisu_group_id)
+                   ScorecardGroup.business_id, ScorecardGroup.key, ScorecardGroup.sisu_group_id,
+                   ScorecardGroup.lo_email)
             .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
             .where(ScorecardMetric.tenant_id == tenant_id,
                    ScorecardMetric.active.is_(True),
@@ -723,7 +726,7 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
     from .scorecard_routing import run_spec              # lazy import — breaks the module cycle
 
     written = 0
-    for metric_id, key, source_spec, business_id, group_key, sisu_group_id in metrics:
+    for metric_id, key, source_spec, business_id, group_key, sisu_group_id, lo_email in metrics:
         # A declarative source_spec WINS over a legacy resolver_key (SCORECARD-CONFIG-SPEC Phase 2),
         # so flipping a metric onto a spec is a data change, not a code change.
         if not source_spec:
@@ -732,7 +735,8 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
                 log.warning("scorecard: metric %s names resolver %r, which isn't registered", metric_id, key)
                 continue
         label = f"spec:{source_spec.get('source')}.{source_spec.get('dataset')}" if source_spec else key
-        group = {"key": group_key, "sisu_group_id": sisu_group_id}   # context for per-team resolvers/specs
+        group = {"key": group_key, "sisu_group_id": sisu_group_id,   # context for per-team resolvers/specs
+                 "lo_email": lo_email}
         for ws, we in week_windows:
             async with session_factory() as s:
                 try:
@@ -746,3 +750,7 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
                     await s.rollback()
                     log.exception("scorecard: resolver %s failed for metric %s week %s", label, metric_id, ws)
     return written
+
+
+# Registers the lending board's resolvers. Last, because that module imports the decorator above.
+from . import scorecard_sympli  # noqa: E402

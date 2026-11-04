@@ -361,6 +361,7 @@ def map_client(c: dict) -> dict:
         "buyer_phone": _digits10(c.get("mobile_phone")),
         "agent_external_id": str(aid) if aid else None,
         "sisu_status_code": _clip(c.get("status_code"), 16),
+        "lead_type": _clip(c.get("lead_type"), 80),
         "contract_date": parse_dt(c.get("uc_dt")),
         "close_date": parse_dt(c.get("closed_dt")),
         # Scheduled/estimated close (pending → projection). Sisu keeps the target

@@ -13,6 +13,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
   const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → not a cumulative row
   const rate = r.type === "rate";
   const pct = c ? Math.round(c.attain) : null;
+  const dp = rate && r.goal && r.goal < 10 ? 2 : 1;        // a 2.25% goal needs its second decimal
 
   const vals = (r.values || []).slice().reverse();          // newest first (storage ascending)
   const goals = (r.week_goals || []).slice().reverse();
@@ -95,7 +96,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             {c ? (
               <>
                 <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
-                  <span style={{ ...NUM, fontSize: 13.5, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(1)}%` : c.actual}</span>
+                  <span style={{ ...NUM, fontSize: 13.5, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
                   <span style={{ ...NUM, fontSize: 10.5, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
                 </div>
                 <PaceBar pct={pct} />
@@ -103,11 +104,11 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
                   {t == null || Math.abs(t) < 3 ? "—" : `${t > 0 ? "↑" : "↓"}${Math.abs(Math.round(t))}`}
                 </div>
                 <div style={{ width: C_GAP, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 12.5, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad }}>
-                  {rate ? `${sgn(c.gap, 1)}` : sgn(c.gap)}
+                  {rate ? `${sgn(c.gap, dp)}` : sgn(c.gap)}
                 </div>
                 <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "center", gap: 7 }}>
                   <span style={{ ...NUM, fontSize: 12, fontWeight: 500, color: (c.verdict !== "ahead" && c.required != null) ? T.inkSoft : T.faint }}>
-                    {c.verdict !== "ahead" && c.required != null ? (rate ? `${c.required.toFixed(0)}% avg` : `${c.required.toFixed(0)}/wk`) : "—"}
+                    {c.verdict !== "ahead" && c.required != null ? (rate ? `${c.required.toFixed(dp === 2 ? 2 : 0)}% avg` : `${c.required.toFixed(0)}/wk`) : "—"}
                   </span>
                   <StatusTag verdict={c.verdict} />
                 </div>

@@ -257,7 +257,7 @@ _TXN_UPDATE_KEYS = [
     "side", "status", "gci", "agent_commission", "sale_price", "address", "buyer_name",
     "buyer_email", "mortgage_vid", "title_vid", "buyer_email2", "buyer_phone",
     "agent_id", "contract_date", "close_date", "expected_close_date",
-    "appt_set_date", "appt_met_date", "signed_date", "lead_date", "listing_date", "sisu_status_code",
+    "appt_set_date", "appt_met_date", "signed_date", "lead_date", "listing_date", "sisu_status_code", "lead_type",
 ]
 
 
@@ -1293,15 +1293,25 @@ async def sync_arive(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) 
                 "lo_email": (arive.pick(ln, "loanOriginatorEmail", "loanOfficerEmail") or "").lower() or None,
                 "borrower_email": b["email"], "borrower_phone": b["phone"],
                 "property_state": arive.pick(prop, "state", "propertyState") or arive.pick(ln, "subjectPropertyState"),
+                "created_on": str(arive.pick(ln, "createDateTime", "createdAt") or "")[:10] or None,
             },
         ))
     # Enrich funded loans with their referral source (only in full detail, not list
     # rows) — how we tell a loan came from Utah Life. This drives the flywheel's
     # Sympli-side capture + per-agent attribution. Best-effort; cap the fan-out.
     funded_rows = [r for r in rows if r["segment"] == "funded"]
+    # The weekly scorecard also needs every loan's status history in the workspace's own market, not
+    # just funded ones: a pipeline count for a past week is rebuilt from when each loan moved.
+    states = {str(x).upper() for x in ((integ.config or {}).get("states") or [])}
+    in_market = [r for r in rows if not states or str(r["meta"].get("property_state") or "").upper() in states]
     try:
         ids = [r["external_id"] for r in funded_rows if r["external_id"]][:800]
+        ids = list(dict.fromkeys(ids + [r["external_id"] for r in in_market if r["external_id"]]))[:2000]
         details = await arive.get_loans_detail(ids, cid, secret, api_key)
+        for r in in_market:
+            d = details.get(str(r["external_id"]))
+            if d:
+                r["meta"]["timeline"] = arive.loan_timeline(d)
         enriched = 0
         for r in funded_rows:
             d = details.get(str(r["external_id"]))

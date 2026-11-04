@@ -25,7 +25,7 @@ from ..db import get_session
 from .. import plans
 from ..deps import current_user, require_tab
 from ..models import (User, Business, Tenant, ScorecardGroup, ScorecardMetric, ScorecardValue,
-                      ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
+                      ScorecardGate, ScorecardGoal, ShareLink, Integration, RecruitingCandidate,
                       RecruitingCommitment, RecruitingGoal, RecruitingQueueItem,
                       RecruitingSeat)
 from ..services import (binder_storage, recruiting, recruiting_accountability,
@@ -35,6 +35,7 @@ from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
 from ..services.scorecard_resolvers import resolver_records, RESOLVERS, UNAVAILABLE
+from ..services import scorecard_sympli
 from ..services.scorecard_routing import (run_spec, spec_records, validate_spec, RESOLVER_SPECS,
                                           catalog as routing_catalog)
 from ..services.tabs import effective_tabs, tenant_tabs
@@ -51,6 +52,7 @@ router = APIRouter(prefix="/ulrg", tags=["ulrg"])
 SCORECARD_SCOPES = {
     "ulrg":    {"kind": roles.REAL_ESTATE, "tabs": ("ulrg",)},
     "springb": {"kind": roles.MEMBERSHIP,  "tabs": ("forum", "becollective", "edge")},
+    "sympli":  {"kind": roles.COMMISSION_JV, "tabs": ("sympli",)},
 }
 # Each board's read-only share-link scope ("ulrg_scorecard", "springb_scorecard") → its board. The
 # public read (share.py) resolves the business from the LINK's scope, so a token opens one board only.
@@ -116,12 +118,12 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
     make up the count for [week_start, week_end]; a manual metric has no source records (the client
     opens the value editor instead). Gated on the metric's own board (ULRG or Spring B)."""
     row = (await s.execute(
-        select(ScorecardMetric, ScorecardGroup.business_id, ScorecardGroup.sisu_group_id)
+        select(ScorecardMetric, ScorecardGroup.business_id, ScorecardGroup.sisu_group_id, ScorecardGroup.lo_email)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
         .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardMetric.id == metric_id))).first()
     if not row:
         raise HTTPException(404, "Unknown metric")
-    m, business_id, sisu_group_id = row
+    m, business_id, sisu_group_id, lo_email = row
     scope = await _metric_scope(s, m)
     if scope is None:
         raise HTTPException(404, "Unknown metric")
@@ -132,13 +134,17 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
         ws, we = dt.date.fromisoformat(week_start), dt.date.fromisoformat(week_end)
     except ValueError:
         raise HTTPException(400, "week_start / week_end must be ISO dates")
-    group = {"sisu_group_id": sisu_group_id}
+    group = {"sisu_group_id": sisu_group_id, "lo_email": lo_email}
     if m.source_spec:                           # a routing spec wins over a resolver_key, as in the runner
         recs = await spec_records(m.source_spec, s, user.tenant_id, business_id, ws, we, group=group)
         label = {"sisu": "Sisu", "ghl": "GHL"}.get(m.source_spec.get("source"), m.source_spec.get("source"))
         return {"source": "spec", "source_label": label, "measurable": m.name, "records": recs or []}
+    # The lending board's agent-level rows are for coaching, so the names behind them are leadership-only.
+    if m.resolver_key in scorecard_sympli.AGENT_LEVEL_KEYS and user.role not in ("owner", "admin"):
+        return {"source": "resolver", "source_label": "Sisu", "measurable": m.name, "records": [], "restricted": True}
     recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
-    label = "GHL" if m.resolver_key.startswith(("forum_", "ghl_")) else "Sisu"
+    label = (scorecard_sympli.source_label(m.resolver_key) if scorecard_sympli.is_sympli_key(m.resolver_key)
+             else "GHL" if m.resolver_key.startswith(("forum_", "ghl_")) else "Sisu")
     return {"source": "resolver", "source_label": label, "measurable": m.name, "records": recs or []}
 
 
@@ -195,6 +201,25 @@ async def set_value(body: ValueIn, user: User = Depends(current_user),
         conflict = _apply(row)
         await s.commit()
     return {"ok": True, "overrode_resolver": conflict}
+
+
+# ── plan gates — dated milestones on a board; owner/admin mark them done ─────────────────────────
+class GateIn(BaseModel):
+    done: bool
+
+
+@router.patch("/gate/{gate_id}")
+async def set_gate(gate_id: str, body: GateIn, user: User = Depends(current_user),
+                   s: AsyncSession = Depends(get_session)):
+    _require_admin(user)
+    g = (await s.execute(select(ScorecardGate).where(
+        ScorecardGate.tenant_id == user.tenant_id, ScorecardGate.id == gate_id))).scalar_one_or_none()
+    if g is None:
+        raise HTTPException(404, "Unknown gate")
+    g.done_on = dt.date.today() if body.done else None
+    audit(s, user.tenant_id, user.id, "scorecard.gate_set", "scorecard_gate", g.id, {"done": body.done})
+    await s.commit()
+    return {"ok": True, "done_on": g.done_on.isoformat() if g.done_on else None}
 
 
 # ── share links (SPEC 5.3 / Step 8) — owner/admin create + manage; the public read is share.py ──
