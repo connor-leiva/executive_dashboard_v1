@@ -184,11 +184,12 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
                     "commission": None if billed else
                     round(money(amount) * cfg["rate_pct"], 2)})
     missing = [r["member"] for r in out if not r.get("stage")]
-    notes = ([f"No stage for: {missing}"] if missing else []) + [
-        "Contract value and remaining balance are not shown: the sync does not store "
-        "monetaryValue on the opportunity snapshot, and the membership snapshot carries "
-        "0.00. They are not guessed from the ticket price, which does not match what the "
-        "signed statement shows for a monthly plan."]
+    unpriced = [r["member"] for r in out if not r.get("contract")]
+    notes = ([f"No stage for: {missing}"] if missing else [])
+    if unpriced:
+        # Only worth saying when it is true. The sync keeps monetaryValue now, so this is a
+        # deal nobody priced in the CRM rather than a gap in what is stored.
+        notes.append(f"No contract value in the CRM, so no remaining balance, for: {unpriced}")
     return out, notes
 
 
