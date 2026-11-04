@@ -417,11 +417,35 @@ async def wire(ok, driven=(), *, effective_from, reach, pool_name_default, with_
                         return b
             return None
 
-        missing = [b for b in BRANDS if find(b) is None]
-        if missing:
-            sys.exit(f"These workbook brands match no entity in the workspace: {missing}. "
-                     f"Present: {sorted(biz)}")
+        # A MISSING POOL IS FATAL; A MISSING TARGET IS NOT. Everything is funded by the pool
+        # entity, so without it there is no load at all. But a brand that only some rules point
+        # at should cost those rules and no others: refusing all 42 because 5 of them name an
+        # entity this workspace does not have was throwing away the 37 that were ready. The
+        # Edge is the real case, and it is not an oversight: it is a brand inside SB Coaching
+        # with no QuickBooks realm of its own, so whether it becomes an entity is a decision
+        # about the books rather than a row somebody forgot to add.
+        if find("SB Coaching") is None:
+            sys.exit(f"The pool entity is not in this workspace. Present: {sorted(biz)}")
         pool = find("SB Coaching")
+
+        absent = sorted(b for b in BRANDS if find(b) is None)
+        if absent:
+            def needs_absent(p):
+                if p.get("method") == "direct":
+                    return p.get("direct_to") in absent
+                return any(p["shares"].get(b, 0) > 0 for b in absent) if p.get("shares") else False
+
+            blocked = [p for p in ok if needs_absent(p)]
+            ok = [p for p in ok if not needs_absent(p)]
+            dblocked = [d for d in driven
+                        if any(b in absent for _, rows in d["months"] for b in rows)]
+            driven = [d for d in driven if d not in dblocked]
+            print(f"\nNot an entity in this workspace: {absent}. Holding back the "
+                  f"{len(blocked) + len(dblocked)} rule(s) that need it, so they keep arriving "
+                  f"in the exception queue:")
+            for p in blocked + dblocked:
+                print(f"  {p['item'][:34]:34} {p['pattern'][:36]}")
+            print()
 
         made, failed = 0, []
         for p in ok:
