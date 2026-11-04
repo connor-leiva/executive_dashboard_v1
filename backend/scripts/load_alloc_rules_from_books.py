@@ -282,6 +282,79 @@ def plan_driven(staff):
     return out
 
 
+def apply_fold(plans, folds):
+    """Merge one workbook brand's share into another, then re-decide the method.
+
+    For a brand that is not an entity of its own. Two things make this more than a rename:
+
+    ADD, never overwrite. Skool.com carries The Edge at a third AND SB Coaching at a third, so
+    folding one onto the other has to reach two thirds. Replacing the key would leave the
+    shares summing to two thirds, and `validate_version` would refuse the rule - correctly, and
+    for a reason that would read as a workbook error rather than as this function's.
+
+    RE-DECIDE the method. Bocah Productions is The Edge at 100 percent, which folded is the
+    POOL at 100 percent. That cannot be a `direct` rule: `ck_alloc_not_self` forbids an entity
+    allocating to itself, "that is a rename, not an allocation". It is `retained`.
+    """
+    folded = []
+    for p in plans:
+        sh = p.get("shares")
+        if not sh:
+            continue
+        hit = False
+        for src, dst in folds.items():
+            if sh.get(src, Decimal(0)) > 0:
+                sh[dst] = sh.get(dst, Decimal(0)) + sh[src]
+                sh[src] = Decimal(0)
+                hit = True
+        if hit:
+            was = p["method"]
+            p["method"], p["direct_to"] = classify(sh)
+            folded.append((p["item"], was, p["method"]))
+    for d in plans:
+        for _, rows in d.get("months", []):
+            for src, dst in folds.items():
+                if src in rows:
+                    rows[dst] = rows.get(dst, Decimal(0)) + rows.pop(src)
+                    folded.append((d["item"], "driven month", "driven"))
+    return folded
+
+
+SHARE_Q = Decimal("0.0001")
+
+
+def normalize_shares(plans):
+    """Make each split sum to exactly 1 AT THE PRECISION THE ENGINE COMPARES AT.
+
+    A third is 0.333333 in the workbook, and three of them sum to 0.999999, which rounds to 1
+    and looks fine. It is not fine. `_share` quantizes each share to four places BEFORE the sum
+    is checked, so the engine sees 0.3333 three times and a total of 0.9999, and refuses the
+    rule. Six rules were refused this way on a dry run against the real validator - every
+    "a third each" in the workbook - and a check that summed the raw values first said they
+    were all healthy, because it had reimplemented the gate instead of calling it.
+
+    The residue goes on the largest share, amendment 11, with ties broken on the name so a
+    rebuild reproduces the same rule rather than whichever one the dict yielded first.
+    """
+    fixed = []
+    for p in plans:
+        sh = p.get("shares")
+        if not sh or p.get("method") != "split":
+            continue
+        live = {b: v for b, v in sh.items() if v > 0}
+        if not live:
+            continue
+        q = {b: v.quantize(SHARE_Q) for b, v in live.items()}
+        total = sum(q.values(), Decimal(0))
+        if total != Decimal(1):
+            big = max(q, key=lambda b: (q[b], b))
+            q[big] = q[big] + (Decimal(1) - total)
+            fixed.append((p["item"], total, big, q[big]))
+        for b in list(sh):
+            sh[b] = q.get(b, Decimal(0))
+    return fixed
+
+
 def detect_shared_payees(plans):
     """A payee two rules would both claim is a collision, whichever was written first."""
     by_pat = collections.defaultdict(list)
@@ -540,6 +613,10 @@ def main():
     ap.add_argument("--wire", action="store_true", help="actually create the rules")
     ap.add_argument("--from", dest="month", default=None, help="effective month, YYYY-MM")
     ap.add_argument("--reach", default="forward", choices=("forward", "from_date", "retro"))
+    ap.add_argument("--fold", default="",
+                    help="merge a workbook brand into another entity, e.g. "
+                         "\"The Edge=SB Coaching\", for a brand that is not an entity of its "
+                         "own. Comma-separated for several.")
     ap.add_argument("--skip-open", action="store_true",
                     help="hold back every rule whose reason is still a question, exactly the "
                          "ones listed under STILL A QUESTION, so they keep arriving in the "
@@ -560,6 +637,30 @@ def main():
     # The people whose split holds still become fixed rules; the four that move become driven.
     plans += [plan_row(r, payees, is_staff=True) for r in staff if not r.get("varies")]
     driven = plan_driven(staff)
+    if a.fold:
+        folds = {}
+        for pair in a.fold.split(","):
+            if "=" not in pair:
+                sys.exit(f"--fold wants SOURCE=TARGET, got {pair!r}.")
+            src, dst = (x.strip() for x in pair.split("=", 1))
+            if src not in BRANDS or dst not in BRANDS:
+                sys.exit(f"--fold names a brand the workbook does not use: {src!r}/{dst!r}. "
+                         f"It uses: {BRANDS}")
+            folds[src] = dst
+        moved = apply_fold(plans + driven, folds)
+        print(f"Folded {folds}, affecting {len(moved)} rule(s):")
+        for item, was, now in moved:
+            note = f"  {item[:34]:34} {was} -> {now}"
+            print(note + ("   (cannot allocate to itself, so it stays put)"
+                          if was == "direct" and now == "retained" else ""))
+
+    rounded = normalize_shares(plans + driven)
+    if rounded:
+        print(f"Rounded {len(rounded)} split(s) to the precision the engine compares at:")
+        for item, was, big, now in rounded:
+            print(f"  {item[:30]:30} summed to {was} -> {big} carries {now}")
+        print()
+
     detect_shared_payees(plans)
 
     held = {x.strip().lower() for x in a.skip_items.split(",") if x.strip()}
