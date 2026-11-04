@@ -185,6 +185,16 @@ so the original reasoning stays legible.
     and the Cleanup frontend both speak `"YYYY-MM"`.
 27. Section 12's Phase 0 record is filled below, from a read-only run against production on
     2026-10-27.
+28. **Which entities are pools is changeable, and the queue says which they are.** Added at the
+    top of Phase 11, because Phase 11's first step was a one-way door: `SetupState` rendered only
+    while `configured === false`, so the first save made the choice permanent as far as the
+    product was concerned. The setting is read in exactly one place, `exceptions()`, so changing
+    it moves no figure and touches no rule, and the control says so.
+29. **Section 5.6's queue has three states, not two.** `exceptions()` returns `configured:false`,
+    configured-with-no-pool, and configured-with-pools, and its own comment says an empty list
+    "would render as" nothing-to-do. `ExceptionsView` rendered the middle one as the last, so a
+    tenant examining nothing was told "an empty queue is the goal". An empty queue is only an
+    achievement if something was looked at.
 
 ---
 
@@ -1871,6 +1881,57 @@ what Reconciliation means. Written down here rather than fixed silently either w
 
 ### Phase 11
 
+Not a deploy, so this record covers only what had to be built BEFORE the live session, plus the
+session's running order. Nothing below sets a pool, declares a rule or commits a month: those
+are Connor's, in his own workspace, and the point of the phase is that they are done by the
+person whose words the rationales have to be.
+
+**One blocker found and fixed first: the pool choice was a one-way door.** Phase 11's opening
+step is "set the pool entities", and `SetupState` rendered only while `configured === false`. The
+instant the first save landed, `alloc_pool_business_ids` was non-NULL forever and the picker
+became unreachable. A mis-tick, or a sixth entity added to the workspace a month later, could not
+be corrected from the product at all, only by a hand-rolled `PUT`. The queue now names which
+entities it is watching and offers Change, which reopens the picker pre-ticked with a Cancel
+beside Save.
+
+Writing the warning copy for that control meant establishing what the setting actually gates, and
+the answer is narrower than it looks: `alloc_pool_business_ids` is read in exactly ONE place,
+`exceptions()`. Not `allocation_check`, not the derivation, not the statement, not the partner
+view. So changing it moves no figure and touches no rule, and the control is free to say so
+rather than hedging.
+
+**A third state was rendering as its own opposite.** This file's header named two states and said
+the difference between them mattered; `exceptions()` in the engine returns THREE, and its own
+comment predicts the failure: an empty list "would render as" nothing-to-do. It did. A tenant
+configured with no pool entity examines nothing, and the view told it "Nothing unclaimed this
+period. An empty queue is the goal." The honest version distinguishes them, because an empty
+queue is only an achievement if something was looked at. Reachable by API rather than by UI (Save
+requires at least one entity), so this is a defensive fix, not a reported bug.
+
+Both are the same shape as the BRAND_DEFAULTS family already recorded here: the producer
+carefully distinguished cases and the consumer flattened them. The engine's comment was written
+to stop exactly this and did not, because a comment cannot reach across a file boundary.
+
+**The session's order**, each step with the control that does it:
+
+| # | Step | Where | Blocked on |
+|---|---|---|---|
+| 1 | Tick the entities that carry shared cost | Allocations → Exceptions, setup card | §11 item 9 |
+| 2 | Rename the pool entity if "SB Coaching" is the display name | Settings → entity | §11 item 9 |
+| 3 | Map Julie's draw to `3100 Member Draws and Distributions` | Books → Mapping | §11 item 5, granularity |
+| 4 | Declare the first rules, each with a rationale | Exceptions → Create a rule from this | §11 item 6 |
+| 5 | Commit the first driver month | Allocations → Drivers | nothing |
+
+Step 4 cannot be fudged: `RuleDrawer` refuses to submit without a rationale, with "Say why this
+cost is shared, in your own words." That makes §11 item 6 a precondition the product enforces
+rather than a promise in a document. Step 5 likewise states on the card that nothing is allocated
+by a driver until its month is committed (D8).
+
+**Done when** the Rules view shows those rules with no illustrative copy anywhere on the page.
+The only `e.g.`-style strings left in the module are three input `placeholder` attributes in
+`RuleDrawer` (`Advertising`, `0.5`, and one rationale example), which vanish the moment a field
+is typed in and are not copy about Spring's business.
+
 ---
 
 ## Appendix A. Acceptance checks, grep-able
@@ -1932,7 +1993,7 @@ retained and reported as `source_unmapped_spend` with its dollars.
 |---|---|---|
 | Rules Table | `allocations/RulesView.jsx` | GET `/allocations/rules` |
 | Create and edit drawer | `allocations/RuleDrawer.jsx` | POST `/allocations/preview`, POST rules, POST versions |
-| Exception Queue | `allocations/ExceptionsView.jsx` | GET `/allocations/exceptions` |
+| Exception Queue | `allocations/ExceptionsView.jsx` | GET `/allocations/exceptions`, PUT `/coa/settings/alloc-pools` (set and change the pool entities) |
 | Monthly Drivers | `allocations/DriversView.jsx` | GET `/allocations/drivers`, GET month, POST commits |
 | Reconciliation | `allocations/ReconView.jsx` | GET `/allocations/recon` |
 | Allocation Detail | `BooksStatement.jsx` `Composition` | GET `/books/statement` (`contributions[].rule`, `.driver`) |
