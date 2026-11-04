@@ -229,6 +229,15 @@ def plan_row(row, payees, *, is_staff):
 DRIVER_KEY = "staff_time"
 DRIVER_LABEL = "Staff time commitment"
 
+# A reason that is still a question rather than an answer. Loading one of these as `retained`
+# is the trap: `exceptions()` counts an account or vendor covered by ANY tier as covered,
+# `retained` included, on the grounds that "somebody has already decided that cost stays put".
+# Nobody has. The cost would stop arriving in the one queue built to surface it, and the open
+# question would survive only as prose on a rule that looks settled.
+OPEN_QUESTION = re.compile(
+    r"find out|check wh|nobody knows|probably|make sure|audit the|\?|is checking"
+    r"|needs your input", re.I)
+
 
 def plan_driven(staff):
     """The people whose split moves: one driven rule each, against the shared staff driver."""
@@ -305,8 +314,12 @@ def show(plans, driven=()):
                 share = " ".join(f"{b}={v}" for b, v in rows.items())
                 print(f"             month {mn:>2}: {share}")
             for mn, big, was in d.get("rounded", []):
-                print(f"             month {mn:>2} summed to {was}, not 1: the "
-                      f"{was - Decimal(1):+} went on {big}, the largest share (D5)")
+                # The ADJUSTMENT, not the excess. These are the same magnitude and opposite
+                # signs, and printing the excess read as though the largest share went UP when
+                # the code had just taken that much off it. A line whose only job is to say
+                # what changed is worse than no line when it says the opposite.
+                print(f"             month {mn:>2} summed to {was}, not 1: "
+                      f"{Decimal(1) - was:+} on {big}, the largest share (D5)")
             if d["skip"]:
                 print(f"             NOT LOADED: {d['skip'][0]}")
 
@@ -318,6 +331,15 @@ def show(plans, driven=()):
             " ".join(f"{b}={v}" for b, v in p["shares"].items() if v > 0))
         print(f"  [{p['method']:8}] {p['scope_kind']:7} {p['pattern'][:30]:30} {tgt}")
         print(f"             why: {p['rationale'][:78]}")
+
+    openq = [p for p in ok if OPEN_QUESTION.search(p["rationale"] or "")]
+    if openq:
+        print(f"\n{'=' * 94}\nSTILL A QUESTION, NOT AN ANSWER: {len(openq)}\n{'=' * 94}")
+        print("  Loading these settles them. A rule of any tier, `retained` included, takes "
+              "its\n  vendor OUT of the exception queue, so these stop arriving on the one "
+              "screen built\n  to ask about them. Pass --skip-items to hold any of them back.\n")
+        for p in sorted(openq, key=lambda x: x["item"]):
+            print(f"  [{p['method']:8}] {p['item'][:26]:26} {p['rationale'][:54]}")
 
     print(f"\n{'=' * 94}\nNOT LOADED: {len(bad)}\n{'=' * 94}")
     groups = collections.Counter()
@@ -448,6 +470,9 @@ def main():
     ap.add_argument("--wire", action="store_true", help="actually create the rules")
     ap.add_argument("--from", dest="month", default=None, help="effective month, YYYY-MM")
     ap.add_argument("--reach", default="forward", choices=("forward", "from_date", "retro"))
+    ap.add_argument("--skip-items", default="",
+                    help="comma-separated Item names to hold back, so they keep arriving in "
+                         "the exception queue instead of being settled by a rule")
     ap.add_argument("--with-history", action="store_true",
                     help="also commit the workbook's Jan-Oct driver months, so the Drivers tab "
                          "has a month to prefill the next one from")
@@ -462,6 +487,18 @@ def main():
     plans += [plan_row(r, payees, is_staff=True) for r in staff if not r.get("varies")]
     driven = plan_driven(staff)
     detect_shared_payees(plans)
+
+    held = {x.strip().lower() for x in a.skip_items.split(",") if x.strip()}
+    if held:
+        found = {p["item"].lower() for p in plans + driven}
+        unknown = sorted(held - found)
+        if unknown:
+            sys.exit(f"--skip-items names nothing in the workbook: {unknown}. "
+                     f"A typo here silently loads the rule you meant to hold back.")
+        for p in plans + driven:
+            if p["item"].lower() in held:
+                p["skip"].append("held back by --skip-items, so it keeps arriving in the queue")
+
     ok = show(plans, driven)
 
     if not a.wire:
