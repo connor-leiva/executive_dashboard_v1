@@ -1022,8 +1022,10 @@ the wrong vendor.
   payroll register import) would let staff-time drivers split payroll, not only contractors.
 - **Google Workspace seats and Amex cardholder detail** as Tier 2 sources. `source_spec.source`
   is a string so a new source is a new branch, not a migration.
-- **Rule suggestions from `Vendor.default_business_id`.** A Payables vendor with a default
-  entity is a likely Tier 1 rule. Suggest; never create.
+- ~~**Rule suggestions from `Vendor.default_business_id`.**~~ **BUILT 2026-11-04** with the
+  exception queue's payee grouping (`ALLOCATIONS-UI-SPEC` Phase 4): a group whose normalized
+  payee matches a Payables vendor carrying a default entity shows that entity as a suggestion.
+  It suggests and never creates, as this line said.
 - **A partner access role** narrower than the `books` tab.
 - **Bulk driver edits** across rules.
 - **Balance sheet allocations.** Out of scope, as in the COA phasing.
