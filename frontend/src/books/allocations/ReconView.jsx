@@ -32,6 +32,7 @@ export default function ReconView({ data, month, go = () => {} }) {
   const [foldOpen, setFoldOpen] = useState(false);
   const meta = data?.meta || {};
   const rules = data?.rules || [];
+  const totals = data?.totals || {};
   const months = data?.months || [];
   const check = data?.check;
 
@@ -138,6 +139,21 @@ export default function ReconView({ data, month, go = () => {} }) {
             {month && month !== "ytd" ? fmtMonth(month) : "this span"}
           </button>
         )}
+
+        {/* The foot, on the deep ground the mockup uses here. Summed by the server. */}
+        <div className="al-recon-row"
+             style={{ display: "grid", gap: 10, padding: "13px 16px", background: L.deep }}>
+          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 700,
+                         color: L.onDeep }}>
+            {totals.count || rules.length} rule
+            {(totals.count || rules.length) === 1 ? "" : "s"}
+          </span>
+          <Money v={totals.pool_amount} size={15} weight={700} tone={L.paper} />
+          <span className="al-hide-narrow">
+            <Money v={totals.resolved_amount} size={15} weight={600} tone={L.onDeepPct} />
+          </span>
+          <Money v={totals.unresolved_amount} size={13} weight={700} tone={L.onDeep} />
+        </div>
       </div>
 
       {check && (

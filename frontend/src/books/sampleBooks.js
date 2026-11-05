@@ -732,6 +732,8 @@ export const sampleAllocRecon = {
       pending: [{ month: "2026-07-01", amount: 600, method: "driven", tier: 3,
                   reason: "no_driver_values" }] },
   ],
+  totals: { count: 2, pool_amount: 1600, resolved_amount: 1000,
+            unresolved_amount: 600 },
   check: { zero_sum: { balanced: true, net: 0 }, entities: [] },
 };
 

@@ -78,27 +78,6 @@ const FIELD = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize:
    of it: last month's figures could be accepted whole or not at all, so somebody who needed
    November to differ from October had no way to say so, on the one screen whose entire purpose
    is that the month is decided rather than carried forward (D8). */
-/* ONE LINE. This was a gold panel saying "It is not carried forward from last month,
-   because a number nobody looked at would read as one somebody decided" on every
-   uncommitted month, above a second panel explaining the same rule again (U18). The
-   reasoning is design rationale and belongs in a comment, which is where it already was:
-   see D8, and `prefill`'s docstring in `alloc_drivers.py`. The reader needs the fact. */
-function NotSet({ month }) {
-  return (
-    <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
-      Not committed for {fmtMonth(month)}. Rules that read this driver allocate nothing
-      until it is.
-    </div>
-  );
-}
-
-/* No month control here any more (5.1). The card used to carry its own, unconnected to the
-   rest of the page, so Drivers could be showing one month while every other view showed
-   another and nothing on screen said so. It was also the picker that opened on a literal
-   July. The page's month is the only month now, which makes that whole family of bug
-   impossible rather than fixed.
-
-   The literal `MONTHS` list it needed is gone with it. */
 function DriverCard({ driver, meta, businesses, isCFO, month }) {
   const { data, loading, refresh } = useAllocDriverMonth(driver.id, month);
 
@@ -107,40 +86,46 @@ function DriverCard({ driver, meta, businesses, isCFO, month }) {
   const subjects = data?.subjects;
   const [changing, setChanging] = useState(false);
 
+  const showMatrix = !loading && (!commit || changing);
   return (
     <div style={{ background: L.paper, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                   overflow: "hidden" }}>
-      <div style={{ padding: "13px 16px", background: L.colHead,
-                    borderBottom: `1px solid ${L.ruleHeader}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12,
-                      alignItems: "baseline", flexWrap: "wrap" }}>
-          <span>
-            <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600,
-                           color: L.deep }}>{driver.label}</span>
-            <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
-                           display: "block" }}>
-              {driver.kind === "split"
-                ? "Answered per person, per entity"
-                : "Answered per entity, and each share is its count over the total"}
-              {driver.unit ? ` · ${driver.unit}` : ""}
+      {/* NO HEADER HERE WHEN THE MATRIX IS OPEN. The matrix draws its own, with Commit at
+          the right where the mockup has it; a card header above it repeated the driver's
+          name and the month, and the two together were four stacked lines of chrome over
+          a four-row table. */}
+      {!showMatrix && (
+        <div style={{ padding: "13px 16px", background: L.colHead,
+                      borderBottom: `1px solid ${L.ruleHeader}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12,
+                        alignItems: "baseline", flexWrap: "wrap" }}>
+            <span>
+              <span style={{ ...EYEBROW, display: "block", marginBottom: 3 }}>
+                {driver.label}
+              </span>
+              <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                             display: "block" }}>
+                {driver.kind === "split"
+                  ? "One row per person, one column per entity."
+                  : "One row, one column per entity."}
+              </span>
             </span>
-          </span>
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim }}>
-            {fmtMonth(month)}
-          </span>
+            <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim }}>
+              {fmtMonth(month)}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {loading && <div style={{ padding: 16 }}><Skeleton rows={2} /></div>}
 
-      {!loading && (!commit || changing) && (
-        <div style={{ padding: 16, display: "grid", gap: 12 }}>
-          {!commit && <NotSet month={month} />}
+      {showMatrix && (
+        <div style={{ padding: 16 }}>
           {/* Keyed on the month so switching months re-seeds the form from that month's own
               prefill, rather than carrying the previous month's typing across. */}
           <DriverMatrix key={`${month}:${changing}`} driver={driver} month={month}
                         businesses={businesses} subjects={subjects} prefill={prefill}
-                        isCFO={isCFO}
+                        isCFO={isCFO} committed={!!commit}
                         onCommitted={() => { setChanging(false); refresh(); }} />
         </div>
       )}

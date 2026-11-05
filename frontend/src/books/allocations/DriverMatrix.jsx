@@ -38,7 +38,7 @@ function modeOf(cellsForSubject) {
 }
 
 export default function DriverMatrix({ driver, month, businesses, subjects, prefill,
-                                       isCFO, onCommitted }) {
+                                       isCFO, onCommitted, committed = false }) {
   const split = driver.kind === "split";
   /* The rows come from the PAYLOAD, never from a list held here. That is what lets a
      subject appear or disappear as the rules change -- including the day payroll taxes
@@ -128,6 +128,12 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
   }, [cells, modes, rows.length]);
 
   const answeredCount = rows.filter((r) => liveCells(r.name).length).length;
+  /* A row is FLAGGED only once somebody has started. On a fresh month every row is
+     unanswered, so flagging them all paints the card gold and singles out nothing -- which
+     is U22, the finding this rebuild exists to fix, reintroduced. The card header already
+     says the month is not committed. Once one row is filled, the blanks are the ones left
+     to do and the gold means something. */
+  const started = answeredCount > 0;
 
   const seedFromPrefill = () => {
     const next = {};
@@ -166,34 +172,80 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
   }
 
   const cols = businesses || [];
+  const monthWords = month && month !== "ytd" ? fmtMonth(month) : "this span";
   return (
     <div>
+      {/* The card's own head. Eyebrow, ONE line of copy, and Commit at the right, which is
+          where the mockup puts it and principle 8 gives appearance to the mockup. It
+          replaces a title, a "Answered per person, per entity" line, a gold "Not set"
+          panel and a separate "Answer" paragraph: four pieces saying what one says. */}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 14,
+                    alignItems: "flex-start", flexWrap: "wrap", marginBottom: 4 }}>
+        <span style={{ minWidth: 0, flex: "1 1 320px" }}>
+          <span style={{ ...EYEBROW, display: "block", marginBottom: 4 }}>
+            {driver.label}
+          </span>
+          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                         display: "block", maxWidth: "58ch", lineHeight: 1.5 }}>
+            {split
+              ? "One row per person, one column per entity."
+              : "One row, one column per entity, and each share is its count over the total."}
+            {committed ? "" : ` Rules that read this driver allocate nothing for
+              ${monthWords} until it is committed.`}
+          </span>
+        </span>
+        <span style={{ display: "flex", gap: 10, alignItems: "center", flex: "0 0 auto" }}>
+          {blocker ? (
+            <span style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600,
+                           color: L.flagInk, background: L.flagBg,
+                           border: `1px solid ${L.flagEdge}`, borderRadius: 6,
+                           padding: "3px 9px" }}>
+              {answeredCount} of {rows.length} answered
+            </span>
+          ) : (
+            <span style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600,
+                           color: L.accentInk, background: L.accentBg,
+                           borderRadius: 6, padding: "3px 9px" }}>
+              Ready to commit
+            </span>
+          )}
+          <Button kind="primary" onClick={submit} disabled={busy || !!blocker}>
+            {busy ? "Committing" : `Commit ${monthWords}`}
+          </Button>
+        </span>
+      </div>
+      <div style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 13, overflow: "hidden",
+                    background: L.paper, marginTop: 12 }}>
       <div className="al-mx al-mx-head" style={{ display: "grid", gap: 10,
-                    alignItems: "center",
-                    gridTemplateColumns: `minmax(0,1fr) repeat(${cols.length}, 76px) 184px`,
-                    padding: "9px 2px", borderBottom: `1px solid ${L.ruleHeader}` }}>
+                    alignItems: "center", background: L.colHead,
+                    gridTemplateColumns: `minmax(0,1fr) repeat(${cols.length}, 88px) 184px`,
+                    padding: "9px 16px", borderBottom: `1px solid ${L.ruleHeader}` }}>
         <span style={EYEBROW}>{split ? "Person" : "Entity count"}</span>
+        {/* Wraps at spaces, never inside a word. `overflowWrap: anywhere` split
+            beCollective as BECOLLECT / IVE, which reads as a rendering fault rather than
+            a long name; 88px fits the longest single word these names have. */}
         {cols.map((b) => (
-          <span key={b.id} style={{ ...EYEBROW, textAlign: "right", overflow: "hidden",
-                                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          <span key={b.id} style={{ ...EYEBROW, textAlign: "right", lineHeight: 1.25,
+                                    overflowWrap: "normal", wordBreak: "normal" }}
                 title={b.name}>{b.name}</span>
         ))}
         <span style={{ ...EYEBROW, textAlign: "right" }}>Total</span>
       </div>
 
-      {rows.map((r) => {
+      {rows.map((r, idx) => {
         const st = rowState(r.name);
         const m = mode(r.name);
         return (
           <div key={r.name || "count"} className="al-mx-wrap"
-               style={{ borderBottom: `1px solid ${L.ruleLine}`,
-                        background: st.kind === "empty" ? L.flagBg : "transparent",
-                        boxShadow: st.kind === "empty" ? `inset 3px 0 0 0 ${L.flagEdge}`
-                                                       : "none" }}>
+               style={{ borderBottom: idx === rows.length - 1
+                          ? "none" : `1px solid ${L.ruleLine}`,
+                        background: st.kind === "empty" && started ? L.flagBg : "transparent",
+                        boxShadow: st.kind === "empty" && started
+                          ? `inset 3px 0 0 0 ${L.flagEdge}` : "none" }}>
             <div className="al-mx" style={{ display: "grid", gap: 10, alignItems: "center",
                           gridTemplateColumns:
-                            `minmax(0,1fr) repeat(${cols.length}, 76px) 184px`,
-                          padding: "10px 2px" }}>
+                            `minmax(0,1fr) repeat(${cols.length}, 88px) 184px`,
+                          padding: "11px 16px" }}>
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 500,
                                color: L.deep, display: "block" }}>
@@ -203,18 +255,19 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
                     the dollars and the mockup shows the mode: the mockup wins on look and
                     this document wins on data (principle 8), so the row carries each. */}
                 <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.faint,
-                               display: "block" }}>
+                               display: "block", lineHeight: 1.45 }}>
                   {MODES.find(([k]) => k === m)?.[1]}
                   {r.rules?.length
                     ? ` · feeds ${r.rules.map((x) => x.pool_name).join(", ")}`
                     : ""}
+                  {r.pool_amount != null && (
+                    <>
+                      {" · "}
+                      <Money v={r.pool_amount} size={11.5} className="al-inline"
+                             tone={L.code} /> this month
+                    </>
+                  )}
                 </span>
-                {r.pool_amount != null && (
-                  <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.code,
-                                 display: "block" }}>
-                    <Money v={r.pool_amount} size={11.5} className="al-inline" /> this month
-                  </span>
-                )}
               </span>
 
               {cols.map((b) => {
@@ -235,10 +288,9 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
                     )}
                     <Input size="card" width={m === "mixed" && split ? 58 : 72} numeric
                            inputMode="decimal" disabled={isRest}
-                           flag={st.kind === "empty"}
+                           flag={st.kind === "empty" && started}
                            ariaLabel={`${r.name || driver.label}, ${b.name}`}
-                           placeholder={isRest ? "rest" : (split && c.kind === "share"
-                                                            ? "%" : "")}
+                           placeholder={isRest ? "rest" : "-"}
                            value={isRest ? "" : c.value}
                            onChange={(v) => set(r.name, b.id, { value: v })} />
                   </span>
@@ -265,18 +317,13 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
         );
       })}
 
-      {/* The commit bar. Always visible, says how far along the month is, and names the
-          first thing stopping it rather than greying out in silence. */}
-      <div style={{ position: "sticky", bottom: 0, display: "flex", gap: 12,
-                    alignItems: "center", flexWrap: "wrap", marginTop: 12,
-                    padding: "11px 2px", background: L.card,
-                    borderTop: `1px solid ${L.ruleHeader}` }}>
-        <Button kind="primary" onClick={submit} disabled={busy || !!blocker}>
-          {busy ? "Committing" : `Commit ${month ? fmtMonth(month) : "this month"}`}
-        </Button>
-        <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
-          {answeredCount} of {rows.length} {rows.length === 1 ? "row" : "rows"} answered
-        </span>
+      </div>
+
+      {/* Under the table: what is stopping the commit, and last month. The button itself
+          is in the head now, where the mockup has it; a second copy here was the same
+          action twice on one card. */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+                    marginTop: 10, padding: "2px 2px 0" }}>
         {blocker && (
           <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
             {blocker}

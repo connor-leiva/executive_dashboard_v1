@@ -1201,6 +1201,32 @@ in the mockup, which is why the check exists.
 **Final copy sweep on the rendered page:** no period token (`mtd`, `qtd`, an ISO date) and no
 enum code (`direct`, `driven`, `retained`, `traced`, `split`) reaches the screen anywhere.
 
+**Polish pass, after Connor compared prod with the mockup side by side.** He was right, and
+one of the five was a regression of the audit's own finding:
+
+1. **Gold on every row, which is U22 reintroduced.** The driver matrix flagged every
+   unanswered row, so a month nobody had started was a wall of gold and nothing stood out --
+   exactly the complaint U22 makes about the old page. A row is flagged only once at least
+   one other row is answered; before that the card header already says the month is not
+   committed.
+2. **The card said itself twice.** A header with the driver name and the month sat above a
+   matrix that repeated both, over a four-row table. The matrix draws the head now: eyebrow,
+   one line, and Commit at the right, which is where the mockup puts it. `NotSet` and the
+   old `CommitForm` are deleted.
+3. **"beCollective" broke mid-word** into BECOLLECT / IVE. `overflowWrap: anywhere` plus the
+   eyebrow's letter-spacing overflowed a 76px column. 88px, and breaks at spaces only.
+4. **No totals row on Rules or Reconciliation,** which §9.2 specifies and the mockup carries.
+   Added, summed on the SERVER (`reconciliation` gained `totals`), because a total the
+   browser added would be a second computation of figures the rows already hold.
+5. **No tier legend** under the Rules ledger. Added, and it matters here: three entities
+   share one accent, so the sentence saying tier is carried by shape and code rather than
+   hue is load-bearing.
+6. The matrix table now sits in a ledger card with a tinted header, as §9.2 has it, and an
+   empty cell reads "-" rather than repeating "%" in every box.
+
+Re-verified at 1280, 820 and 375: no horizontal scroll, no row grid with more visible
+children than tracks, no squashed figure. 183 tests pass.
+
 **Not matched, deliberately, and each already recorded above:** the exception card's "what is
 known" sentence (§7.8 forbids it, Phase 4 note 2); Reconciliation's sub-660 figure stack
 (Phase 6 note); the ledger figure's tier weight (Phase 3 note 1); and §9.5's loading skeleton

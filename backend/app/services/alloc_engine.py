@@ -1201,7 +1201,15 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
             "variance": a["resolved"] - a["pool"], "pending": a["pending"],
         })
     out.sort(key=lambda r: (-abs(r["pool_amount"]), r["pool_name"]))
-    return {"rules": out, "months": [m[0].isoformat() for m in months]}
+    # The foot of the ledger. Summed HERE: the page does no money arithmetic, and a total
+    # the browser added would be a second computation of a figure the rows already carry.
+    totals = {
+        "count": len(out),
+        "pool_amount": sum((r["pool_amount"] for r in out), ZERO),
+        "resolved_amount": sum((r["resolved_amount"] for r in out), ZERO),
+        "unresolved_amount": sum((r["unresolved_amount"] for r in out), ZERO),
+    }
+    return {"rules": out, "months": [m[0].isoformat() for m in months], "totals": totals}
 
 
 # ── what the Allocations page reads (SPEC 6, Phase 9) ────────────────────────────────────

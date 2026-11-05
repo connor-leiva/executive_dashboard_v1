@@ -374,6 +374,35 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
             {monthLabel}
           </button>
         )}
+
+        {/* The foot of the ledger, from `meta.totals` (9.2). The mockup carries one and a
+            ledger without a total asks the reader to add the column up themselves. */}
+        <div className="al-rules-row"
+             style={{ display: "grid", gap: 10, padding: "13px 18px",
+                      background: L.totalBand, borderTop: `1.5px solid ${L.deep}` }}>
+          <span />
+          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 700, color: L.deep }}>
+            {all.length} rule{all.length === 1 ? "" : "s"}
+          </span>
+          <span className="al-hide-narrow" />
+          <Money v={meta.totals?.pool_amount} size={15} weight={700} tone={L.deep} />
+          <span className="al-hide-narrow">
+            <Money v={meta.totals?.to_partners} size={13} weight={600} tone={L.accentInk} />
+          </span>
+          <span className="al-hide-narrow">
+            <Money v={meta.totals?.retained} size={13} weight={600} tone={L.deep} />
+          </span>
+        </div>
+      </div>
+
+      {/* What the markers mean. Tier is carried by shape, code and weight rather than hue,
+          because three of the entities share one accent -- so the key has to say so. */}
+      <div style={{ fontFamily: F.body, fontSize: 12, color: L.ghost, marginTop: 10,
+                    maxWidth: "92ch", lineHeight: 1.55 }}>
+        A filled square is a fact from account coding. A ringed circle is a fact from a
+        source report. A gold ring is a judgment reviewed monthly. No marker means the cost
+        is retained and never reaches a partner entity. Tier is carried by the marker, the
+        tier code and the row weight, never by colour alone.
       </div>
     </div>
   );

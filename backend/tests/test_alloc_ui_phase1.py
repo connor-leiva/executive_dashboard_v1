@@ -498,3 +498,23 @@ async def test_a_single_line_charge_on_a_covered_account_leaves_the_queue_entire
     q = await _queue(tenant_id)
     assert [r["payee"] for r in q["rows"]] == [], "covered single-line charges do not appear"
     assert q["total"] == D("0.00")
+
+
+async def test_the_reconciliation_total_is_the_servers_sum_not_the_browsers():
+    """The ledger foot. Summed here because the page does no money arithmetic, and a total
+    the browser added would be a second computation of figures the rows already carry."""
+    tenant_id, biz, actor, _s = await _ctx()
+    await _rule(tenant_id, actor, source_business_id=biz["springb"], method="direct",
+                rationale="All of it is the Forum's.",
+                targets=[{"business_id": str(biz["the_forum"]), "share": "1"}])
+    await _balance(tenant_id, biz["springb"], "1234.56")
+    async with SessionLocal() as s:
+        recon = await E.reconciliation(s, tenant_id, MONTH, today=TODAY)
+
+    t = recon["totals"]
+    assert t["count"] == len(recon["rules"])
+    assert t["pool_amount"] == sum(r["pool_amount"] for r in recon["rules"])
+    assert t["resolved_amount"] == sum(r["resolved_amount"] for r in recon["rules"])
+    assert t["unresolved_amount"] == sum(r["unresolved_amount"] for r in recon["rules"])
+    assert t["resolved_amount"] + t["unresolved_amount"] == t["pool_amount"], \
+        "the foot has to describe one split, not two"
