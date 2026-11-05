@@ -248,6 +248,145 @@ def cohort1(period: str, cfg: dict, from_stripe: bool = False) -> tuple[list[dic
     return rows, meta
 
 
+def _usd(v) -> str:
+    return f"${v:,.2f}"
+
+
+# Finding the member's Stripe address: the registration row first, then the member row,
+# either by contact id or by name. On the registration email alone, five members who
+# reconcile to the dollar read as having no Stripe history at all -- a false gap that looks
+# exactly like a real one.
+_EMAIL_LOOKUP = (
+    "SELECT lower(r.email) FROM metric_record r WHERE r.source = 'ghl'"
+    " AND r.kind IN ('bc_registration', 'bc_member') AND r.email IS NOT NULL"
+    " AND (r.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+    "      OR lower(r.name) = lower(opp.name)) LIMIT 1")
+
+
+def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
+    """Cash this rep's won members paid that the commission table never recorded.
+
+    Returns rows shaped like cohort2's, each marked source='stripe'. See the module note: the
+    shortfall is CUMULATIVE, a member whose email carries more than one payer is refused, and
+    every added payment is capped at what is still unrecorded.
+    """
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    try:
+        from scripts.commission_probe import TZ, database_url
+        import psycopg
+    except Exception as e:                                   # noqa: BLE001
+        return [], [f"Could not load the database helpers for the Stripe gap check ({e})."]
+    try:
+        url = database_url().replace("postgresql+psycopg://", "postgresql://")
+    except Exception as e:                                   # noqa: BLE001
+        return [], [f"Could not check for unrecorded Stripe cash ({type(e).__name__}). "
+                    f"If a member of this rep's pays outside GHL, this statement is SHORT."]
+
+    members_sql = (
+        "SELECT * FROM ("
+        " SELECT opp.name AS member, opp.external_id AS opportunity_id,"
+        "  opp.meta ->> 'stage' AS stage, opp.amount AS contract,"
+        "  coalesce((SELECT lower(sc.rep_email) FROM sales_call sc"
+        "    WHERE sc.contact_id = opp.meta ->> 'contact_id' AND sc.rep_email IS NOT NULL"
+        "    ORDER BY sc.is_current DESC, sc.call_time_utc DESC LIMIT 1), '') AS rep,"
+        f"  ({_EMAIL_LOOKUP}) AS email,"
+        "  coalesce((SELECT sum(sp.amount) FROM metric_record sp"
+        "    WHERE sp.source = 'stripe_bc' AND sp.kind = 'payment'"
+        "    AND sp.status = 'succeeded'"
+        f"    AND lower(sp.email) = ({_EMAIL_LOOKUP})), 0) AS stripe_ever,"
+        "  (SELECT string_agg(DISTINCT sp2.name, ' | ') FROM metric_record sp2"
+        "    WHERE sp2.source = 'stripe_bc' AND sp2.kind = 'payment'"
+        "    AND sp2.status = 'succeeded'"
+        f"    AND lower(sp2.email) = ({_EMAIL_LOOKUP})) AS payers,"
+        "  coalesce((SELECT sum(c.amount) FROM commission_payment c"
+        "    WHERE c.contact_id = opp.meta ->> 'contact_id'), 0) AS commission_ever"
+        " FROM metric_record opp"
+        " WHERE opp.source = 'ghl' AND opp.kind = 'bc_launch_opp' AND opp.status = 'won'"
+        "  AND opp.meta ->> 'contact_id' IS NOT NULL) q"
+        " WHERE q.rep = lower(%(rep)s) AND q.stripe_ever > q.commission_ever"
+        " ORDER BY q.member")
+
+    pays_sql = (
+        "SELECT lower(email) AS email,"
+        " to_char(occurred_on, 'YYYY-MM-DD') AS paid, amount, name"
+        " FROM metric_record WHERE source = 'stripe_bc' AND kind = 'payment'"
+        " AND status = 'succeeded' AND lower(email) = ANY(%(em)s)"
+        " AND to_char(occurred_on, 'YYYY-MM') = %(p)s"
+        " ORDER BY occurred_on, name")
+
+    try:
+        with psycopg.connect(url, connect_timeout=30) as conn:
+            conn.read_only = True
+            with conn.cursor() as cur:
+                cur.execute(members_sql, {"rep": cfg["email"]})
+                gapped = cur.fetchall()
+                emails = [g[5] for g in gapped if g[5]]
+                pays = []
+                if emails:
+                    cur.execute(pays_sql, {"em": emails, "p": period})
+                    pays = cur.fetchall()
+    except Exception as e:                                   # noqa: BLE001
+        return [], [f"Could not check for unrecorded Stripe cash ({type(e).__name__}). "
+                    f"If a member of this rep's pays outside GHL, this statement is SHORT."]
+
+    by_email = {}
+    for email, paid, amount, name in pays:
+        by_email.setdefault(email, []).append((paid, money(amount), name))
+
+    rows, notes = [], []
+    for member, opp_id, stage, contract, _rep, email, stripe_ever, payers, commission_ever             in gapped:
+        shortfall = round(money(stripe_ever) - money(commission_ever), 2)
+        if shortfall <= 0:                       # cannot happen given the WHERE; belt and braces
+            continue
+        if not email:
+            notes.append(f"{member} has cash the commission table has not recorded, but no "
+                         f"email to match it on. NOT included -- check by hand.")
+            continue
+        who = [p.strip() for p in (payers or "").split("|") if p.strip()]
+        if len(who) > 1:
+            notes.append(f"{member}: {email} carries charges under more than one payer "
+                         f"({', '.join(who)}), so whose money it is cannot be told from the "
+                         f"feed. NOT included -- resolve the address before paying on it.")
+            continue
+        left = shortfall
+        in_period = by_email.get(email, [])
+        for paid, amount, _name in in_period:
+            if left <= 0:
+                break
+            add = round(min(amount, left), 2)
+            left = round(left - add, 2)
+            rows.append({
+                "paid": paid, "member": member, "cash": add,
+                "already_billed": False, "opportunity_id": opp_id,
+                "collected_to_date": money(stripe_ever), "stage": stage,
+                "contract": money(contract) or None,
+                "remaining": (round(money(contract) - money(stripe_ever), 2)
+                              if contract else None),
+                "commission": round(add * cfg["rate_pct"], 2),
+                "source": "stripe",
+            })
+        added = round(shortfall - left, 2)       # `left` is what the cap did not absorb
+        notes.append(
+            f"{member}: {_usd(shortfall)} collected that the commission table never recorded. "
+            f"{_usd(added)} of it arrived in {period} and is on this statement"
+            + (f"; {_usd(left)} arrived in earlier months and is NOT on it -- it has never "
+               f"been invoiced either, so confirm whether it was already paid by hand."
+               if left > 0 else "."))
+        if money(commission_ever) > 0:
+            # Partly recorded and partly not, with no shared key between a GHL transaction and
+            # a Stripe charge to match them one to one. The lifetime total is still capped at
+            # the shortfall, so the rep cannot be overpaid overall -- but WHICH month a dollar
+            # falls in is inferred here, and that is worth saying on a document someone pays
+            # from.
+            notes.append(
+                f"{member}'s cash appears in BOTH records "
+                f"({_usd(money(commission_ever))} recorded, {_usd(money(stripe_ever))} "
+                f"collected). The total added is capped at the difference, but the month it "
+                f"is attributed to is inferred from the Stripe dates, not matched payment by "
+                f"payment. Check this one before paying.")
+    return rows, notes
+
+
 def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
     """Succeeded payments from the product. Empty, with a reason, when prod is unreachable."""
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -313,6 +452,15 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
         # Only worth saying when it is true. The sync keeps monetaryValue now, so this is a
         # deal nobody priced in the CRM rather than a gap in what is stored.
         notes.append(f"No contract value in the CRM, so no remaining balance, for: {unpriced}")
+
+    # Cash the commission table never saw. Checked for EVERY rep on EVERY run rather than
+    # behind a flag: the reason Brianna Wood was missing from October is that nobody knew to
+    # ask, and a check you have to remember is one that gets forgotten the month it matters.
+    gaps, gap_notes = cohort2_gaps(period, cfg)
+    if gaps:
+        out.extend(gaps)
+        out.sort(key=lambda r: (r["paid"], r["member"] or ""))
+    notes.extend(gap_notes)
     return out, notes
 
 

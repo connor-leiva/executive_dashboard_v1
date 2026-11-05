@@ -282,6 +282,151 @@ QUERIES: dict[str, tuple[str, str]] = {
         " WHERE cp.rep_email IS NULL OR sr.commission_pct IS NULL"
         " GROUP BY 1, 2 ORDER BY 1, 2",
     ),
+    "unattributed": (
+        "Every payment with no rep on it, by name and date, with the opportunity to fix in "
+        "GHL. The aggregate in unpriceable says how much; this says whose.",
+        f"SELECT to_char(paid_at AT TIME ZONE '{TZ}', 'YYYY-MM-DD') AS paid,"
+        " member_name, amount, payment_type, contact_id, opportunity_id,"
+        " CASE WHEN statement_id IS NULL THEN 'open' ELSE 'BILLED' END AS state"
+        " FROM commission_payment WHERE rep_email IS NULL"
+        " ORDER BY paid, member_name",
+    ),
+    "calls_by_rep": (
+        "Sales Desk activity per rep: how many bookings carry their email, and how many of "
+        "those are current. A rep on the roster with no calls has nothing to be paid on; a "
+        "rep with calls and no payments means the money is attributed somewhere else.",
+        "SELECT coalesce(lower(rep_email), '(no rep on the booking)') AS rep,"
+        " count(*) AS bookings,"
+        " count(*) FILTER (WHERE is_current) AS current,"
+        " count(*) FILTER (WHERE is_current AND outcome = 'Showed') AS showed,"
+        " min(call_time_utc) AS first_call, max(call_time_utc) AS last_call"
+        " FROM sales_call GROUP BY 1 ORDER BY 2 DESC",
+    ),
+    "rep_calls": (
+        "One rep's bookings (--rep EMAIL): who, when, outcome, payment type, and whether a "
+        "payment has ever been recorded against that contact.",
+        "SELECT sc.contact_name, sc.call_time_utc, sc.outcome, sc.payment_type,"
+        " sc.is_current, sc.contact_id,"
+        " (SELECT coalesce(sum(amount), 0) FROM commission_payment cp"
+        "    WHERE cp.contact_id = sc.contact_id) AS cash_on_contact,"
+        " (SELECT string_agg(DISTINCT coalesce(cp.rep_email, '(none)'), ',')"
+        "    FROM commission_payment cp WHERE cp.contact_id = sc.contact_id)"
+        "   AS cash_credited_to"
+        " FROM sales_call sc WHERE lower(sc.rep_email) = lower(%(rep)s)"
+        " ORDER BY sc.call_time_utc",
+    ),
+    "rep_opps": (
+        "For one rep (--rep EMAIL): what the CRM snapshot says became of each contact they "
+        "called -- opportunity stage, status and value. A Showed call with a won opportunity "
+        "and no payment is the gap worth chasing.",
+        "SELECT sc.contact_name, sc.outcome, mr.kind,"
+        " mr.meta ->> 'stage' AS stage, mr.status, mr.amount AS value,"
+        " mr.meta ->> 'payment' AS plan"
+        " FROM sales_call sc"
+        " JOIN metric_record mr ON mr.meta ->> 'contact_id' = sc.contact_id"
+        "   AND mr.source = 'ghl'"
+        " WHERE lower(sc.rep_email) = lower(%(rep)s)"
+        " ORDER BY sc.contact_name, mr.kind",
+    ),
+    "opp_keys": (
+        "The join keys on a launch opportunity (--rep '%name%'): launch_id and contact_id are "
+        "what scope a payment into a cohort. A missing or wrong one here is why a won member "
+        "has no commission row.",
+        "SELECT name, external_id, status, amount,"
+        " meta ->> 'launch_id' AS launch_id, meta ->> 'contact_id' AS contact_id,"
+        " meta ->> 'stage' AS stage, meta ->> 'group' AS grp"
+        " FROM metric_record WHERE source = 'ghl' AND kind = 'bc_launch_opp'"
+        " AND lower(coalesce(name, '')) LIKE %(rep)s ORDER BY name",
+    ),
+    "person_ids": (
+        "Every contact id a person appears under (--rep '%name%'), across every feed. Two ids "
+        "for one person means a duplicate CRM contact, which is how a payment misses the "
+        "opportunity it belongs to.",
+        "SELECT source, kind, name, email, meta ->> 'contact_id' AS contact_id,"
+        " amount, occurred_on, status"
+        " FROM metric_record"
+        " WHERE (lower(coalesce(name, '')) LIKE %(rep)s"
+        "        OR lower(coalesce(email, '')) LIKE %(rep)s)"
+        " ORDER BY source, kind, occurred_on",
+    ),
+    "cohort2_month": (
+        "THE RECONCILIATION (--period YYYY-MM). Every won member of the cohort, the rep who "
+        "closed them, what Stripe collected that month and what the commission table "
+        "recorded. A row with Stripe cash and no commission cash is a rep not being paid: "
+        "commission_payment is fed from GHL transactions, so a payment taken outside GHL "
+        "never reaches it however plainly Stripe shows it. Written as one SELECT with "
+        "subqueries rather than a CTE, because this file refuses anything but a SELECT and "
+        "a WITH can carry a write.",
+        "SELECT * FROM ("
+        " SELECT opp.name,"
+        "  coalesce((SELECT lower(sc.rep_email) FROM sales_call sc"
+        "    WHERE sc.contact_id = opp.meta ->> 'contact_id' AND sc.rep_email IS NOT NULL"
+        "    ORDER BY sc.is_current DESC, sc.call_time_utc DESC LIMIT 1), '(no rep)') AS rep,"
+        "  (SELECT lower(r.email) FROM metric_record r WHERE r.source = 'ghl'"
+        "    AND r.kind = 'bc_registration' AND r.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+        "    AND r.email IS NOT NULL LIMIT 1) AS email,"
+        "  coalesce((SELECT sum(sp.amount) FROM metric_record sp"
+        "    WHERE sp.source = 'stripe_bc' AND sp.kind = 'payment' AND sp.status = 'succeeded'"
+        "    AND to_char(sp.occurred_on, 'YYYY-MM') = %(period)s"
+        "    AND lower(sp.email) = (SELECT lower(r2.email) FROM metric_record r2"
+        "      WHERE r2.source = 'ghl' AND r2.kind = 'bc_registration'"
+        "      AND r2.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+        "      AND r2.email IS NOT NULL LIMIT 1)), 0) AS stripe_cash,"
+        "  coalesce((SELECT sum(c.amount) FROM commission_payment c"
+        "    WHERE c.contact_id = opp.meta ->> 'contact_id'"
+        f"    AND to_char(c.paid_at AT TIME ZONE '{TZ}', 'YYYY-MM') = %(period)s), 0)"
+        "   AS commission_cash"
+        " FROM metric_record opp"
+        " WHERE opp.source = 'ghl' AND opp.kind = 'bc_launch_opp' AND opp.status = 'won'"
+        "  AND opp.meta ->> 'contact_id' IS NOT NULL) q"
+        " WHERE q.stripe_cash > 0 OR q.commission_cash > 0"
+        " ORDER BY q.stripe_cash - q.commission_cash DESC, q.name",
+    ),
+    "cohort2_todate": (
+        "THE SAFE RECONCILIATION: per member, ALL Stripe cash ever against ALL commission "
+        "cash ever, with the Stripe payer names behind the figure. Only a CUMULATIVE "
+        "shortfall is unpaid money -- a single month cannot tell a real gap from a timing "
+        "difference, because Joy Brauer's down payment is recorded a month before Stripe "
+        "took it, so a per-month fill would pay her rep twice for it while her to-date "
+        "figures agree exactly. "
+        "The member's email comes from the registration row or the member row (either by "
+        "contact id or by name), and Stripe is then matched on EMAIL ONLY: matching Stripe "
+        "by name swept another person's payments into a member who already reconciled. "
+        "payers is printed because an email can be shared -- one member's address carries "
+        "5,500 of a different person's charges -- and a figure that cannot show whose money "
+        "it is should not be paid on. Read it before trusting a row.",
+        "SELECT * FROM ("
+        " SELECT opp.name,"
+        "  coalesce((SELECT lower(sc.rep_email) FROM sales_call sc"
+        "    WHERE sc.contact_id = opp.meta ->> 'contact_id' AND sc.rep_email IS NOT NULL"
+        "    ORDER BY sc.is_current DESC, sc.call_time_utc DESC LIMIT 1), '(no rep)') AS rep,"
+        "  (SELECT lower(r.email) FROM metric_record r WHERE r.source = 'ghl'"
+        "    AND r.kind IN ('bc_registration', 'bc_member') AND r.email IS NOT NULL"
+        "    AND (r.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+        "         OR lower(r.name) = lower(opp.name)) LIMIT 1) AS email,"
+        "  coalesce((SELECT sum(sp.amount) FROM metric_record sp"
+        "    WHERE sp.source = 'stripe_bc' AND sp.kind = 'payment' AND sp.status = 'succeeded'"
+        "    AND lower(sp.email) = (SELECT lower(r2.email) FROM metric_record r2"
+        "      WHERE r2.source = 'ghl' AND r2.kind IN ('bc_registration', 'bc_member')"
+        "      AND r2.email IS NOT NULL"
+        "      AND (r2.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+        "           OR lower(r2.name) = lower(opp.name)) LIMIT 1)), 0) AS stripe_ever,"
+        "  (SELECT string_agg(DISTINCT sp2.name, ' | ') FROM metric_record sp2"
+        "    WHERE sp2.source = 'stripe_bc' AND sp2.kind = 'payment'"
+        "    AND sp2.status = 'succeeded'"
+        "    AND lower(sp2.email) = (SELECT lower(r3.email) FROM metric_record r3"
+        "      WHERE r3.source = 'ghl' AND r3.kind IN ('bc_registration', 'bc_member')"
+        "      AND r3.email IS NOT NULL"
+        "      AND (r3.meta ->> 'contact_id' = opp.meta ->> 'contact_id'"
+        "           OR lower(r3.name) = lower(opp.name)) LIMIT 1)) AS payers,"
+        "  coalesce((SELECT sum(c.amount) FROM commission_payment c"
+        "    WHERE c.contact_id = opp.meta ->> 'contact_id'), 0) AS commission_ever"
+        " FROM metric_record opp"
+        " WHERE opp.source = 'ghl' AND opp.kind = 'bc_launch_opp' AND opp.status = 'won'"
+        "  AND opp.meta ->> 'contact_id' IS NOT NULL) q"
+        " WHERE q.stripe_ever <> q.commission_ever"
+        " ORDER BY q.stripe_ever - q.commission_ever DESC, q.name",
+    ),
 }
 
 

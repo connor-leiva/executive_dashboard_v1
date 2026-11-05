@@ -53,6 +53,10 @@ BODY = ParagraphStyle("BODY", parent=ss["Normal"], fontName="Helvetica", fontSiz
 CELL = ParagraphStyle("CELL", parent=ss["Normal"], fontName="Helvetica", fontSize=8.4,
                       leading=11, textColor=INK)
 CELLH = ParagraphStyle("CELLH", parent=CELL, fontName="Helvetica-Bold", textColor=INK)
+# Caveats are set at body size on the flag background, NOT shrunk into a footnote. Every one
+# of them is a reason somebody might be paid the wrong amount.
+CHECK = ParagraphStyle("CHECK", parent=ss["Normal"], fontName="Helvetica", fontSize=9.4,
+                       leading=13, textColor=INK)
 
 _TITLE = [""]
 _PAGES = [0]
@@ -167,6 +171,45 @@ def grand_total(doc, label):
     return _grid(rows, [3.3 * inch, 1.7 * inch, 1.7 * inch], bold_rows=(len(rows) - 1,))
 
 
+def caveats(doc: dict) -> list[str]:
+    """Every caveat in the payload, in the order a reader needs them.
+
+    Deliberately reads all three lists the gather writes. They were added at different times
+    and nothing kept them in step with this file -- the renderer knew about one of the three,
+    so a caveat landing in either of the others was computed, logged and silently dropped.
+    Asking the payload what it has, rather than naming the keys this file happens to remember,
+    is what stops the next list going the same way.
+    """
+    out, seen = [], set()
+    buckets = [doc.get("exceptions"),
+               (doc.get("cohort1") or {}).get("notes"),
+               ((doc.get("cohort1") or {}).get("meta") or {}).get("notes"),
+               (doc.get("cohort2") or {}).get("notes")]
+    for bucket in buckets:
+        for n in (bucket or []):
+            n = str(n).strip()
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+    return out
+
+
+def check_table(items):
+    data = [[Paragraph(f"{i}.", CHECK), Paragraph(n, CHECK)]
+            for i, n in enumerate(items, 1)]
+    tbl = Table(data, colWidths=[0.28 * inch, None], hAlign="LEFT")
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), FLAG),
+        ("BOX", (0, 0), (-1, -1), 0.6, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return tbl
+
+
 def recompute(doc: dict) -> dict:
     """Totals from the rows that survive review. Never trusts the gather's own sums: a person
     has edited the file since, and the whole point of the edit is that it changes them."""
@@ -247,6 +290,15 @@ def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
                 cohort2_table(doc["_c2_prior_rows"], doc["_c2_prior"], None,
                               billed_label=f"—  billed {prior_label.split()[0][:3]}")]))
 
+        checks = caveats(doc)
+        if checks:
+            s.append(KeepTogether([
+                Paragraph("Before this is paid", H2),
+                Paragraph("Each line below needs a person to confirm it. They are computed "
+                          "from the data behind this statement, not added by hand.", BODY),
+                Spacer(1, 5),
+                check_table(checks)]))
+
         notes = list(doc.get("notes_for_the_statement") or [])
         if doc.get("partial"):
             notes.insert(0, "This statement settles the August 2026 cohort only. The first "
@@ -300,8 +352,8 @@ def main() -> None:
     label = period_label(doc["period"])
     out = pathlib.Path(a.out) if a.out else src.parent / (
         f"Commission Statement - {doc['payee']['name']} - {label}.pdf")
-    prepared = a.prepared or dt.date.today().strftime("%b %-d, %Y") if hasattr(
-        dt.date.today(), "strftime") else a.prepared
+    # No %-d here: it is a glibc extension that raises on Windows, which is where this is
+    # run. The portable form strips the leading zero afterwards.
     try:
         prepared = a.prepared or dt.date.today().strftime("%b %d, %Y").replace(" 0", " ")
     except Exception:                                        # noqa: BLE001
