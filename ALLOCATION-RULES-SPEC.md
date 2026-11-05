@@ -1031,6 +1031,10 @@ the wrong vendor.
 
 ### 10.1 A `derived` method: a pool that follows other pools
 
+> **BUILT 2026-11-04.** Shipped in the same session it was specified. What follows is the
+> design as written; the build record is at the end of this section. It is no longer in the
+> "not built" list and is kept here because the reasoning is the documentation.
+
 **Asked for 2026-11-04.** Connor, on being shown the four driven subjects: *"I had assumed that
 if we set the payroll and taxes to driven, that it would automatically calculate based on what
 our allocations were set to for our other staffing amounts."*
@@ -1083,6 +1087,34 @@ chose them and there is no commit note to read.
 
 **Worth it because** it removes the only monthly figure that is not a judgment, and takes the
 Drivers tab from four subjects to three. Roughly half a day with tests.
+
+#### Build record, 2026-11-04
+
+Built to the design above, with no deviation. `alloc_rules`: `derived` in `METHOD_TIER` (tier
+3) and in `NEEDS_SOURCE_SPEC`; a validation branch for `follows_rules`; `check_followed_rules`
+for the cycle guard, which needs the other rules and so sits in the service rather than in the
+pure validator. `alloc_engine`: `derived_shares`, a second pass in `derive_applied`,
+`_produced_by_rule` so `reconciliation` reads the same figures the derivation wrote, and
+`_derived_basis`. `RuleDrawer` gained a tier 3 kind chooser and a rule picker. No migration.
+
+**17 tests in `backend/tests/test_alloc_derived.py`. Six mutations run, six detected**,
+including the one that matters: averaging the percentages instead of weighting by dollars.
+The end-to-end case is Connor's own: a big earner at 80/20 and a small one at 50/50 give
+77.27/22.73, not the 65/35 an average produces, and the test asserts it is not 65.
+
+**Two things worth knowing before changing this.**
+
+1. **The shares are not quantized**, and a test asserts that quantizing them to four places
+   makes a 100.00 pool settle at 99.99. Tidying them up breaks the month by a cent, silently,
+   on every derived rule.
+2. **A derived rule whose followed rule is pending allocates NOTHING** and reports
+   `followed_rules_pending`. Falling back to the rules that did resolve would reweight the
+   split toward whoever happened to be ready, which is a wrong answer that looks like a
+   right one.
+
+**Still Connor's to do:** create the rule. The four staff rules exist; payroll taxes is still
+a typed driver subject until somebody points a derived rule at them, after which its row
+disappears from the Drivers tab, which is the outcome this section was written for.
 
 ---
 

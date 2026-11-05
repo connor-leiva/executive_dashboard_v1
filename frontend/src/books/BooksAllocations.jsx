@@ -157,7 +157,7 @@ export default function BooksAllocations({ period = "mtd", isCFO = false }) {
 
       <RuleDrawer open={!!drawer} mode={drawer?.mode || "new"} rule={drawer?.rule || null}
                   prefill={drawer?.prefill || null} group={drawer?.group || null}
-                  keepOn={!!drawer?.keepOn}
+                  keepOn={!!drawer?.keepOn} rules={rules.data?.applied || []}
                   businesses={rules.data?.businesses || []}
                   tiers={rules.data?.meta?.tiers || []}
                   onClose={() => setDrawer(null)}

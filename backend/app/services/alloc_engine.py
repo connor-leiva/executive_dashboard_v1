@@ -54,6 +54,9 @@ PENDING_REASONS = (
     "source_not_connected", "source_unmapped_spend", "double_count_risk",
     "allocation_exceeds_pool",
     "multi_line", "unmapped_account", "vendor_rule_collision",
+    # A derived rule follows other rules (10.1). It refuses to guess when one of them has
+    # not resolved, and says so when they resolved to nothing.
+    "followed_rules_pending", "no_followed_amounts",
 )
 
 
@@ -296,6 +299,19 @@ def _basis(v) -> str:
     return f"{tier} {v.method.title()}"[:200]
 
 
+def _derived_basis(v, shares: dict) -> str:
+    """"Tier 3 Derived, follows 3 rules, 84.65/11.51/3.84" (10.1).
+
+    SPELLS THE COMPUTED SHARES, which the other methods do not need to: a split carries its
+    percentages on the version and a driven rule has a commit somebody signed. Nobody chose
+    these, so the line a reader sees on the Statement is the only place they appear.
+    """
+    n = len((v.source_spec or {}).get("rule_ids") or [])
+    pcts = "/".join(f"{(Decimal(x) * 100).quantize(Decimal('0.01'))}"
+                    for x in sorted(shares.values(), reverse=True))
+    return f"Tier {v.tier} Derived, follows {n} rule{'' if n == 1 else 's'}, {pcts}"[:200]
+
+
 async def _observed_inbound(s: AsyncSession, tenant_id, month) -> set:
     """Which (source, target, standard account) triples already carry an OBSERVED charge this
     month. F7: if an applied split sends a cost from the pool entity to an entity that already
@@ -407,6 +423,40 @@ def resolve_rule_month(rule, v, pool_by_account, month, ctx: ResolveCtx = EMPTY_
     return rows, pending
 
 
+def derived_shares(followed: dict, pending_ids: set, spec: dict) -> tuple:
+    """How a derived rule splits: the way the rules it follows actually split. Pure.
+
+    `followed` is `{rule_id: {business_id: money}}` -- what those rules allocated THIS MONTH,
+    read from the rows the first pass wrote. Returns `({business_id: share}, reason)`.
+
+    DOLLAR-WEIGHTED, which is the whole point. Payroll tax does not follow the average of the
+    staffing splits, it follows the weighted one: three people on 80/15/5, 60/40 and 100 do
+    not combine into any of those, and averaging the percentages gives a figure that looks
+    plausible and is wrong by a few points every month because their pay is of unequal size.
+    Summing the MONEY and dividing is the weighting, performed by the arithmetic rather than
+    by anybody remembering to weight it.
+
+    NOT QUANTIZED. The shares go into `split_amounts` at full precision for the same reason
+    the count branch of `driven_shares` documents: three equal weights quantized to 0.3333
+    sum to 0.9999, so the month reconciles a cent short -- correctly short, every month, on
+    every such rule, and nothing would flag it.
+    """
+    want = [str(x) for x in ((spec or {}).get("rule_ids") or [])]
+    # A followed rule that did not resolve means this one MUST NOT GUESS. Allocating from
+    # the rules that did resolve would silently reweight the split toward whoever happened
+    # to be ready, which is a wrong answer that looks like a right one.
+    if any(rid in pending_ids for rid in want):
+        return {}, "followed_rules_pending"
+    totals: dict = {}
+    for rid in want:
+        for bid, amount in (followed.get(rid) or {}).items():
+            totals[bid] = totals.get(bid, ZERO) + Decimal(amount)
+    grand = sum(totals.values(), ZERO)
+    if grand <= ZERO:
+        return {}, "no_followed_amounts"
+    return {bid: (Decimal(amount) / grand) for bid, amount in totals.items()}, None
+
+
 def _keeps_all(v, pool_business_id) -> bool:
     """True when every target of this version IS the pool entity, so the whole pool stays put.
 
@@ -423,6 +473,33 @@ def _keeps_all(v, pool_business_id) -> bool:
     targets = v.targets or []
     return bool(targets) and all(
         str(t.get("business_id")) == str(pool_business_id) for t in targets)
+
+
+async def _produced_by_rule(s: AsyncSession, tenant_id, month, live) -> tuple:
+    """`{rule_id: {business_id: money}}` for a month, from the rows already written, plus the
+    ids of the rules that resolved to nothing.
+
+    What a DERIVED rule divides by, read back rather than recomputed: the derivation wrote
+    those rows and this reports on them, so the two cannot disagree about a figure.
+    """
+    rows = (await s.execute(
+        select(AllocationContribution.rule_id,
+               AllocationContribution.target_business_id,
+               func.sum(AllocationContribution.amount))
+        .where(AllocationContribution.tenant_id == tenant_id,
+               AllocationContribution.booking == "applied",
+               AllocationContribution.grain == "month",
+               AllocationContribution.period_start == month[0])
+        .group_by(AllocationContribution.rule_id,
+                  AllocationContribution.target_business_id))).all()
+    out: dict = {}
+    for rid, bid, amount in rows:
+        out.setdefault(str(rid), {})[str(bid)] = amount
+    # A followed rule with a pool and no rows did not resolve. Reported as pending rather
+    # than treated as a zero weight, which would quietly reweight the split.
+    pending = {str(r.id) for r, v in live
+               if v.method != "derived" and str(r.id) not in out}
+    return out, pending
 
 
 async def _spend_context(s: AsyncSession, tenant_id, live, month) -> dict:
@@ -475,12 +552,8 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
                      commits or {}, commit_values or {}, spend_by_rule or {})
     written, total, pending = 0, ZERO, []
 
-    for rule, v in rules_and_versions:
-        if v is None or v.method == "ended":
-            continue
-        rows, rule_pending = resolve_rule_month(
-            rule, v, pools_by_rule.get(rule.id) or {}, month, ctx)
-        pending.extend(rule_pending)
+    def _write(rule, v, rows, basis=None):
+        nonlocal written, total
         for row in rows:
             s.add(AllocationContribution(
                 tenant_id=tenant_id, period_start=ps, period_end=pe,
@@ -488,10 +561,60 @@ async def derive_applied(s: AsyncSession, tenant_id, month, *, rules_and_version
                 target_business_id=row["target_business_id"],
                 standard_account_id=row["standard_account_id"], amount=row["amount"],
                 booking="applied", grain="month", pool_name=rule.pool_name,
-                basis=_basis(v), rule_id=rule.id, rule_version_id=v.id,
+                basis=basis or _basis(v), rule_id=rule.id, rule_version_id=v.id,
                 driver_commit_id=row["driver_commit_id"], approved_by=v.approved_by))
             written += 1
             total += row["amount"]
+
+    # PASS ONE: every rule that resolves from its own pool, its own version and at most its
+    # own driver. A derived rule cannot run here -- it reads what these produce (10.1).
+    produced: dict = {}
+    pending_ids: set = set()
+    deferred = []
+    for rule, v in rules_and_versions:
+        if v is None or v.method == "ended":
+            continue
+        if v.method == "derived":
+            deferred.append((rule, v))
+            continue
+        rows, rule_pending = resolve_rule_month(
+            rule, v, pools_by_rule.get(rule.id) or {}, month, ctx)
+        pending.extend(rule_pending)
+        if rule_pending:
+            pending_ids.add(str(rule.id))
+        # What this rule moved, by entity: the weights pass two divides by.
+        by_target = produced.setdefault(str(rule.id), {})
+        for row in rows:
+            key = str(row["target_business_id"])
+            by_target[key] = by_target.get(key, ZERO) + row["amount"]
+        _write(rule, v, rows)
+
+    # PASS TWO: the rules that follow other rules. Run once, after the writes above, which
+    # is why a derived rule may not follow another one -- see `check_followed_rules`.
+    for rule, v in deferred:
+        shares, reason = derived_shares(produced, pending_ids, v.source_spec or {})
+        pool_by_account = pools_by_rule.get(rule.id) or {}
+        if reason:
+            for std_id, pool in pool_by_account.items():
+                if pool != ZERO:
+                    pending.append({"reason": reason, "rule_id": str(rule.id),
+                                    "standard_account_id": str(std_id)})
+            continue
+        rows = []
+        for std_id, pool in pool_by_account.items():
+            if pool == ZERO:
+                continue
+            for bid, amount in split_amounts(pool, shares).items():
+                if str(bid) == str(rule.source_business_id) or amount == ZERO:
+                    continue
+                if (rule.source_business_id, bid, std_id) in ctx.already:
+                    pending.append({"reason": "double_count_risk", "rule_id": str(rule.id),
+                                    "target": str(bid), "standard_account_id": str(std_id),
+                                    "amount": amount})
+                    continue
+                rows.append({"target_business_id": bid, "standard_account_id": std_id,
+                             "amount": amount, "driver_commit_id": None})
+        _write(rule, v, rows, basis=_derived_basis(v, shares))
     return {"contributions": written, "amount": total, "pending": pending}
 
 
@@ -1156,6 +1279,7 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
         # reason that stopped the row being written, not a second guess at it (7.2). Built
         # lazily: a month where every rule resolved needs none of it.
         ctx = None
+        produced, produced_pending = None, set()
         for rule, v in live:
             month_pool = sum((pools.get(rule.id) or {}).values(), ZERO)
             if month_pool == ZERO:
@@ -1180,7 +1304,19 @@ async def reconciliation(s: AsyncSession, tenant_id, period, *, today: dt.date,
                 ctx = ResolveCtx(await _observed_inbound(s, tenant_id, month), drivers,
                                  commits, commit_values,
                                  await _spend_context(s, tenant_id, live, month))
-            _rows, why = resolve_rule_month(rule, v, pools.get(rule.id) or {}, month, ctx)
+            if v.method == "derived":
+                # A derived rule cannot be asked in isolation: its shares come from what the
+                # rules it follows produced. Read those from the rows ALREADY WRITTEN, which
+                # is the same source pass two divides by, so the reason reported here is the
+                # reason that stopped the write (10.1, and 7.2's one-resolver rule).
+                if produced is None:
+                    produced, produced_pending = await _produced_by_rule(
+                        s, tenant_id, month, live)
+                _sh, why_one = derived_shares(produced, produced_pending,
+                                              v.source_spec or {})
+                why = [{"reason": why_one}] if why_one else []
+            else:
+                _rows, why = resolve_rule_month(rule, v, pools.get(rule.id) or {}, month, ctx)
             acc[rule.id]["pending"].append(
                 {"month": month[0].isoformat(), "amount": month_pool,
                  "method": v.method, "tier": v.tier,
@@ -1283,6 +1419,8 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
         by_target.setdefault(rid, {})[str(bid)] = amount
 
     names = {str(b["id"]): b["name"] for b in businesses}
+    # Pool names by rule id, so a derived rule can say WHAT it follows rather than how many.
+    rule_names = {str(r.id): r.pool_name for r in rules}
     # Driver labels, so a driven rule can say WHICH driver moves it rather than repeating
     # the same sentence on every driven row.
     from ..models import AllocationDriver
@@ -1328,7 +1466,10 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
             # Built here, not in the browser: it is a sentence made of entity names and
             # shares, and principle 4 keeps both on this side of the wire.
             "targets_label": targets_label(current, names, str(rule.source_business_id),
-                                           driver_labels),
+                                           driver_labels,
+                                           {rid: rule_names.get(rid) for rid in
+                                            ((current.source_spec or {}).get("rule_ids") or [])}
+                                           if current is not None else None),
             "pending": pending,
         })
         if current is not None and current.tier in tier_totals:
@@ -1356,7 +1497,8 @@ async def rules_payload(s: AsyncSession, tenant_id, period, *, today: dt.date,
     }
 
 
-def targets_label(v, names: dict, pool_business_id: str, drivers: dict | None = None) -> str:
+def targets_label(v, names: dict, pool_business_id: str, drivers: dict | None = None,
+                  followed_names: dict | None = None) -> str:
     """"The Forum 50%, beCollective 30%" -- what a rule does, as words, for the ledger.
 
     Replaces a Method column that printed one of six sentences over and over without ever
@@ -1375,6 +1517,13 @@ def targets_label(v, names: dict, pool_business_id: str, drivers: dict | None = 
     if v.method == "traced":
         src = ((v.source_spec or {}).get("source") or "").replace("_", " ").strip()
         return f"By {src}" if src else METHOD_LABELS["traced"]
+    if v.method == "derived":
+        # Names what it follows, because the shares are computed and change every month:
+        # a figure here would be this month's and read as the rule's.
+        pools = [p for p in (followed_names or {}).values() if p]
+        n = len((v.source_spec or {}).get("rule_ids") or [])
+        return (f"Follows {', '.join(pools)}" if pools
+                else f"Follows {n} rule{'' if n == 1 else 's'}")
     if v.method in ("direct", "split"):
         parts = []
         for t in (v.targets or []):

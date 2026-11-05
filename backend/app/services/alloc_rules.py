@@ -22,6 +22,7 @@ state, so `split_not_100` is a refusal here and not a pending reason in the engi
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
@@ -45,7 +46,8 @@ TIERS = {1: "Direct", 2: "Traced", 3: "Driven", 4: "Retained"}
 
 # method -> tier. `ended` has no tier: the rule claims nothing, which is not a kind of claim.
 METHOD_TIER: dict[str, int | None] = {
-    "direct": 1, "traced": 2, "driven": 3, "split": 3, "retained": 4, "ended": None,
+    "direct": 1, "traced": 2, "driven": 3, "split": 3, "derived": 3, "retained": 4,
+    "ended": None,
 }
 SCOPE_KINDS = ("account", "program", "vendor")
 REACHES = ("forward", "from_date", "retro")
@@ -58,6 +60,7 @@ METHOD_LABELS = {
     "direct": "The whole cost goes to one entity",
     "traced": "An outside source sets the ratio",
     "driven": "A monthly number sets the split",
+    "derived": "Follows how other costs were split",
     "split": "Split between entities by a reviewed share",
     "retained": "Stays on the entity that books it",
     "ended": "No longer claims anything",
@@ -79,6 +82,12 @@ GAP_LABELS = {
 PENDING_REASON_LABELS = {
     "no_driver_values":
         {"label": "No driver numbers committed", "action": "Commit", "target": "drivers"},
+    "followed_rules_pending":
+        {"label": "A rule this one follows has not resolved yet",
+         "action": "Open rules", "target": "rules"},
+    "no_followed_amounts":
+        {"label": "The rules this one follows allocated nothing this month",
+         "action": "Open rules", "target": "rules"},
     "driver_subject_missing":
         {"label": "This driver month has no numbers for it", "action": "Commit",
          "target": "drivers"},
@@ -123,7 +132,8 @@ def vocabulary() -> dict:
 # another one's validation.
 NEEDS_TARGETS = ("direct", "split")
 NEEDS_DRIVER = ("driven",)
-NEEDS_SOURCE_SPEC = ("traced",)
+# `derived` carries its followed rules in `source_spec` too, so no migration (10.1).
+NEEDS_SOURCE_SPEC = ("traced", "derived")
 
 
 def scope_norm(scope_kind: str, pattern: str) -> str:
@@ -230,7 +240,22 @@ def validate_version(*, method: str, targets=None, driver_id=None, driver_subjec
     elif driver_id is not None:
         raise ValueError(f"A {method} rule does not read a driver.")
 
-    if method in NEEDS_SOURCE_SPEC:
+    if method == "derived":
+        # A pool that follows other pools (10.1). The rules it follows ride in `source_spec`
+        # so the column needs no migration, and WHICH rules is all this stores: the shares
+        # are computed each month from what those rules actually allocated, never typed.
+        spec = source_spec or {}
+        if spec.get("source") != "follows_rules":
+            raise ValueError("A derived rule follows other rules. Its source is "
+                             "'follows_rules'.")
+        ids = [str(x) for x in (spec.get("rule_ids") or []) if str(x or "").strip()]
+        if not ids:
+            raise ValueError("Say which rules this one follows. A derived rule takes its "
+                             "split from how those costs were allocated.")
+        if len(set(ids)) != len(ids):
+            raise ValueError("The same rule is listed twice.")
+        out["source_spec"] = {"source": "follows_rules", "rule_ids": ids}
+    elif method in NEEDS_SOURCE_SPEC:
         spec = source_spec or {}
         if not spec.get("source"):
             raise ValueError("A traced rule needs a source to take its ratio from.")
@@ -279,6 +304,44 @@ async def _known(s: AsyncSession, tenant_id) -> set:
         Business.tenant_id == tenant_id))).scalars()}
 
 
+async def check_followed_rules(s: AsyncSession, tenant_id, terms: dict, *,
+                               self_rule_id=None) -> None:
+    """A derived rule may follow only rules that exist here and are not themselves derived.
+
+    THE CYCLE GUARD (10.1). Refusing derived-of-derived is strictly weaker than ordering the
+    graph topologically, and it cannot loop -- which matters because the second pass runs
+    once: a chain two deep would read a figure that had not been computed yet and allocate
+    from a zero, silently. Revisit only when a real case needs the depth.
+
+    Not in `validate_version` because that function is pure on purpose and this needs the
+    other rules.
+    """
+    if terms.get("method") != "derived":
+        return
+    ids = [str(x) for x in ((terms.get("source_spec") or {}).get("rule_ids") or [])]
+    if self_rule_id is not None and str(self_rule_id) in ids:
+        raise ValueError("A rule cannot follow itself.")
+    rows = list((await s.execute(select(AllocationRule).where(
+        AllocationRule.tenant_id == tenant_id,
+        AllocationRule.id.in_([uuid.UUID(i) for i in ids]))))
+        .scalars()) if ids else []
+    found = {str(r.id): r for r in rows}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise ValueError("One of the rules this follows is not in this workspace.")
+    for rid in ids:
+        v = effective_current(await versions_for(s, tenant_id, rid))
+        if v is not None and v.method == "derived":
+            raise ValueError(
+                f"{found[rid].pool_name} is itself a derived rule, and a derived rule can "
+                f"only follow rules that are decided. Follow what it follows instead.")
+
+
+def effective_current(history):
+    """The current version in a history, or None. Named so the cycle guard reads as prose."""
+    return next((v for v in reversed(history) if v.is_current), None)
+
+
 async def versions_for(s: AsyncSession, tenant_id, rule_id) -> list[AllocationRuleVersion]:
     """Every version of one rule, oldest first. The whole history, because that is what
     `effective_version` reads and what a restatement is reconstructed from."""
@@ -315,6 +378,7 @@ async def create_applied_rule(s: AsyncSession, tenant_id, actor, *, scope_kind: 
         raise ValueError("Unknown pool entity")
 
     terms = validate_version(known_business_ids=await _known(s, tenant_id), **version)
+    await check_followed_rules(s, tenant_id, terms)
 
     # Uniqueness lives here rather than in a constraint, because a database constraint would
     # have to agree with this normalization and two normalizations drift (4.1).
@@ -378,6 +442,7 @@ async def supersede(s: AsyncSession, tenant_id, actor, rule_id,
     """
     rule = await _applied_rule(s, tenant_id, rule_id)
     terms = validate_version(known_business_ids=await _known(s, tenant_id), **version)
+    await check_followed_rules(s, tenant_id, terms, self_rule_id=rule_id)
     history = await versions_for(s, tenant_id, rule_id)
     if not history:
         raise ValueError("That rule has no version to supersede.")

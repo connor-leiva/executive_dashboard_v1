@@ -33,6 +33,17 @@ const MONTH_LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 const METHOD_FOR_TIER = { 1: "direct", 2: "traced", 3: "split", 4: "retained" };
 
+/* Tier 3 is a judgment, and there are two kinds of judgment this drawer can write: a split
+   somebody reviews, or a rule that FOLLOWS how other costs were split (10.1). Driven is not
+   here, as it was not before: it needs a driver and its subject, which is a different form.
+   The words are the reader's; the method codes go on the wire. */
+const TIER3_KINDS = [
+  ["split", "A reviewed split",
+   "Percentages you choose, which hold until you change them."],
+  ["derived", "Follows other rules",
+   "No percentages. Each month this takes the split the rules it follows actually produced, weighted by the money they moved."],
+];
+
 
 function money(v) {
   const n = Number(v || 0);
@@ -61,7 +72,7 @@ function Step({ n, title, children, note }) {
 }
 
 export default function RuleDrawer({ open, mode = "new", rule = null, prefill = null,
-                                     group = null, keepOn = false,
+                                     group = null, keepOn = false, rules = [],
                                      businesses = [], tiers = [], onClose, onSaved }) {
   const [scopeKind, setScopeKind] = useState("account");
   const [pattern, setPattern] = useState("");
@@ -74,6 +85,18 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
   const [preview, setPreview] = useState(null);
   const [previewErr, setPreviewErr] = useState(null);
   const [saving, setSaving] = useState(false);
+  /* What a derived rule may follow: every other applied rule that is not itself derived.
+     The cycle guard refuses derived-of-derived on the server too; filtering here means the
+     reader is not offered a choice that will be rejected. */
+  const followable = useMemo(
+    () => (rules || []).filter((r) => r.id !== rule?.id
+                                   && r.current?.method !== "derived"),
+    [rules, rule?.id]);
+  /* Tier 3 has an extra step (choose the kind, then its terms), so Why and From when
+     cannot be literals: they were "4" and "5" and collided with the new step. */
+  const lastSteps = tier === 3 ? { why: "5", from: "6" } : { why: "4", from: "5" };
+  const [tier3Kind, setTier3Kind] = useState("split");
+  const [follows, setFollows] = useState([]);
   const [saveErr, setSaveErr] = useState(null);
   const timer = useRef(null);
 
@@ -109,7 +132,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefill?.txn_id, rule?.id, keepOn, group?.payee]);
 
-  const method = tier ? METHOD_FOR_TIER[tier] : null;
+  const method = tier === 3 ? tier3Kind : (tier ? METHOD_FOR_TIER[tier] : null);
 
   // The only arithmetic the spec allows in the browser: the total of shares a person is
   // typing, so the form can tell them it does not reach one yet. It is a check on their input,
@@ -126,7 +149,10 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
       ? targets.filter((t) => t.business_id).map((t) => ({ business_id: t.business_id,
                                                            share: String(t.share || "0") }))
       : null,
-  }), [scopeKind, pattern, poolBiz, method, month, reach, rationale, targets]);
+    source_spec: method === "derived"
+      ? { source: "follows_rules", rule_ids: follows }
+      : undefined,
+  }), [scopeKind, pattern, poolBiz, method, month, reach, rationale, targets, follows]);
 
   /* ONE blocker at a time, in step order. A disabled button with five silent reasons is a
      puzzle; this is the next thing to do. */
@@ -138,6 +164,9 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
     if (method === "direct" && targets.filter((t) => t.business_id).length !== 1) {
       return "A direct rule sends the whole cost to exactly one entity.";
     }
+    if (method === "derived" && !follows.length) {
+      return "Choose the rules this one follows.";
+    }
     if (method === "split") {
       if (targets.filter((t) => t.business_id).length < 2) {
         return "A split needs at least two entities.";
@@ -148,7 +177,9 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
     }
     if (!rationale.trim()) return "Say why this cost is shared, in your own words.";
     return null;
-  }, [pattern, poolBiz, tier, method, targets, shareTotal, rationale]);
+    // `follows` belongs here: the derived check reads it, and without it the
+    // blocker kept saying 'choose the rules' after the rules had been chosen.
+  }, [pattern, poolBiz, tier, method, targets, shareTotal, rationale, follows]);
 
   // Debounced, because the drawer asks on every keystroke and a preview is a real query.
   useEffect(() => {
@@ -273,8 +304,70 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
             </Step>
           )}
 
-          {(tier === 1 || tier === 3) && (
-            <Step n="3" title={tier === 1 ? "Which entity" : "The reviewed split"}
+          {tier === 3 && (
+            <Step n="3" title="How the split is decided">
+              <div style={{ display: "grid", gap: 7 }}>
+                {TIER3_KINDS.map(([k, name, gloss]) => {
+                  const on = tier3Kind === k;
+                  return (
+                    <button key={k} onClick={() => setTier3Kind(k)} className="al-ctl"
+                            aria-pressed={on}
+                            style={{ textAlign: "left", cursor: "pointer", borderRadius: 10,
+                                     padding: "10px 12px",
+                                     background: on ? L.flagBg : L.paper,
+                                     border: `1px solid ${on ? L.flagEdge : L.pillEdge}` }}>
+                      <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
+                                     color: L.deep, display: "block" }}>{name}</span>
+                      <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                                     display: "block", marginTop: 2 }}>{gloss}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Step>
+          )}
+
+          {tier === 3 && tier3Kind === "derived" && (
+            <Step n="4" title="Which rules it follows"
+                  note="The split is recomputed every month from what these rules actually allocated, weighted by the money each one moved. Nothing is typed and nothing is carried forward.">
+              {!followable.length ? (
+                <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+                  There are no rules to follow yet. A rule that follows others needs those
+                  others to exist and to be decided rather than derived themselves.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 5, maxHeight: 260, overflowY: "auto" }}>
+                  {followable.map((r) => {
+                    const on = follows.includes(r.id);
+                    return (
+                      <button key={r.id} className="al-ctl" aria-pressed={on}
+                              onClick={() => setFollows((f) => on
+                                ? f.filter((x) => x !== r.id) : [...f, r.id])}
+                              style={{ display: "flex", justifyContent: "space-between",
+                                       gap: 10, alignItems: "baseline", textAlign: "left",
+                                       cursor: "pointer", borderRadius: 9, padding: "8px 11px",
+                                       background: on ? L.accentBg : L.paper,
+                                       border: `1px solid ${on ? L.accent : L.pillEdge}` }}>
+                        <span style={{ fontFamily: F.body, fontSize: 12.5,
+                                       fontWeight: on ? 600 : 500, color: L.deep,
+                                       minWidth: 0 }}>
+                          {r.pool_name}
+                        </span>
+                        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                                       flex: "0 0 auto" }}>
+                          {r.targets_label || ""}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Step>
+          )}
+
+          {(tier === 1 || (tier === 3 && tier3Kind === "split")) && (
+            <Step n={tier === 1 ? "3" : "4"}
+                  title={tier === 1 ? "Which entity" : "The reviewed split"}
                   note={tier === 3
                     ? "Shares are fractions between 0 and 1 and must add up to 1. Include the entity it is booked on to leave a share behind."
                     : null}>
@@ -334,14 +427,14 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
             </Step>
           )}
 
-          <Step n="4" title="Why"
+          <Step n={lastSteps.why} title="Why"
                 note="This is what the Statement shows when somebody asks why a cost reached their entity.">
             <textarea value={rationale} onChange={(e) => setRationale(e.target.value)}
                       rows={3} placeholder="Run centrally and billed to one card."
                       style={{ ...FIELD, resize: "vertical" }} />
           </Step>
 
-          <Step n="5" title="From when">
+          <Step n={lastSteps.from} title="From when">
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               <select value={month.slice(5, 7)}
                       onChange={(e) => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}

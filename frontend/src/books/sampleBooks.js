@@ -511,6 +511,7 @@ export const sampleAllocRules = {
       direct: "The whole cost goes to one entity",
       traced: "An outside source sets the ratio",
       driven: "A monthly number sets the split",
+      derived: "Follows how other costs were split",
       split: "Split between entities by a reviewed share",
       retained: "Stays on the entity that books it",
       ended: "No longer claims anything",
@@ -522,6 +523,11 @@ export const sampleAllocRules = {
     reasons: {
       no_driver_values: { label: "No driver numbers committed", action: "Commit",
                           target: "drivers" },
+      followed_rules_pending: { label: "A rule this one follows has not resolved yet",
+                                action: "Open rules", target: "rules" },
+      no_followed_amounts: {
+        label: "The rules this one follows allocated nothing this month",
+        action: "Open rules", target: "rules" },
       driver_subject_missing: { label: "This driver month has no numbers for it",
                                 action: "Commit", target: "drivers" },
       fixed_exceeds_pool: { label: "The fixed amounts come to more than the pool",
