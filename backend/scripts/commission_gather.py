@@ -50,6 +50,40 @@ CONFIG_EXAMPLE = {
 }
 
 
+def rep_from_db(email: str) -> dict:
+    """A rep's display name and rate from the product. Refuses rather than assume a rate.
+
+    The rate is deliberately NOT a command-line flag. A statement is what somebody gets paid;
+    a mistyped rate is a mispayment that looks exactly like a correct one, and `sales_rep`
+    already carries the answer. A rep with a NULL rate is refused for the same reason the probe
+    reports NULL rather than 0: no rate set is not a 0% rate.
+    """
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from scripts.commission_probe import database_url
+    import psycopg
+
+    url = database_url().replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(url, connect_timeout=30) as conn:
+        conn.read_only = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT display_name, commission_pct, is_active FROM sales_rep"
+                        " WHERE lower(email) = %(e)s", {"e": email.strip().lower()})
+            row = cur.fetchone()
+            if row is None:
+                cur.execute("SELECT email FROM sales_rep WHERE commission_pct IS NOT NULL"
+                            " ORDER BY email")
+                known = [r[0] for r in cur.fetchall()]
+                sys.exit(f"No sales rep with email {email!r}.\n"
+                         f"  reps with a rate: {', '.join(known) or '(none)'}")
+    name, pct, active = row
+    if pct is None:
+        sys.exit(f"{name} ({email}) has no commission rate in the product. A missing rate is "
+                 f"not a 0% rate -- set it before building a statement.")
+    if not active:
+        print(f"NOTE: {name} is marked inactive in the product.", flush=True)
+    return {"payee": name, "email": email.strip().lower(), "rate_pct": float(pct) / 100.0}
+
+
 def load_config() -> dict:
     if not CONFIG.exists():
         OUTDIR.mkdir(exist_ok=True)
@@ -98,30 +132,119 @@ def tracker_column(ws, period: str, tracker) -> tuple[str, str]:
         f"wrong and would not look wrong. Add the month's column to the Payout sheet first.")
 
 
-def cohort1(period: str, cfg: dict) -> tuple[list[dict], dict]:
-    ws = openpyxl.load_workbook(cfg["tracker"], data_only=True)[cfg["tracker_sheet"]]
-    col, header = tracker_column(ws, period, cfg["tracker"])
+def rep_matches(sheet_rep: str | None, payee: str) -> bool:
+    """Does the tracker's "Rep Name" mean this payee?
 
-    rows, skipped = [], 0
+    The sheet writes "Aimee S" where the product says "Aimee Stephens", so this compares the
+    first name plus the initial of the surname. Deliberately not a substring test: "Alli" would
+    match both "Allison Hare" and an "Alli Smith", and the cost of a loose match here is paying
+    one rep for another's sale.
+    """
+    if not sheet_rep:
+        return False
+    def key(s):
+        parts = [p for p in str(s).replace(".", " ").split() if p]
+        if not parts:
+            return None
+        return (parts[0].lower(), parts[-1][0].lower() if len(parts) > 1 else "")
+    a, b = key(sheet_rep), key(payee)
+    return a is not None and a == b
+
+
+def cohort1_cash_from_stripe(period: str, emails: list[str]) -> tuple[dict, list[str]]:
+    """Each cohort-1 member's succeeded beCollective cash for the period, keyed by email.
+
+    kind='payment' ONLY. The dropped_offroster diagnostic also holds this money today, but it is
+    temporary and reading it would make the statement depend on a debugging artefact. The
+    consequence is real: until the roster override has been through a sync, charges it rescued
+    are still filed as dropped and this undercounts. The caller says so on the statement.
+    """
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from scripts.commission_probe import database_url
+    import psycopg
+
+    url = database_url().replace("postgresql+psycopg://", "postgresql://")
+    want = [e for e in emails if e]
+    with psycopg.connect(url, connect_timeout=30) as conn:
+        conn.read_only = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT lower(email), coalesce(sum(amount), 0) FROM metric_record"
+                " WHERE source = 'stripe_bc' AND kind = 'payment' AND status = 'succeeded'"
+                " AND lower(email) = ANY(%(em)s)"
+                " AND to_char(occurred_on, 'YYYY-MM') = %(p)s GROUP BY 1",
+                {"em": want, "p": period})
+            cash = {e: float(v) for e, v in cur.fetchall()}
+            cur.execute(
+                "SELECT count(*) FROM metric_record WHERE source = 'stripe_bc'"
+                " AND kind = 'dropped_offroster' AND status = 'succeeded'"
+                " AND lower(email) = ANY(%(em)s)"
+                " AND to_char(occurred_on, 'YYYY-MM') = %(p)s",
+                {"em": want, "p": period})
+            still_dropped = cur.fetchone()[0]
+    notes = []
+    if still_dropped:
+        notes.append(
+            f"{still_dropped} cohort-1 charge(s) this period are still filed as dropped by the "
+            f"roster filter, so this UNDERCOUNTS. The override is configured but has not been "
+            f"through a sync yet. Re-gather after the next beCollective sync.")
+    return cash, notes
+
+
+def cohort1(period: str, cfg: dict, from_stripe: bool = False) -> tuple[list[dict], dict]:
+    ws = openpyxl.load_workbook(cfg["tracker"], data_only=True)[cfg["tracker_sheet"]]
+    col = header = None
+    if not from_stripe:
+        col, header = tracker_column(ws, period, cfg["tracker"])
+
+    members, other_reps, unknown_reps = [], {}, {}
     for r in range(2, ws.max_row + 1):
         first, last = ws[f"A{r}"].value, ws[f"B{r}"].value
         if not (first or last):
             continue
-        cash = money(ws[f"{col}{r}"].value)
+        sheet_rep = str(ws[f"E{r}"].value or "").strip() or None
         name = " ".join(str(x).strip() for x in (first, last) if x)
-        entry = {"member": name,
-                 "email": (str(ws[f"C{r}"].value or "").strip().lower() or None),
-                 "plan": str(ws[f"D{r}"].value or "").strip() or None,
-                 "rep": str(ws[f"E{r}"].value or "").strip() or None,
-                 "cash": cash,
-                 "commission": round(cash * cfg["rate_pct"], 2)}
-        if cash <= 0:
+        cash = money(ws[f"{col}{r}"].value) if col else 0.0
+        if not rep_matches(sheet_rep, cfg["payee"]):
+            # Not this payee's member. Record it so the omission is visible: a silently
+            # filtered row is how one rep's sale ends up on nobody's statement.
+            bucket = other_reps if sheet_rep else unknown_reps
+            key_name = sheet_rep or "(no rep on the row)"
+            slot = bucket.setdefault(key_name, {"rows": 0, "cash": 0.0})
+            slot["rows"] += 1
+            slot["cash"] = round(slot["cash"] + cash, 2)
+            continue
+        members.append({"member": name,
+                        "email": (str(ws[f"C{r}"].value or "").strip().lower() or None),
+                        "plan": str(ws[f"D{r}"].value or "").strip() or None,
+                        "rep": sheet_rep,
+                        "cash": cash})
+
+    stripe_notes = []
+    if from_stripe:
+        got, stripe_notes = cohort1_cash_from_stripe(
+            period, [m["email"] for m in members])
+        for m in members:
+            m["cash"] = round(got.get(m["email"] or "", 0.0), 2)
+
+    rows, skipped = [], 0
+    for m in members:
+        if m["cash"] <= 0:
             skipped += 1
             continue
-        rows.append(entry)
-    meta = {"source": str(cfg["tracker"]), "sheet": cfg["tracker_sheet"],
+        m["commission"] = round(m["cash"] * cfg["rate_pct"], 2)
+        rows.append(m)
+
+    meta = {"source": ("beCollective Stripe (cash) + tracker (roster)" if from_stripe
+                       else str(cfg["tracker"])),
+            "sheet": cfg["tracker_sheet"],
             "column": col, "header": header,
-            "rows_with_cash": len(rows), "rows_without_cash": skipped}
+            "cash_from": "stripe" if from_stripe else "tracker",
+            "members_for_this_rep": len(members),
+            "rows_with_cash": len(rows), "rows_without_cash": skipped,
+            "excluded_other_reps": other_reps,
+            "excluded_rows_with_no_rep": unknown_reps,
+            "notes": stripe_notes}
     return rows, meta
 
 
@@ -194,7 +317,7 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
 
 
 def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
-               partial: bool = False) -> list[str]:
+               partial: bool = False, c1meta: dict | None = None) -> list[str]:
     """What a person has to look at. Never fixed silently, never guessed."""
     out = []
     payee = cfg["payee"]
@@ -206,8 +329,35 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     if wrong_rep:
         out.append(f"Tracker rows credited to someone other than {payee}: "
                    f"{sorted(wrong_rep)}")
+    meta = c1meta or {}
     if not c1 and not partial:
-        out.append("No cohort-1 rows carried cash this period.")
+        # Two different facts, and the difference decides whether anybody needs to act.
+        if meta.get("members_for_this_rep") == 0:
+            out.append(f"{payee} has no members in the first cohort, so there is nothing to "
+                       f"settle for it. This statement is complete, not partial.")
+        else:
+            out.append(f"{payee} has {meta.get('members_for_this_rep')} first-cohort members "
+                       f"but none of them paid this period. Worth a glance: a whole cohort "
+                       f"going quiet for a month is unusual.")
+    other = meta.get("excluded_other_reps") or {}
+    def describe(bucket):
+        # Only quote cash the tracker actually supplied. Reading it from Stripe means the
+        # tracker column was never opened, so every excluded row's cash is 0 by construction
+        # and printing it would assert something false.
+        show_cash = meta.get("cash_from") == "tracker"
+        return ", ".join(
+            f"{name} ({v['rows']} rows" + (f", ${v['cash']:,.2f})" if show_cash else ")")
+            for name, v in sorted(bucket.items()))
+    if other:
+        out.append("First-cohort rows belonging to other reps were excluded from this "
+                   f"statement: {describe(other)}. They are somebody else's to settle, "
+                   f"not missing.")
+    orphan = meta.get("excluded_rows_with_no_rep") or {}
+    if orphan:
+        out.append(f"First-cohort tracker rows with NO rep name, excluded and owed to nobody: "
+                   f"{describe(orphan)}. Somebody has to say whose these are.")
+    for n in (meta.get("notes") or []):
+        out.append(n)
     if not c2:
         out.append("No cohort-2 payments found for this period.")
     billed = [r["member"] for r in c2 if r["already_billed"]]
@@ -216,16 +366,24 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     dupes = {r["member"] for r in c1} & {r["member"] for r in c2}
     if dupes:
         out.append(f"IN BOTH COHORTS - would be paid twice unless resolved: {sorted(dupes)}")
-    if not partial:
+    if not partial and meta.get("cash_from") == "tracker":
         out.append("Confirm each cohort-1 instalment actually settled: the tracker is kept by "
                    "hand and a plan being active is not a payment succeeding.")
+    if c1 and meta.get("cash_from") == "stripe":
+        out.append("Cohort-1 cash here is what the beCollective Stripe account actually "
+                   "collected, not what the tracker says. A member who paid by some other "
+                   "route this period would be missing from it, so this is a floor.")
     if partial:
         out.append("PARTIAL STATEMENT: the first cohort is excluded from this run. That "
                    "cohort was the majority of September's commission and is still kept "
                    "by hand, so a second payment is owed for it. The document must say "
                    "so, and the rep must be told.")
-    out.append("Confirm every cohort-2 sale is really this rep's before paying "
-               "(Sandy Schoettle, September).")
+    # Deliberately no name here. One rep's disputed row in one month is not a fact about
+    # this product -- it belongs in that statement's reviewed JSON, with a reason. Baked in
+    # here it printed "(Sandy Schoettle, September)" on a different rep's October statement.
+    out.append("Confirm every cohort-2 sale is really this rep's before paying. Attribution "
+               "comes from the Sales Rep field on the GHL opportunity, and a wrong one there "
+               "is a wrong payment here.")
     return out
 
 
@@ -233,6 +391,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--period", required=True, help="YYYY-MM")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--rep", default=None, metavar="EMAIL",
+                    help="build for this rep instead of the one in config.json. Their name and "
+                         "rate come from the product's sales_rep table, never from a flag.")
+    ap.add_argument("--cohort1-from-stripe", action="store_true",
+                    help="take cohort 1's CASH from the beCollective Stripe feed, using the "
+                         "tracker only as the roster. For months the tracker has no column for.")
     ap.add_argument("--cohort2-only", action="store_true",
                     help="settle only the cohort the product tracks, and SAY SO on the "
                          "statement. For while the older cohort is still kept by hand.")
@@ -241,10 +405,12 @@ def main() -> None:
         sys.exit("--period wants YYYY-MM")
 
     cfg = load_config()
+    if a.rep:
+        cfg.update(rep_from_db(a.rep))
     if a.cohort2_only:
         c1, c1meta = [], {"skipped": "excluded by --cohort2-only"}
     else:
-        c1, c1meta = cohort1(a.period, cfg)
+        c1, c1meta = cohort1(a.period, cfg, from_stripe=a.cohort1_from_stripe)
     c2, c2notes = cohort2(a.period, cfg)
 
     c1_cash = round(sum(r["cash"] for r in c1), 2)
@@ -265,7 +431,7 @@ def main() -> None:
         "totals": {"cash_collected": round(c1_cash + c2_billable + c2_prior, 2),
                    "billable_cash": round(c1_cash + c2_billable, 2),
                    "commission_due": round(c1_due + c2_due, 2)},
-        "exceptions": exceptions(c1, c2, cfg, partial=a.cohort2_only),
+        "exceptions": exceptions(c1, c2, cfg, partial=a.cohort2_only, c1meta=c1meta),
         "notes_for_the_statement": [
             "Commission is paid on cash collected only. Remaining balances earn commission as "
             "they are collected in future periods.",
@@ -279,6 +445,9 @@ def main() -> None:
 
     if a.cohort2_only:
         print(f"period {a.period}   FIRST COHORT EXCLUDED (--cohort2-only)")
+    elif c1meta.get("cash_from") == "stripe":
+        print(f"period {a.period}   cohort-1 cash from Stripe "
+              f"({c1meta['members_for_this_rep']} members on the tracker roster)")
     else:
         print(f"period {a.period}   tracker column {c1meta['column']} "
               f"({c1meta['header']!r})")
