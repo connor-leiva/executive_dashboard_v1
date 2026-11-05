@@ -26,7 +26,7 @@ ORDER = (TEAM, BUSINESS, PORTFOLIO)
 # Sources every plan can connect: the operational feeds a brokerage runs on.
 # ghl_recruiting is a brokerage's own recruiting location -- as operational as its CRM, and
 # on the same plans.
-_CORE_SOURCES = {"sisu", "fub", "ghl", "ghl_bc", "ghl_recruiting"}
+_CORE_SOURCES = {"sisu", "skyslope", "fub", "ghl", "ghl_bc", "ghl_recruiting"}
 # Financial and lending feeds — the ones that make Books and the flywheel mean anything.
 _FINANCIAL_SOURCES = {"qbo", "stripe_legacy", "stripe_bc", "ghl_legacy", "arive"}
 

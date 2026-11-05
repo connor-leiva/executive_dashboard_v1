@@ -11,18 +11,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from ..integrations import skyslope
 from ..models import Integration, Business, SyncRun
 from ..schemas import Alert, EntityRow, SourceOut, IntegrationsOut
-from . import roles
+from . import roles, sync_policy
 
 # Provider order + static metadata (matches the settings mockup).
-ORDER = ["qbo", "sisu", "fub", "ghl", "ghl_bc", "ghl_recruiting", "arive", "stripe_legacy",
+ORDER = ["qbo", "sisu", "skyslope", "fub", "ghl", "ghl_bc", "ghl_recruiting", "arive", "stripe_legacy",
          "stripe_bc", "ghl_legacy", "meta_ads"]
 META = {
     "qbo": {"name": "QuickBooks", "provides": ["Profit & Loss", "Balance Sheet"], "feeds": ["ulrg", "springb", "sympli"],
             "desc": "Financial source of truth · one connection per entity"},
     "sisu": {"name": "Sisu", "provides": ["Transactions", "Agents", "GCI"], "feeds": ["ulrg"],
              "desc": "Real estate production — transactions, agents, GCI"},
+    "skyslope": {"name": "SkySlope", "provides": ["Listings", "Contracts", "Closings"], "feeds": [],
+                 "desc": "Transactions - listings, contracts and closings. Read-only"},
     "fub": {"name": "Follow Up Boss", "provides": ["Leads", "Agents"], "feeds": ["ulrg"],
             "desc": "CRM — leads and agent activity"},
     "ghl": {"name": "Go High Level · The Forum", "provides": ["Members", "Subscriptions", "Events"], "feeds": ["forum"],
@@ -74,6 +77,7 @@ META = {
 FAMILY = {
     "qbo": ("qbo", "QuickBooks", "Financials", "Financials · profit & loss, balance sheet", False),
     "sisu": ("sisu", "Sisu", "Production", "Production · closings, agents and GCI", False),
+    "skyslope": ("skyslope", "SkySlope", "Production", "Production · listings, contracts and closings", False),
     "fub": ("fub", "Follow Up Boss", "CRM", "CRM · leads and agent activity", False),
     "ghl": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", False),
     "ghl_bc": ("ghl", "Go High Level", "Marketing", "Marketing · members, renewals and events", True),
@@ -98,6 +102,7 @@ CONNECTABLE_KIND = {
     # per workspace like every other source rather than pinned to one customer's business key.
     "meta_ads": roles.MEMBERSHIP,
     "sisu": roles.REAL_ESTATE,          # transactions, agents, GCI — the brokerage
+    "skyslope": roles.REAL_ESTATE,      # listings and sales — the brokerage
     "fub": roles.REAL_ESTATE,           # CRM leads and agent activity
     "ghl": roles.MEMBERSHIP,            # members, renewals, subscriptions
     "ghl_bc": roles.MEMBERSHIP,         # a second GHL location for another programme
@@ -237,6 +242,75 @@ def _last_run(run: SyncRun | None, status: str, interval: int, now) -> str | Non
     return None
 
 
+def _key_source(rows, biz_by_id, target, run, now, family, vendor, category, meta_line, secondary):
+    """A source with one connection per ACCESS KEY: a brokerage's agents may each have to bring their
+    own, because a key sees only what its owner sees.
+
+    Returns (source, alerts, freshest, connections), or None when this deployment does not offer it.
+    Hidden rather than disabled when the application credentials are unset: until those exist there
+    is no licence to connect under, and a card that names the vendor is not ours to show.
+    """
+    prov = "skyslope"
+    meta = META[prov]
+    live = [i for i in rows if i.status in ("connected", "error") and i.business_id in biz_by_id]
+    if not live and not skyslope.configured():
+        return None
+    manual = sync_policy.is_manual(prov)
+    entities, alerts, freshest = [], [], None
+    for i in sorted(live, key=lambda r: ((r.config or {}).get("label") or "", str(r.id))):
+        cfg = i.config or {}
+        b = biz_by_id[i.business_id]
+        hint = cfg.get("key_hint") or ""
+        label = cfg.get("label") or (f"Access key ····{hint}" if hint else "Access key")
+        ok = i.status != "error"
+        if i.last_synced_at and (freshest is None or _aware(i.last_synced_at) > freshest):
+            freshest = _aware(i.last_synced_at)
+        entities.append(EntityRow(
+            integration_id=str(i.id), business_key=b.key, business_name=label,
+            state="ok" if ok else "error",
+            last_synced_at=i.last_synced_at.isoformat() if i.last_synced_at else None,
+            detail=None if ok else i.last_error, provider=prov, accent=b.accent,
+            actions=(["sync"] if ok else ["reconnect"]) + ["edit", "disconnect"],
+            # Only what the edit form needs. The sync's watermark is not for the page.
+            config={"label": cfg.get("label") or ""},
+            config_summary=[["Key", f"····{hint}"], ["For", b.name]] if hint else [["For", b.name]]))
+        if not ok:
+            alerts.append(Alert(title=f"{label} needs attention",
+                                detail=i.last_error or "Its last sync failed.",
+                                provider=prov, business_key=b.key, action="edit",
+                                integration_id=str(i.id)))
+    if not live:
+        status = "disconnected"
+    elif alerts:
+        status = "attention"
+    elif (not manual and freshest
+          and (now - freshest).total_seconds() > 2 * settings.SKYSLOPE_SYNC_INTERVAL_MINUTES * 60):
+        status = "stale"
+    else:
+        status = "ok"
+    bkey = biz_by_id[live[0].business_id].key if live else (target.key if target else None)
+    bname = biz_by_id[live[0].business_id].name if live else (target.name if target else None)
+    n = len(entities)
+    source = SourceOut(
+        provider=prov, name=meta["name"], status=status,
+        status_note=f"{len(alerts)} of {n} key{'' if n == 1 else 's'} needs attention" if alerts else None,
+        fresh=_humanize(freshest, now), feeds=sorted({biz_by_id[i.business_id].key for i in live}),
+        provides=meta["provides"],
+        last_run=_last_run(run, status, settings.SKYSLOPE_SYNC_INTERVAL_MINUTES, now),
+        entities=entities, multi_entity=True, entity_singular="access key", entity_plural="Access keys",
+        # A source with no schedule says so, or "Synced 3 days ago" reads as a fault.
+        family=family, vendor=vendor, category=category,
+        meta=f"{meta_line} · synced on request" if manual else meta_line,
+        secondary=secondary, ago=_ago(freshest, now),
+        # None even with one key: a Connect on this card is always ANOTHER key. A row's own Edit
+        # carries that row's id.
+        integration_id=None, business_key=bkey,
+        needs_kind=None if live or target else CONNECTABLE_KIND[prov],
+        business_name=bname,
+        tag=f"{n} keys" if n > 1 else None)
+    return source, alerts, freshest, n
+
+
 def _ghl_config_summary(cfg: dict) -> list[list[str]]:
     loc = cfg.get("location_id") or ""
     loc_disp = (loc[:4] + "…" + loc[-3:]) if len(loc) > 10 else (loc or "—")
@@ -288,7 +362,16 @@ async def build_integrations_view(s: AsyncSession, tenant_id) -> IntegrationsOut
         rows = [i for i in integs if i.provider == prov]
         run = latest_run.get(prov)
 
-        if prov == "qbo":
+        if prov == "skyslope":
+            built = _key_source(rows, biz_by_id, by_kind.get(CONNECTABLE_KIND[prov]), run, now,
+                                family, vendor, category, meta_line, secondary)
+            if built is not None:
+                source, key_alerts, freshest, connections = built
+                sources.append(source)
+                alerts.extend(key_alerts)
+                entities_mapped += connections
+                raw[prov] = {"freshest": freshest, "connected": connections > 0}
+        elif prov == "qbo":
             rows = sorted(rows, key=lambda i: sort_of.get(i.business_id, 99))
             entities, feeds, freshest, err = [], [], None, 0
             for i in rows:

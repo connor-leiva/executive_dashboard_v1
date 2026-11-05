@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Business, Integration, SyncRun, Tenant
-from .fleet_health import _aware, provider_name, stale_after
+from .fleet_health import _aware, is_stale, provider_name
 
 INCIDENT_WINDOW_DAYS = 30
 
@@ -84,7 +84,7 @@ async def providers(s: AsyncSession, now: dt.datetime) -> list[dict]:
             p["error"] += 1
         elif paused:
             p["paused"] += 1
-        elif last is None or now - last > stale_after(integ.provider):
+        elif is_stale(integ.provider, last, now):
             p["stale"] += 1
         else:
             p["ok"] += 1

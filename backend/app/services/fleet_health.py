@@ -28,6 +28,8 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
+
+from . import sync_policy
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import plans
@@ -48,7 +50,7 @@ PROVIDER_NAMES = {
     "qbo": "QuickBooks", "sisu": "Sisu", "fub": "Follow Up Boss", "ghl": "Go High Level",
     "ghl_bc": "Go High Level (second account)", "ghl_legacy": "Go High Level (legacy)",
     "stripe_legacy": "Stripe", "stripe_bc": "Stripe (second account)", "arive": "Arive",
-    "meta_ads": "Meta Marketing",
+    "meta_ads": "Meta Marketing", "skyslope": "SkySlope",
 }
 
 
@@ -79,9 +81,18 @@ def _span(delta: dt.timedelta) -> str:
 
 def stale_after(provider: str) -> dt.timedelta:
     """Twice the cadence a source actually syncs on. Ads sync on their own, slower schedule."""
-    minutes = settings.ADS_SYNC_INTERVAL_MINUTES if provider == "meta_ads" \
-        else settings.SYNC_INTERVAL_MINUTES
+    minutes = {"meta_ads": settings.ADS_SYNC_INTERVAL_MINUTES,
+               "skyslope": settings.SKYSLOPE_SYNC_INTERVAL_MINUTES}.get(
+        provider, settings.SYNC_INTERVAL_MINUTES)
     return dt.timedelta(minutes=2 * minutes)
+
+
+def is_stale(provider: str, last: dt.datetime | None, now: dt.datetime) -> bool:
+    """Whether a connected source has fallen behind its schedule. A source that runs only when
+    somebody asks has no schedule to fall behind, however long ago it last ran."""
+    if sync_policy.is_manual(provider):
+        return False
+    return last is None or now - last > stale_after(provider)
 
 
 # ── facts ─────────────────────────────────────────────────────────────────────────────────
@@ -281,7 +292,7 @@ def signals(f: WorkspaceFacts, now: dt.datetime) -> list[Signal]:
                 continue
             last = _aware(src.last_synced_at)
             limit = stale_after(src.provider)
-            if last is None or now - last > limit:
+            if is_stale(src.provider, last, now):
                 out.append(Signal(
                     "watch", f"stale:{src.id}", f"{src.label} is stale",
                     ("It has never completed a sync." if last is None

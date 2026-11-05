@@ -17,6 +17,7 @@ from ..config import settings
 from ..models import Integration, Transaction, Agent, Lead, PLSnapshot, SyncRun, MetricRecord, Business
 from ..security import enc, dec
 from ..integrations import fub, sisu, qbo, ghl, arive, stripe_legacy
+from . import sync_policy
 
 
 def _tz(name: str) -> dt.tzinfo:
@@ -1964,7 +1965,7 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
     s.add(run)
     await s.commit()
     started = dt.datetime.utcnow()
-    extra_stats = None
+    extra_stats, extra_key = None, integ.provider
     try:
         records = None
         if integ.provider == "sisu":
@@ -1974,6 +1975,11 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
             # What each pass read, and which path it took (`dueStart` accepted, the backfill's
             # page), so the real account is legible from the run history.
             extra_stats = ((integ.config or {}).get("fub_state") or {}).get("last_run")
+        elif integ.provider == "skyslope":
+            # Rows read and changed, the watermark and which pulls ran, so the run history can show
+            # that a second run in a row changed nothing.
+            from .skyslope_sync import sync_skyslope
+            records, extra_stats = await sync_skyslope(s, tenant_id, integ)
         elif integ.provider == "ghl":
             records = await sync_ghl(s, tenant_id, integ)
             try:                                   # The Edge is a segment of this same location
@@ -2048,7 +2054,7 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         run.stats = {"records": records,
                      "seconds": round((run.finished_at - started).total_seconds(), 1)}
         if extra_stats:
-            run.stats["fub"] = extra_stats
+            run.stats[extra_key] = extra_stats
         # Clear any prior error and mark the source healthy again.
         integ.status, integ.last_error = "connected", None
         integ.last_synced_at = dt.datetime.utcnow()
@@ -2059,12 +2065,19 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
     await s.commit()
 
 
-async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, period_end: str):
+async def run_all(s: AsyncSession, tenant_id: uuid.UUID, period_start: str, period_end: str,
+                  *, requested: bool = False):
+    """Sync a workspace's sources. `requested` means a signed-in admin of THIS workspace pressed the
+    button; nothing else may set it, because it is what lets a source that must not be polled run.
+    The default is the safe one: the tick, the operator console and the CLI never reach it."""
     # Include "error" so a previously-failed sync is retried (a stuck error would
     # otherwise silently skip the source). Disconnected sources are left alone.
-    integs = (await s.execute(select(Integration).where(
+    query = select(Integration).where(
         Integration.tenant_id == tenant_id,
-        Integration.status.in_(("connected", "error"))))).scalars().all()
+        Integration.status.in_(("connected", "error")))
+    if not requested:
+        query = query.where(Integration.provider.notin_(sync_policy.OWN_SCHEDULE))
+    integs = (await s.execute(query)).scalars().all()
     for integ in integs:
         await _sync_integration(s, tenant_id, integ, period_start, period_end)
     # Sisu just synced → recompute the ULRG scorecard now, so late/backdated entries (agents enter

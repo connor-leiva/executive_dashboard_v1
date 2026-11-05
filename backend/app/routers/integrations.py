@@ -20,8 +20,8 @@ from ..security import enc, dec, make_capability, read_capability
 from ..tenancy import tenant_app_url
 import httpx
 
-from ..integrations import fub, qbo, stripe_legacy
-from ..services import legacy_export, roles, sync_jobs
+from ..integrations import fub, qbo, skyslope, stripe_legacy
+from ..services import legacy_export, roles, skyslope_sync, sync_jobs
 from ..services.integrations_view import build_integrations_view
 from ..schemas import IntegrationsOut
 
@@ -128,7 +128,7 @@ async def sync_all(bg: BackgroundTasks, period: str = Query("mtd"),
     run = SyncRun(tenant_id=user.tenant_id, provider="all", status="running")
     s.add(run)
     await s.commit()
-    bg.add_task(sync_jobs.run_all_job, user.tenant_id, run.id, period)
+    bg.add_task(sync_jobs.run_all_job, user.tenant_id, run.id, period, requested=True)
     return {"job_id": str(run.id)}
 
 
@@ -226,6 +226,85 @@ def _merge_config(integ, provider: str, incoming: dict) -> dict:
     return {**current, **incoming}
 
 
+def _skyslope_blob(integ: Integration) -> dict:
+    if not integ.access_token_enc:
+        return {}
+    try:
+        return json.loads(dec(integ.access_token_enc))
+    except Exception:  # noqa: BLE001 -- an unreadable blob is treated as no credentials
+        return {}
+
+
+async def _connect_skyslope(s: AsyncSession, user, tenant, biz, body: dict, bg: BackgroundTasks) -> dict:
+    """Connect or edit one SkySlope access key. A workspace can hold several, because a key sees only
+    what its owner sees.
+
+    The application's Client ID and Secret are not on the form: they belong to this deployment. Which
+    row a save lands on, in order: the row being edited; the row already holding this key, so pasting
+    a broken key's replacement cannot leave a duplicate of it; a disconnected row on this business, so
+    disconnecting and reconnecting does not pile up dead rows; otherwise a new one.
+    """
+    if not skyslope.configured():
+        raise HTTPException(409, "SkySlope is not available on this deployment yet.")
+    access_key = (body.get("access_key") or "").strip()
+    access_secret = (body.get("access_secret") or "").strip()
+    rows = (await s.execute(select(Integration).where(
+        Integration.tenant_id == user.tenant_id, Integration.provider == "skyslope"))).scalars().all()
+
+    integ = None
+    if body.get("integration_id"):
+        integ = next((r for r in rows if str(r.id) == str(body["integration_id"])), None)
+        if integ is None:
+            raise HTTPException(404, "Unknown integration")
+    elif access_key:
+        integ = next((r for r in rows if _skyslope_blob(r).get("access_key") == access_key), None)
+    if integ is None:
+        integ = next((r for r in rows if r.business_id == biz.id and r.status == "disconnected"), None)
+
+    stored = _skyslope_blob(integ) if integ else {}
+    key = access_key or stored.get("access_key")          # blank on edit = keep the current value
+    secret = access_secret or stored.get("access_secret")
+    if not (key and secret):
+        raise HTTPException(400, "SkySlope needs an Access Key and an Access Secret.")
+
+    new_credentials = bool(access_key or access_secret)
+    if new_credentials:
+        # A wrong key should fail here, in front of the person who pasted it, and not half an hour
+        # later as a failed sync. SkySlope being unreachable is not the key's fault, so that keeps
+        # the key and lets the sync say more.
+        try:
+            await skyslope.check_credentials(skyslope.make_creds(key, secret))
+        except skyslope.SkySlopeAuthError:
+            raise HTTPException(400, "SkySlope refused that key. Check the Access Key and Access Secret "
+                                     "under My Account, Integrations in SkySlope.")
+        except (skyslope.SkySlopeError, httpx.HTTPError):
+            pass
+
+    if integ is None:
+        integ = Integration(tenant_id=user.tenant_id, provider="skyslope", business_id=biz.id)
+        s.add(integ)
+    config = dict(integ.config or {})
+    # A different key sees different files, so the old key's watermark must not carry over: it would
+    # skip the backfill and the new key's history would never arrive.
+    if key != stored.get("access_key"):
+        config.pop(skyslope_sync.STATE_KEY, None)
+    config["key_hint"] = key[-4:]
+    if "label" in body:
+        config["label"] = (body.get("label") or "").strip()[:80]
+    integ.config = config
+    integ.access_token_enc = enc(json.dumps({"access_key": key, "access_secret": secret}))
+    integ.status, integ.last_error = "connected", None
+    await s.flush()
+    audit(s, user.tenant_id, user.id, "integration.connected", "integration", integ.id,
+          {"provider": "skyslope", "business": biz.key})
+    await s.commit()
+    if new_credentials and tenant.status != "suspended" and not sync_jobs.syncs_frozen(tenant.config):
+        # The admin who just connected is the person asking, so this is allowed with polling off, and
+        # the first numbers arrive without a second click.
+        bg.add_task(sync_jobs.run_one_job, user.tenant_id, integ.id, "mtd")
+    return {"id": str(integ.id)}
+
+
 @router.post("/integrations")
 async def create_integration(body: dict, bg: BackgroundTasks,
                              user: User = Depends(require_role("owner", "admin")),
@@ -234,7 +313,7 @@ async def create_integration(body: dict, bg: BackgroundTasks,
     {provider, business_key, token, config}. Token is encrypted at rest."""
     provider = (body.get("provider") or "").strip()
     if provider not in ("ghl", "ghl_bc", "ghl_recruiting", "arive", "stripe_legacy", "stripe_bc",
-                        "ghl_legacy", "sisu", "fub", "meta_ads"):
+                        "ghl_legacy", "sisu", "fub", "meta_ads", "skyslope"):
         raise HTTPException(400, "Unsupported provider")
     tenant = await s.get(Tenant, user.tenant_id)
     if not plans.allows_source(tenant, provider):
@@ -254,6 +333,10 @@ async def create_integration(body: dict, bg: BackgroundTasks,
             Business.tenant_id == user.tenant_id).order_by(Business.sort_order))).scalars().all()
         raise HTTPException(404, f"This workspace has no business '{wanted}'. "
                                  f"It has: {', '.join(have) or 'none'}.")
+    # Before the lookup below, which assumes one row per provider and business and would raise on a
+    # workspace's second access key.
+    if provider == "skyslope":
+        return await _connect_skyslope(s, user, tenant, biz, body, bg)
     integ = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == provider,
         Integration.business_id == biz.id))).scalar_one_or_none()

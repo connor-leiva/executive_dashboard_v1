@@ -35,6 +35,7 @@ from ..models import (AuditLog, Business, Domain, Integration, IntranetMember, I
                       ShareLink, SyncRun, Tenant, User)
 from ..security import (dec, enc, hash_pw, make_platform_token, make_token, make_view_token,
                         new_action_token, verify_pw)
+from ..services import sync_policy
 from ..services import (fleet_health, fleet_rollup, jobs, mail_templates, mailer, operator_audit,
                         platform_billing, sync_jobs)
 from ..services.intranet_bootstrap import bootstrap_intranet
@@ -524,7 +525,7 @@ async def tenant_sources(slug: str, op: PlatformUser = Depends(current_platform_
         state = ("broken" if src.status == "error"
                  else "off" if src.status != "connected"
                  else "paused" if paused
-                 else "stale" if last is None or now - last > limit
+                 else "stale" if fleet_health.is_stale(src.provider, last, now)
                  else "healthy")
         sources.append({
             "id": src.id, "provider": src.provider,
@@ -734,8 +735,11 @@ async def sync_tenant(request: Request, slug: str, bg: BackgroundTasks,
     t = await _get(s, slug)
     if why := _paused(t):
         raise HTTPException(409, why)
+    # What this job will really pull: run_all leaves out a source on its own schedule, and counting
+    # one here would report a sync of something that was never going to run.
     configured = (await s.execute(select(func.count()).select_from(Integration).where(
-        Integration.tenant_id == t.id, Integration.status.in_(("connected", "error"))))).scalar_one()
+        Integration.tenant_id == t.id, Integration.status.in_(("connected", "error")),
+        Integration.provider.notin_(sync_policy.OWN_SCHEDULE)))).scalar_one()
     if not configured:
         raise HTTPException(409, "Nothing is connected, so there is nothing to sync.")
     running = (await s.execute(select(SyncRun).where(
@@ -766,6 +770,10 @@ async def sync_source(request: Request, slug: str, source_id: str, bg: Backgroun
     if integ.status not in ("connected", "error"):
         raise HTTPException(409, f"{name} has no credentials to sync with. Send a reconnect link "
                                  "instead.")
+    if sync_policy.is_manual(integ.provider):
+        # Its licence allows a pull only while a user of the workspace is present, and an operator is
+        # not one. SKYSLOPE-SPEC.md §5.
+        raise HTTPException(409, f"{name} syncs only when an admin of this workspace starts it.")
     _record(s, op, request, t, "tenant.sync_requested", "integration", integ.id, category="Integrations",
             provider=integ.provider)
     await s.commit()

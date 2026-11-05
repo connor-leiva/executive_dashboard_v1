@@ -84,6 +84,35 @@ async def syncable_tenant_ids(s) -> list:
             if status != "suspended" and not (cfg or {}).get("syncs_frozen")]
 
 
+async def skyslope_tick():
+    """Every SKYSLOPE_SYNC_INTERVAL_MINUTES: one cycle per access key, only when polling is allowed.
+
+    Registered only behind SKYSLOPE_SCHEDULED_SYNC, which stays off until SkySlope approves polling in
+    writing. Its own job rather than part of `tick`, for the reasons in services/sync_policy.py.
+    Serial, because the rate limit is shared by every key and every workspace on this application.
+    """
+    from .models import Integration
+    from .services.sync import _sync_integration
+    start, end = _mtd_range()
+    async with SessionLocal() as s:
+        tenant_ids = set(await syncable_tenant_ids(s))
+        rows = (await s.execute(select(Integration.id, Integration.tenant_id).where(
+            Integration.provider == "skyslope",
+            Integration.status.in_(("connected", "error"))))).all()
+    for integ_id, tid in rows:
+        if tid not in tenant_ids:
+            continue
+        try:
+            async with SessionLocal() as s2:
+                integ = await s2.get(Integration, integ_id)
+                if integ is None:
+                    continue
+                await asyncio.wait_for(_sync_integration(s2, tid, integ, start, end),
+                                       timeout=settings.SYNC_TENANT_TIMEOUT_SECONDS)
+        except Exception as e:  # noqa: BLE001 -- one key's failure OR hang must not stop the rest
+            print(f"[skyslope] tenant {tid}: {type(e).__name__}", flush=True)
+
+
 async def recruiting_activity_tick():
     """Every few minutes: read back what happened in GoHighLevel (§5.6).
 
@@ -568,6 +597,8 @@ def build_scheduler() -> AsyncIOScheduler:
     # is a setting in the operator console rather than a deploy.
     sched.add_job(beat(platform_billing_reconcile), "interval", hours=1)
     sched.add_job(beat(expire_support_access), "interval", minutes=5, next_run_time=dt.datetime.now())
+    if settings.SKYSLOPE_SCHEDULED_SYNC:
+        sched.add_job(beat(skyslope_tick), "interval", minutes=settings.SKYSLOPE_SYNC_INTERVAL_MINUTES)
     if settings.RECALL_API_KEY:
         sched.add_job(beat(recall_tick), "interval", minutes=settings.RECALL_TICK_MINUTES,
                       next_run_time=dt.datetime.now())

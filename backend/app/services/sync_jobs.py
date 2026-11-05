@@ -22,12 +22,13 @@ def syncs_frozen(config: dict | None) -> bool:
     return bool((config or {}).get("syncs_frozen"))
 
 
-async def run_all_job(tenant_id, run_id, period: str = "mtd"):
+async def run_all_job(tenant_id, run_id, period: str = "mtd", *, requested: bool = False):
+    """`requested` is the workspace's own admin pressing Sync. See run_all for what it allows."""
     async with SessionLocal() as s:
         start, end = _period_range(period)
         run = (await s.execute(select(SyncRun).where(SyncRun.id == run_id))).scalar_one()
         try:
-            await run_all(s, tenant_id, start.isoformat(), end.isoformat())
+            await run_all(s, tenant_id, start.isoformat(), end.isoformat(), requested=requested)
             run.status, run.finished_at = "ok", dt.datetime.utcnow()
         except Exception as e:  # noqa: BLE001
             run.status, run.detail, run.finished_at = "error", str(e), dt.datetime.utcnow()

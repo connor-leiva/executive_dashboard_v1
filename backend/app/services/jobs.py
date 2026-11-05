@@ -29,6 +29,8 @@ def catalog() -> list[dict]:
     return [
         {"job": "tick", "what": "Syncs every connected source", "every_minutes": settings.SYNC_INTERVAL_MINUTES, "enabled": True},
         {"job": "fub_followups_tick", "what": "Refreshes follow-ups from Follow Up Boss", "every_minutes": settings.FUB_FOLLOWUPS_INTERVAL_MINUTES, "enabled": True},
+        {"job": "skyslope_tick", "what": "Pulls listings and sales for workspaces with SkySlope connected",
+         "every_minutes": settings.SKYSLOPE_SYNC_INTERVAL_MINUTES, "enabled": bool(settings.SKYSLOPE_SCHEDULED_SYNC)},
         {"job": "recruiting_queue_tick", "what": "Rebuilds the recruiting Do-next queue",
          "every_minutes": settings.RECRUITING_QUEUE_INTERVAL_MINUTES, "enabled": True},
         # `enabled` means "this job runs", not "sending is on". The tick runs either way: with

@@ -121,6 +121,23 @@ class Settings(BaseSettings):
     # ~67s later on 4 of 6 cycles, starving the Forum tab. 25 min keeps ~2x headroom, stays under the
     # 30-min interval, and still turns an infinite hang into a skipped tenant.
     SYNC_TENANT_TIMEOUT_SECONDS: int = 1500
+    # SkySlope (read-only transaction source). The Client ID and Secret identify THIS APPLICATION to
+    # SkySlope and are shared by every workspace; each workspace brings its own Access Key. UNSET
+    # MEANS THE SOURCE DOES NOT EXIST HERE: the card is hidden and connecting is refused. That is on
+    # purpose, because the licence names one application and the card names a vendor -- deploying
+    # this code must offer nothing to anybody until those credentials are deliberately set.
+    SKYSLOPE_CLIENT_ID: str = ""
+    SKYSLOPE_CLIENT_SECRET: str = ""
+    # Production. Staging and the integration environment are api-staging / api-integ on the same
+    # domain, and which one holds a test account is SkySlope's answer to give.
+    SKYSLOPE_BASE_URL: str = "https://api.skyslope.com"
+    # §3(n) of SkySlope's API terms bars processes that run while nobody is logged in, so polling is
+    # off until SkySlope approves it in writing. Off means "only when a signed-in admin asks", and
+    # the gate is services/sync_policy.py rather than the job alone: `tick` calls run_all, which
+    # used to sync every connected source whatever any flag said. See SKYSLOPE-SPEC.md §5.
+    SKYSLOPE_SCHEDULED_SYNC: bool = False
+    SKYSLOPE_SYNC_INTERVAL_MINUTES: int = 30
+
     # Run the background scheduler (syncs + the AI Employees dispatch/execute jobs) INSIDE the
     # API process instead of a separate `python -m app.worker` service. For single-service
     # deployments that don't run a dedicated worker. Keep the API to ONE process when on

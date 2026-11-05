@@ -385,6 +385,67 @@ function SisuConnectForm({ row, onClose, onDone }) {
   );
 }
 
+/* ── SkySlope connect form (one per access key) ───────────────────
+   The application's own credentials are not here: they belong to the deployment. `integration_id`
+   is what makes this an edit, because "+ Connect another" on a connected card opens this same form
+   with none, and that is a new key rather than an edit of the first. */
+
+function SkyslopeConnectForm({ row, onClose, onDone }) {
+  const editing = Boolean(row.integration_id);
+  const [label, setLabel] = useState((row.config || {}).label || "");
+  const [accessKey, setAccessKey] = useState("");
+  const [accessSecret, setAccessSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await postJSON("/integrations", {
+        provider: "skyslope", business_key: row.business_key,
+        integration_id: row.integration_id || undefined,
+        label: label.trim(),
+        access_key: accessKey.trim() || undefined,        // blank on edit = keep current
+        access_secret: accessSecret.trim() || undefined,
+      });
+      onDone();
+    } catch (e2) {
+      setErr(e2?.detail || "Couldn't save. Double-check the Access Key and Access Secret.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
+  const labelStyle = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+  const keep = editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>;
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 420, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit SkySlope key" : "Connect SkySlope"}</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3 }}>An Access Key and Secret from SkySlope under My Account, Integrations. A key sees only what its owner sees, so a broker or office admin's key covers the whole team. Stored encrypted; we never write to SkySlope.</div>
+        <label style={labelStyle}>Name <span style={{ fontWeight: 400, color: T.muted }}>· optional, to tell keys apart</span>
+          <input style={field} value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} autoComplete="off" placeholder="Office admin key" />
+        </label>
+        <label style={labelStyle}>Access Key {keep}
+          <input style={field} value={accessKey} onChange={(e) => setAccessKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "(unchanged)" : ""} />
+        </label>
+        <label style={labelStyle}>Access Secret {keep}
+          <input style={field} type="password" value={accessSecret} onChange={(e) => setAccessSecret(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
+        </label>
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btn()}>Cancel</button>
+          <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── Follow Up Boss connect form (one API key) ────────────────── */
 
 function MetaAdsConnectForm({ row, onClose, onDone }) {
@@ -1272,7 +1333,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9 }}>
                   <span style={{ fontFamily: "var(--font-data)", fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: T.muted }}>
-                    {s.multi_entity ? `Entities · ${entities.length} · one connection each` : "Connection"}</span>
+                    {s.multi_entity ? `${s.entity_plural || "Entities"} · ${entities.length} · one connection each` : "Connection"}</span>
                   <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
                 </div>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 11, background: T.white, overflow: "hidden" }}>
@@ -1304,7 +1365,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
                     height: 32, padding: "0 13px", borderRadius: 9, cursor: live ? "pointer" : "default",
                     border: `1px dashed ${T.line}`, background: "transparent",
                     fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, whiteSpace: "nowrap",
-                  }}>+ Connect another entity</button>
+                  }}>+ Connect another {s.entity_singular || "entity"}</button>
                 )}
               </div>
             </div>
@@ -1315,10 +1376,11 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
   );
 }
 
-const MONO = { qbo: "QB", sisu: "Si", fub: "FB", ghl: "GH", ghl_bc: "bC", ghl_recruiting: "GR", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL", meta_ads: "Ma" };
+const MONO = { qbo: "QB", sisu: "Si", skyslope: "Sk", fub: "FB", ghl: "GH", ghl_bc: "bC", ghl_recruiting: "GR", arive: "Ar", stripe_legacy: "St", stripe_bc: "Sb", ghl_legacy: "GL", meta_ads: "Ma" };
 const DESC = {
   qbo: () => "Financial source of truth · one connection per entity",
   sisu: () => "Real estate production — transactions, agents, GCI",
+  skyslope: () => "Listings, contracts and closings, read-only. One connection per access key, and each key sees only what its owner sees",
   fub: () => "CRM — leads and agent activity",
   ghl: () => "The Forum — members, renewals, subscriptions, events",
   ghl_bc: () => "beCollective — its own GHL location; members, cohort onboarding, events",
@@ -1392,6 +1454,12 @@ const SAMPLE_VIEW = {
       fresh: "Synced 26 min ago", ago: "26 min", feeds: ["ulrg"], business_name: "ULRG + Team",
       provides: ["Transactions", "Agents", "GCI"], last_run: "Last run · 412 records · 3.1s",
       integration_id: "s1", entities: _one("sisu", "s1", "ulrg", "ULRG + Team", "#61835E") }),
+    _src({ provider: "skyslope", vendor: "SkySlope", family: "skyslope", category: "Production",
+      meta: "Production · listings, contracts and closings · synced on request", name: "SkySlope",
+      status: "disconnected", members: ["skyslope"], connect_provider: "skyslope",
+      business_key: "ulrg", business_name: "ULRG + Team", multi_entity: true,
+      entity_singular: "access key", entity_plural: "Access keys",
+      provides: ["Listings", "Contracts", "Closings"] }),
     _src({ provider: "fub", vendor: "Follow Up Boss", family: "fub", category: "CRM",
       meta: "CRM · leads and agent activity", name: "Follow Up Boss", status: "stale",
       members: ["fub"], connect_provider: "fub",
@@ -1565,6 +1633,10 @@ function IntegrationsPage() {
   const fixAlert = (a) => {
     if (a.action === "reconnect" && a.business_key) return qboConnect(a.business_key);
     const src = view.sources.find((x) => x.provider === a.provider);
+    // A source with several connections names the broken one, so the form opens on THAT connection
+    // rather than as a new one. Replacing its key must not leave the broken row behind.
+    const own = a.integration_id && src?.entities?.find((e) => e.integration_id === a.integration_id);
+    if (own) return editConnection(own);
     if (src) connectSource(src);
   };
 
@@ -1729,6 +1801,9 @@ function IntegrationsPage() {
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "sisu"
         ? <SisuConnectForm row={connecting} onClose={() => setConnecting(null)}
+            onDone={() => { setConnecting(null); load(); }} />
+        : connecting.provider === "skyslope"
+        ? <SkyslopeConnectForm row={connecting} onClose={() => setConnecting(null)}
             onDone={() => { setConnecting(null); load(); }} />
         : connecting.provider === "fub"
         ? <FubConnectForm row={connecting} onClose={() => setConnecting(null)}

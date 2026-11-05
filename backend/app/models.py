@@ -4149,3 +4149,147 @@ class CleanupState(Base):
         GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now())
+
+
+# ── SkySlope ─────────────────────────────────────────────────────────────────────────────────
+# A read-only copy of what a workspace's access keys can see: SKYSLOPE-SPEC.md, and
+# docs/skyslope-integration-spec.md for the field mapping. EVERY table here is confidential under
+# SkySlope's API terms and has to be purgeable on request, so a new table named skyslope_* is picked
+# up by services/skyslope_purge.py automatically and a test holds the two together.
+#
+# Tenant-wide rather than per key, because co-agent sharing returns one file to several keys. A file
+# is credited from its own agent fields, never from the key that happened to return it.
+#
+# The credentials and sync state are not here: they live on Integration (one row per access key), and
+# the run log is SyncRun, the same as every other source.
+class SkyslopeUser(Base):
+    """Somebody a key can see. Name, email, type and offices ONLY: /api/users also sends each
+    person's home address and phones, and they are dropped before anything is written."""
+    __tablename__ = "skyslope_user"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    user_guid: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    email_raw: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Lowercased and trimmed, with SkySlope's trailing _deleted / _deactivated removed. This is what
+    # a match compares; the raw one is kept because that suffix is the only sign of deactivation.
+    email_norm: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    user_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    office_guids: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    deactivated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_guid", name="uq_skyslope_user_guid"),
+        Index("ix_skyslope_user_email", "tenant_id", "email_norm"),
+    )
+
+
+class _SkyslopeFile:
+    """What a listing and a sale have in common.
+
+    `source_created_at` and `source_modified_at` are SkySlope's own clocks; `first_seen_at` is when
+    this row appeared here. SkySlope's timestamps carry no offset, so they are stored as UTC on an
+    assumption SkySlope has not confirmed.
+
+    `status` is the normalized status and stays NULL until the status map exists. `status_raw` is a
+    free string with no published list, so nothing may be derived from it without that map.
+
+    `raw` holds the allow-listed fields as SkySlope sent them, and `content_hash` is a hash of `raw`
+    plus `commission_raw`: a row whose hash has not moved is not rewritten, which is what lets an
+    immediate second run report zero changes. `last_seen_at` moves regardless and is not a change.
+
+    `removed_from_source_at`: no connected key returned this file on its latest full pull. The API
+    has no deletions feed, and a file leaving one key's results may only mean a share ended, so this
+    is a statement about what can be seen. Rows are never hard-deleted by a sync.
+    """
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("business.id", ondelete="SET NULL"), nullable=True)
+    agent_guid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status_raw: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    stage_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    office_guid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    list_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # City, state and ZIP only. A street address is never stored (SKYSLOPE-SPEC.md §8, decision 8).
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    zip: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    mls_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    commission_raw: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    raw: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    removed_from_source_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SkyslopeListing(_SkyslopeFile, Base):
+    __tablename__ = "skyslope_listing"
+    listing_guid: Mapped[str] = mapped_column(String(64))
+    listed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "listing_guid", name="uq_skyslope_listing_guid"),
+        Index("ix_skyslope_listing_agent", "tenant_id", "agent_guid"),
+        Index("ix_skyslope_listing_seen", "tenant_id", "last_seen_at"),
+    )
+
+
+class SkyslopeSale(_SkyslopeFile, Base):
+    __tablename__ = "skyslope_sale"
+    sale_guid: Mapped[str] = mapped_column(String(64))
+    # The listing this sale was converted from, when it was.
+    listing_guid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deal_side: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    contract_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expected_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "sale_guid", name="uq_skyslope_sale_guid"),
+        Index("ix_skyslope_sale_agent", "tenant_id", "agent_guid"),
+        Index("ix_skyslope_sale_seen", "tenant_id", "last_seen_at"),
+    )
+
+
+class SkyslopeFileAgent(Base):
+    """Who is on a file, and how. `role` is primary | co_agent | co_listing | split, and one person
+    can hold several roles on one file: the primary agent usually also has a split."""
+    __tablename__ = "skyslope_file_agent"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    file_kind: Mapped[str] = mapped_column(String(8))     # listing | sale
+    file_guid: Mapped[str] = mapped_column(String(64))
+    user_guid: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(16))
+    split_pct: Mapped[Decimal | None] = mapped_column(Numeric(7, 4), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "file_guid", "user_guid", "role", name="uq_skyslope_file_agent"),
+        Index("ix_skyslope_file_agent_user", "tenant_id", "user_guid"),
+    )
+
+
+class SkyslopeAgentLink(Base):
+    """A person's decision about who a SkySlope user is, and ONLY that.
+
+    Matching on email is derived on read, the way services/member_identity.py does it, so an email
+    match has no row here. This holds the cases email cannot settle. `agent_id` NULL records the
+    decision that this user is nobody in the agent list.
+    """
+    __tablename__ = "skyslope_agent_link"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    user_guid: Mapped[str] = mapped_column(String(64))
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("agent.id", ondelete="SET NULL"), nullable=True)
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "user_guid", name="uq_skyslope_agent_link"),)

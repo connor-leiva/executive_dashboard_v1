@@ -313,6 +313,10 @@ class SourceOut(BaseModel):
     # other source is one per workspace, and offering "connect another" there is a button that
     # leads nowhere. A flag rather than `provider == "qbo"` scattered through the page.
     multi_entity: bool = False
+    # What one connection is called on this card, when "entity" would be the wrong word. A second
+    # SkySlope connection is another access key, not another company.
+    entity_singular: str | None = None
+    entity_plural: str | None = None
     # ── the vendor row ───────────────────────────────────────────────────────────────────────
     # Providers this row stands for, in ORDER. Usually one; "Go High Level" is ghl + ghl_bc and
     # "Stripe" is stripe_legacy + stripe_bc. They remain separate integrations underneath -- this
@@ -340,6 +344,8 @@ class Alert(BaseModel):
     provider: str
     business_key: str | None = None
     action: str = "reconnect"     # reconnect | edit
+    # Which connection, where a source can hold several and the fix belongs to one of them.
+    integration_id: str | None = None
 
 
 class IntegrationsOut(BaseModel):
