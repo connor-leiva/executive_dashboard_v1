@@ -80,8 +80,9 @@ export function SampleBanner() {
         Sample data
       </span>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>
-        Every agent, listing and sale on this page is invented, to show how transaction data will look here once a
-        SkySlope key is connected. None of it came from SkySlope or from anybody's real business.
+        Every listing, sale and agent from SkySlope on this page is invented, to show how transaction data will look
+        here once a SkySlope key is connected. None of it came from SkySlope or from anybody's real business.
+        Anything from your other connected sources, such as Sisu's leads and appointments, is real.
       </span>
     </div>
   );

@@ -349,13 +349,15 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         ).scalars().all()
     }
 
-    # 2) Batch-upsert transactions -- unless this business's production is SkySlope's, set on the
-    # business explicitly. No reader filters `transaction` by source, so a second writer would add
-    # to the tiles rather than replace them (services/skyslope_project.py, "One writer").
+    # 2) Batch-upsert transactions. Where SkySlope owns this business's deals, every row is written as
+    # an ACTIVITY row: its lead, appointment and signed dates kept, every deal fact blank, so the
+    # deals are counted once, from SkySlope, and the activity still reaches the funnel and scorecards.
+    # Everywhere else the rows are whole, exactly as before (services/skyslope_project.py).
+    from .skyslope_project import as_activity, production_source
     biz = await s.get(Business, business_id) if business_id else None
-    if biz is not None and (biz.config or {}).get("production_source") == "skyslope":
-        print("[sisu] transactions skipped: this business's production comes from SkySlope", flush=True)
-        return len(agent_rows)
+    activity_only = biz is not None and await production_source(s, tenant_id, biz) == "skyslope"
+    if activity_only:
+        print("[sisu] this business's deals come from SkySlope: writing activity rows only", flush=True)
     txn_rows = [
         dict(tenant_id=tenant_id, business_id=business_id, source="sisu",
              external_id=t["external_id"], side=t.get("side"), status=t["status"],
@@ -374,6 +376,8 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
              sisu_status_code=t.get("sisu_status_code"))
         for t in mapped
     ]
+    if activity_only:
+        txn_rows = [as_activity(r) for r in txn_rows]
     await _upsert_many(s, Transaction, txn_rows, ["tenant_id", "source", "external_id"],
                        _TXN_UPDATE_KEYS)
     print(f"[sisu] upserted {len(txn_rows)} transactions", flush=True)

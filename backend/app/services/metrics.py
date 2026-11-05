@@ -691,7 +691,10 @@ async def _active_listings(s, tenant_id, business_id, cutoff) -> int:
         Transaction.listing_date >= cutoff))).scalar() or 0)
 
 
-async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int, int]:
+async def _producing_agents(s, tenant_id, business_id, start, end, roster_source=None) -> tuple[int, int]:
+    """Agents with a closing in the period, of the business's active agents. `roster_source` limits
+    the second number to one source's roster: on a SkySlope business Sisu's agents are the same people
+    again, so counting both would double the team."""
     producing = (await s.execute(
         select(func.count(distinct(Transaction.agent_id))).where(
             Transaction.tenant_id == tenant_id,
@@ -706,6 +709,7 @@ async def _producing_agents(s, tenant_id, business_id, start, end) -> tuple[int,
             Agent.tenant_id == tenant_id,
             Agent.business_id == business_id,
             Agent.is_active.is_(True),
+            *([Agent.source == roster_source] if roster_source else []),
         )
     )).scalar() or 0
     return int(producing), int(total)
@@ -935,9 +939,12 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         los = []                                       # per-LO performance (Sympli only)
         pipeline_cells = None                          # loan-pipeline pivot (Sympli only)
         txn_source, txn_sample = None, False           # who writes this business's transactions
+        funnel_source = None                           # the funnel's badge, when it is not the default
 
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.kind == roles.REAL_ESTATE:
+            from .skyslope_project import production_source
+            txn_source = await production_source(s, tenant_id, b)
             cutoff = dt.date.today() - dt.timedelta(days=settings.SISU_CURRENT_WINDOW_DAYS)
             closed = await _count(s, tenant_id, b.id, "closed", start, end, require_sale=True)
             volume = await _sum(s, tenant_id, b.id, Transaction.sale_price, "closed", start, end, require_sale=True)
@@ -945,12 +952,11 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             # Current-state tiles are recency-scoped (not date-in-period).
             pending, pipeline = await _current_pending(s, tenant_id, b.id, cutoff)
             active_listings = await _active_listings(s, tenant_id, b.id, cutoff)
-            producing, total = await _producing_agents(s, tenant_id, b.id, start, end)
+            producing, total = await _producing_agents(
+                s, tenant_id, b.id, start, end, roster_source="skyslope" if txn_source == "skyslope" else None)
             ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings,
                             producing, total, period_label(period))
             funnel = await _funnel(s, tenant_id, b.id, start, end)
-            from .skyslope_project import production_source
-            txn_source = await production_source(s, tenant_id, b)
             if txn_source == "skyslope":
                 from .skyslope_sample import is_sample_tenant
                 txn_sample = await is_sample_tenant(s, tenant_id)
@@ -959,8 +965,18 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                 for t in ops:
                     if t.key == "gci":
                         t.value, t.sub = "—", "needs a GCI definition"
-                # A lead-to-close funnel needs a lead source, and SkySlope holds files, not leads.
-                funnel = None
+                # Leads and appointments come from Sisu's activity rows (or Follow Up Boss), contracts
+                # and closings from SkySlope. With no activity source connected there is no top to
+                # the funnel, and a funnel of zero leads would read as a team that found no business.
+                activity = set((await s.execute(select(Integration.provider).where(
+                    Integration.tenant_id == tenant_id, Integration.business_id == b.id,
+                    Integration.provider.in_(("sisu", "fub")),
+                    Integration.status.in_(("connected", "error"))))).scalars().all())
+                if activity:
+                    funnel_source = " · ".join(
+                        [n for p, n in (("fub", "Follow Up Boss"), ("sisu", "Sisu")) if p in activity] + ["Transactions"])
+                else:
+                    funnel = None
             sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
                       ulrg_pipeline=pipeline, producing=producing, total_agents=total,
                       gci_undefined=txn_source == "skyslope")
@@ -1052,6 +1068,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
             loan_officers=los, loan_pipeline=pipeline_cells,
             transactions_source=txn_source if txn_source == "skyslope" else None, sample=txn_sample,
+            funnel_source=funnel_source,
         )
 
     # One membership entity, several views: its area splits into The Forum (the operational

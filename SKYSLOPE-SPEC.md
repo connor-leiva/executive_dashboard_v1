@@ -24,15 +24,33 @@ projection and panel.
   nothing to match against (blocker 5). Instead, SkySlope users become their own `agent` rows
   (`source = "skyslope"`). The "Needs match" view is not built.
 - **Decision 2 (B), feed `transaction`:** `services/skyslope_project.py`. Each business has one
-  writer:
+  owner of its deals:
   - the business's `config["production_source"]`, if set;
-  - otherwise SkySlope, if it has a live SkySlope connection and no live Sisu one;
+  - otherwise SkySlope, whenever it has a live SkySlope connection, Sisu or no Sisu (amended
+    2026-11-05: Connor's reason is that agents are paid through SkySlope, so it is the record the
+    brokerage can enforce, and Sisu's record keeping cannot be enforced across a national team);
   - otherwise Sisu.
 
-  Every live workspace is therefore unchanged. A business whose owner is not SkySlope has its
-  SkySlope rows removed, and the Sisu writer stands down when the config says `skyslope`. The
-  projection is a rebuild, not a log. It writes no address, buyer or contact field, and `gci` stays
-  NULL.
+  A workspace without SkySlope is therefore unchanged. A business whose owner is not SkySlope has
+  its SkySlope rows removed. The projection is a rebuild, not a log. It writes no address, buyer or
+  contact field, and `gci` stays NULL.
+- **Sisu's activity, separated only where SkySlope is enabled** (Connor, 2026-11-05: separated if
+  SkySlope is enabled, not if it isn't, because the product is multi-tenant). Sisu's leads,
+  appointments and signed agreements are dates on the same `transaction` rows as its deals.
+  - **On a SkySlope business:** each Sisu row is an *activity* row: `status = "activity"`, its
+    activity dates and agent kept, and every deal fact blank (`DEAL_FIELDS`: prices, GCI, contract,
+    close and listing dates). The Sisu writer writes them that way, and `demote_sisu` converts the
+    rows already there on SkySlope's next sync.
+  - **No reader had to change.** Every deal reader asks for a deal status and a deal date, and every
+    activity reader asks only for an activity date. So the tiles count SkySlope's deals, and the
+    funnel takes leads and appointments from Sisu and contracts and closings from SkySlope
+    ("Sisu · Transactions" on its badge). "Agents producing … of N" counts SkySlope's roster only,
+    since Sisu's agents are the same people again.
+  - **When SkySlope leaves** (Settings' Disconnect on a key or on the sample): `settle` removes its
+    rows and starts the business's Sisu sync at once. Every blanked field is in Sisu's update keys,
+    so that sync writes the deals back. From the CLI, the restore waits for Sisu's next scheduled
+    sync.
+  - **Elsewhere:** Sisu writes whole rows, as it always has.
 - **Phase 5:** `services/skyslope_metrics.py` and `GET /businesses/{key}/skyslope`, behind the
   business's tab.
   - The metrics: active listings, under contract (with past due), new contracts, closed, canceled
@@ -47,7 +65,8 @@ projection and panel.
 
 - **GCI:** a SkySlope-sourced business shows GCI as "—, needs a GCI definition", on the tile and on
   the portfolio strip, never `$0`.
-- **Funnel:** its lead-to-close funnel is hidden, because SkySlope holds files, not leads.
+- **Funnel:** shown when Sisu or Follow Up Boss is connected, with its two halves from different
+  sources. Hidden when neither is, because SkySlope holds files, not leads.
 - **Drill-downs:** they name their source from the rows (`Sisu` or `Transactions`), link out only to
   Sisu for Sisu rows, and name a SkySlope deal by its agent and city rather than its GUID.
 - **The header's source list:** it shows QuickBooks always, and Sisu, Follow Up Boss and Arive only
@@ -81,10 +100,14 @@ projection and panel.
 
 **Open, for Connor:**
 
-- **Sisu on Activated Agent:** if AA connects Sisu for activity (the spec's goal), the rule above hands
-  production back to Sisu. To keep SkySlope as the transaction source, set `production_source:
-  "skyslope"` on AA's business. But then Sisu also stops writing its activity dates, because those
-  live on the `transaction` rows. That needs a decision before Sisu goes on AA.
+- **Sisu on Activated Agent:** settled by the split above. Until a SkySlope key connects, AA's deals
+  stay Sisu's.
+- **Portal numbers:** a member's own closings in the portal are counted from their Sisu rows. On a
+  SkySlope business those become activity rows, so the portal reads 0 closings for them until Sisu
+  agents are matched to SkySlope users. That matching is the next phase, and it is now possible,
+  because AA has Sisu.
+- **Scorecard office attribution** uses Sisu's groups, which SkySlope's agents do not have. A per-team
+  L10 row on a SkySlope business therefore needs the same matching.
 - **Validation:** Phase 5's done-when (a hand count over a parallel week) and Phase 6's psql check
   wait for live data.
 

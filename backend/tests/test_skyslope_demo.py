@@ -194,40 +194,50 @@ async def test_the_projection_writes_no_contact_fields_no_gci_and_follows_the_ma
     assert pre and not {t.external_id for t in txns} & set(pre), "pre-contract is not under contract"
 
 
-async def test_one_writer_per_business():
-    """A live Sisu takes the business back and SkySlope's rows leave with it; saying so explicitly
-    hands it to SkySlope again. Two writers would add up, because no reader filters by source."""
+async def test_skyslope_owns_the_deals_wherever_it_is_connected_unless_the_business_says_otherwise():
+    """Connor, 2026-11-05: SkySlope is how the agents get paid, so where it is connected its deals are
+    the record, Sisu or no Sisu. An explicit `production_source` still wins, and handing the business
+    to Sisu takes SkySlope's rows out, because no reader filters by source."""
     w = await _workspace()
     await _load(w)
-    assert await _count(Transaction, w, Transaction.source == "skyslope") > 0
     async with SessionLocal() as s:
         s.add(Integration(tenant_id=w["tenant"], provider="sisu", business_id=w["business"], status="connected"))
+        await s.commit()
+        b = await s.get(Business, w["business"])
+        assert await skyslope_project.production_source(s, w["tenant"], b) == "skyslope"
+        await skyslope_project.project(s, w["tenant"])
+        await s.commit()
+    assert await _count(Transaction, w, Transaction.source == "skyslope") > 0
+    async with SessionLocal() as s:
+        b = await s.get(Business, w["business"])
+        b.config = {"production_source": "sisu"}
         await s.commit()
         await skyslope_project.project(s, w["tenant"])
         await s.commit()
     assert await _count(Transaction, w, Transaction.source == "skyslope") == 0
     assert await _count(Agent, w, Agent.source == "skyslope") == 0
-    async with SessionLocal() as s:
-        b = await s.get(Business, w["business"])
-        b.config = {"production_source": "skyslope"}
-        await s.commit()
-        await skyslope_project.project(s, w["tenant"])
-        await s.commit()
-    assert await _count(Transaction, w, Transaction.source == "skyslope") > 0
 
 
-async def test_the_sisu_writer_stands_down_when_the_business_says_skyslope(monkeypatch):
-    w = await _workspace()
+async def _sisu_rows_written(monkeypatch, w) -> list[dict]:
+    """Run the Sisu writer against a stub feed and return the transaction rows it would upsert.
+    `_upsert_many` is Postgres-only, so it is the seam."""
     wrote = []
 
     async def record(s, model, rows, keys, update):
-        wrote.append(model.__tablename__)
+        if model is Transaction:
+            wrote.extend(rows)
 
     async def nothing(*a, **k):
         return []
 
     async def clients(*a, **k):
-        return [{"external_id": "c1", "status": "closed", "sale_price": 1}], {"a1": {"external_id": "a1", "name": "A"}}
+        deal = {"external_id": "c1", "status": "closed", "sale_price": 512000, "gci": 15360,
+                "agent_commission": 12000, "contract_date": dt.date(2026, 10, 1), "close_date": dt.date(2026, 11, 2),
+                "expected_close_date": dt.date(2026, 11, 2), "listing_date": dt.date(2026, 9, 1),
+                "lead_date": dt.date(2026, 8, 1), "appt_set_date": dt.date(2026, 8, 5),
+                "appt_met_date": dt.date(2026, 8, 7), "signed_date": dt.date(2026, 8, 9), "side": "sell",
+                "agent_external_id": "a1"}
+        return [deal], {"a1": {"external_id": "a1", "name": "A"}}
 
     async def zero(*a, **k):
         return 0
@@ -237,15 +247,88 @@ async def test_the_sisu_writer_stands_down_when_the_business_says_skyslope(monke
     monkeypatch.setattr(sync_module.sisu, "get_team_vendors", nothing)
     monkeypatch.setattr(sync_module.sisu, "fetch_all_clients", clients)
     monkeypatch.setattr(sync_module.sisu, "enrich_commissions", zero)
-    for config, expect in (({"production_source": "skyslope"}, ["agent"]), ({}, ["agent", "transaction"])):
-        wrote.clear()
-        async with SessionLocal() as s:
-            b = await s.get(Business, w["business"])
-            b.config = config
-            await s.commit()
-            integ = Integration(tenant_id=w["tenant"], provider="sisu", business_id=w["business"], status="connected")
-            await sync_module.sync_sisu(s, w["tenant"], integ)
-        assert wrote == expect, config
+    async with SessionLocal() as s:
+        integ = Integration(tenant_id=w["tenant"], provider="sisu", business_id=w["business"], status="connected")
+        await sync_module.sync_sisu(s, w["tenant"], integ)
+    return wrote
+
+
+async def test_sisu_is_split_into_activity_only_where_skyslope_is_enabled(monkeypatch):
+    """Multi-tenant: a workspace without SkySlope gets Sisu's rows whole, exactly as before."""
+    plain = await _workspace()
+    [row] = await _sisu_rows_written(monkeypatch, plain)
+    assert row["status"] == "closed" and row["sale_price"] == 512000 and row["gci"] == 15360
+
+    sky = await _workspace()
+    await _load(sky)
+    [row] = await _sisu_rows_written(monkeypatch, sky)
+    assert row["status"] == skyslope_project.ACTIVITY_STATUS
+    assert all(row[f] is None for f in skyslope_project.DEAL_FIELDS), "a deal fact would be counted twice"
+    assert (row["lead_date"], row["appt_set_date"], row["appt_met_date"], row["signed_date"]) == (
+        dt.date(2026, 8, 1), dt.date(2026, 8, 5), dt.date(2026, 8, 7), dt.date(2026, 8, 9)), "the activity stays"
+    from app.services.sync import _TXN_UPDATE_KEYS
+    assert set(skyslope_project.DEAL_FIELDS) <= set(_TXN_UPDATE_KEYS), \
+        "a Sisu sync after SkySlope leaves must be able to write every blanked field back"
+
+
+async def test_one_page_counts_deals_from_skyslope_and_activity_from_sisu():
+    """Sisu's existing rows on the business become activity the moment SkySlope syncs: its closing
+    leaves the tiles, its leads and appointments stay in the funnel, and the team is counted once."""
+    w = await _workspace()
+    today = dt.date.today()
+    async with SessionLocal() as s:
+        s.add(Integration(tenant_id=w["tenant"], provider="sisu", business_id=w["business"], status="connected"))
+        a = Agent(tenant_id=w["tenant"], business_id=w["business"], source="sisu", external_id="s1", name="Sisu Agent")
+        s.add(a)
+        await s.flush()
+        s.add(Transaction(tenant_id=w["tenant"], business_id=w["business"], source="sisu", external_id="sisu-1",
+                          status="closed", side="sell", sale_price=999000, gci=29970, agent_id=a.id,
+                          contract_date=today, close_date=today, lead_date=today, appt_set_date=today))
+        await s.commit()
+    await _load(w)
+    async with SessionLocal() as s:
+        sisu = (await s.execute(select(Transaction).where(
+            Transaction.tenant_id == w["tenant"], Transaction.source == "sisu"))).scalar_one()
+        area = (await build_dashboard(s, w["tenant"], "mtd")).areas["main"]
+        sky_agents = (await s.execute(select(func.count()).select_from(Agent).where(
+            Agent.tenant_id == w["tenant"], Agent.source == "skyslope", Agent.is_active.is_(True)))).scalar_one()
+        sky_closed = (await s.execute(select(func.count()).select_from(Transaction).where(
+            Transaction.tenant_id == w["tenant"], Transaction.source == "skyslope", Transaction.status == "closed",
+            Transaction.close_date >= today.replace(day=1), Transaction.close_date <= today))).scalar_one()
+    assert sisu.status == "activity" and sisu.sale_price is None and sisu.appt_set_date == today
+    tiles = {t.key: t for t in area.ops}
+    assert int(tiles["units_closed"].value) == sky_closed, "Sisu's closing must not be added to SkySlope's"
+    assert tiles["agents_producing"].sub == f"of {sky_agents}", "the same people, counted once"
+    funnel = {r.label: r.v for r in area.funnel}
+    assert funnel["Leads"] >= 1 and funnel["Appointments"] >= 1, "Sisu's activity still reaches the funnel"
+    assert funnel["Closed"] == sky_closed
+    assert area.funnel_source == "Sisu · Transactions"
+
+
+async def test_disconnecting_skyslope_hands_the_deals_back_to_sisu(monkeypatch):
+    synced = []
+
+    async def record(tenant_id, integ_id, period="mtd"):
+        synced.append(integ_id)
+
+    monkeypatch.setattr(sync_jobs, "run_one_job", record)
+    w = await _workspace()
+    async with SessionLocal() as s:
+        sisu = Integration(tenant_id=w["tenant"], provider="sisu", business_id=w["business"], status="connected")
+        s.add(sisu)
+        s.add(Transaction(tenant_id=w["tenant"], business_id=w["business"], source="sisu", external_id="sisu-1",
+                          status="closed", sale_price=1, close_date=dt.date.today()))
+        await s.commit()
+        sisu_id = sisu.id
+    await _load(w)
+    async with SessionLocal() as s:
+        sample = (await s.execute(select(Integration).where(
+            Integration.tenant_id == w["tenant"], Integration.provider == "skyslope"))).scalar_one()
+    async with _client() as c:
+        r = await c.post(f"/api/v1/integrations/{sample.id}/disconnect", headers=_H(w["token"], w["slug"]))
+    assert r.status_code == 200
+    assert await _count(Transaction, w, Transaction.source == "skyslope") == 0
+    assert synced == [sisu_id], "Sisu's next sync is what writes its deals back, so it runs at once"
 
 
 async def test_the_drill_down_names_its_rows_and_never_links_into_sisu():

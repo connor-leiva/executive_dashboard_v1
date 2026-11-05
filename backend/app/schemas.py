@@ -171,6 +171,9 @@ class AreaPayload(BaseModel):
     # which is what puts the transactions panel on its page. None for Sisu, the default.
     transactions_source: str | None = None
     sample: bool = False                    # the figures above are invented sample data
+    # Where the funnel's stages come from, when that is not the default "Follow Up Boss · Sisu": on a
+    # SkySlope business the top comes from Sisu or Follow Up Boss and the bottom from SkySlope.
+    funnel_source: str | None = None
 
 
 class CompositionSeg(BaseModel):

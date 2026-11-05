@@ -56,7 +56,13 @@ async def _run(slug: str, business_key: str | None, remove: bool, dry_run: bool)
                 return 0
             await skyslope_purge.purge_tenant(s, tenant.id, actor="skyslope_sample --remove")
             await s.commit()
+            from app.services.skyslope_project import settle
+            waiting = await settle(s, tenant.id)
+            await s.commit()
             print("Sample data removed; recorded in audit_log as skyslope.purged.")
+            if waiting:
+                # Settings' Disconnect starts these at once; from here they wait for the schedule.
+                print(f"{len(waiting)} Sisu connection(s) here write their deals back on their next scheduled sync.")
             return 0
 
         q = select(Business).where(Business.tenant_id == tenant.id, Business.kind == roles.REAL_ESTATE)

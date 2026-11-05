@@ -675,7 +675,7 @@ function AreaDetail({ area, onDrill, period }) {
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <PanelLabel accent={a.accent}>{a.key === "sympli" ? "Loan pipeline" : "Lead-to-close funnel"}</PanelLabel>
-            <Source name={a.key === "sympli" ? "Arive" : "Follow Up Boss · Sisu"} />
+            <Source name={a.funnel_source || (a.key === "sympli" ? "Arive" : "Follow Up Boss · Sisu")} />
           </div>
           {a.key === "sympli" && a.loan_pipeline
             ? <LoanPipeline funnel={a.funnel} pipeline={a.loan_pipeline} accent={a.accent} onDrill={onDrill} />

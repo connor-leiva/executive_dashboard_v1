@@ -472,7 +472,7 @@ async def _cleanup_books_for_business(s: AsyncSession, tenant_id, business_id, p
 
 
 @router.post("/integrations/{integ_id}/disconnect")
-async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
+async def disconnect(integ_id: uuid.UUID, bg: BackgroundTasks, purge: bool = Query(False),
                      user: User = Depends(require_role("owner", "admin")),
                      s: AsyncSession = Depends(get_session)):
     integ = (await s.execute(select(Integration).where(
@@ -484,6 +484,7 @@ async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
         # invented numbers. Removed outright; the purge writes its own audit record.
         await skyslope_purge.purge_tenant(s, user.tenant_id, actor="disconnecting sample data")
         await s.commit()
+        await _hand_back_to_sisu(s, user.tenant_id, bg)
         return {"ok": True, "purged": True}
     # TODO: for qbo, also call Intuit's token-revocation endpoint before clearing.
     integ.status = "disconnected"
@@ -495,7 +496,19 @@ async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
     audit(s, user.tenant_id, user.id, "integration.disconnected", "integration", integ.id,
           {"provider": integ.provider, "purged": purge})
     await s.commit()
+    if integ.provider == "skyslope":
+        await _hand_back_to_sisu(s, user.tenant_id, bg)
     return {"ok": True, "purged": purge}
+
+
+async def _hand_back_to_sisu(s: AsyncSession, tenant_id, bg: BackgroundTasks) -> None:
+    """SkySlope just left (a key disconnected, or the sample). A business it no longer owns loses
+    its SkySlope rows now, and its Sisu connection syncs at once: until then Sisu's rows there are
+    activity-only, so the deals would be missing rather than counted (services/skyslope_project.py)."""
+    from ..services.skyslope_project import settle
+    for sisu_id in await settle(s, tenant_id):
+        bg.add_task(sync_jobs.run_one_job, tenant_id, sisu_id, "mtd")
+    await s.commit()
 
 
 # ── QBO entity lifecycle (self-service: create / re-route / remove) ──────────
