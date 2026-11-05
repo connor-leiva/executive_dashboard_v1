@@ -26,6 +26,46 @@ def _sisu_url(external_id) -> str | None:
         return None
 
 
+def _url(t: Transaction) -> str | None:
+    """A link out only to the system the row came from. A SkySlope row has a SkySlope GUID, and a
+    Sisu link built from it would open somebody else's deal or nothing."""
+    return _sisu_url(t.external_id) if (t.source or "sisu") == "sisu" else None
+
+
+# What the drawer calls each writer. Neutral for SkySlope: its name is not ours to show without its
+# written permission (SKYSLOPE-SPEC.md §2, blocker 6).
+_SOURCE_NAME = {"sisu": "Sisu", "skyslope": "Transactions"}
+
+
+def _source_of(txns) -> str:
+    names = sorted({_SOURCE_NAME.get(t.source or "sisu", t.source) for t in txns})
+    return " + ".join(names) if names else "Sisu"
+
+
+async def _name_skyslope_rows(s, tenant_id, txns, rows: list[dict]) -> list[dict]:
+    """A SkySlope row has no buyer and no address, on purpose (the never-store list), so the drawer
+    would otherwise show its GUID. It gets the agent and the city instead: what a person scanning
+    the list would call the deal."""
+    sky = [t for t in txns if t.source == "skyslope"]
+    if not sky:
+        return rows
+    from ..models import SkyslopeListing, SkyslopeSale
+    agents = {a.id: a.name for a in (await s.execute(select(Agent).where(
+        Agent.tenant_id == tenant_id, Agent.id.in_({t.agent_id for t in sky if t.agent_id})))).scalars().all()}
+    sale_ids = [t.external_id for t in sky if not t.external_id.startswith("listing:")]
+    listing_ids = [t.external_id.split(":", 1)[1] for t in sky if t.external_id.startswith("listing:")]
+    city = {g: c for g, c in (await s.execute(select(SkyslopeSale.sale_guid, SkyslopeSale.city).where(
+        SkyslopeSale.tenant_id == tenant_id, SkyslopeSale.sale_guid.in_(sale_ids or [""])))).all()}
+    city |= {f"listing:{g}": c for g, c in (await s.execute(select(SkyslopeListing.listing_guid, SkyslopeListing.city).where(
+        SkyslopeListing.tenant_id == tenant_id, SkyslopeListing.listing_guid.in_(listing_ids or [""])))).all()}
+    by_id = {str(t.id): t for t in sky}
+    for row in rows:
+        t = by_id.get(row.get("id"))
+        if t is not None:
+            row["name"] = " · ".join(p for p in (agents.get(t.agent_id), city.get(t.external_id)) if p) or "Transaction"
+    return rows
+
+
 def _fin_row(t: Transaction, kind: str, when) -> dict:
     """A deal behind a three-lens financial row: GCI, agent commission, and net
     GCI (company dollar = GCI − commission) when the commission has been enriched."""
@@ -40,7 +80,7 @@ def _fin_row(t: Transaction, kind: str, when) -> dict:
         "company_dollar": round(gci - comm, 2) if comm is not None else None,
         "side": t.side, "kind": kind,
         "close_date": when.isoformat() if when else None,
-        "source_url": _sisu_url(t.external_id),
+        "source_url": _url(t),
     }
 
 
@@ -54,7 +94,7 @@ def _txn_row(t: Transaction) -> dict:
         "status": t.status,
         "side": t.side,
         "close_date": t.close_date.isoformat() if t.close_date else None,
-        "source_url": _sisu_url(t.external_id),
+        "source_url": _url(t),
     }
 
 
@@ -109,9 +149,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
     # ── closed-sale metrics (rows = closed transactions this period) ──
     if key in _TXN_LABEL:
         txns = await _closed(s, tenant_id, start, end)
-        rows = [_txn_row(t) for t in txns]
+        rows = await _name_skyslope_rows(s, tenant_id, txns, [_txn_row(t) for t in txns])
         return {
-            "label": _TXN_LABEL[key], "source": "Sisu",
+            "label": _TXN_LABEL[key], "source": _source_of(txns),
             "computed_as": f"Closed sales with a price, {span()} (excludes rentals / $0 referrals)",
             "count": len(rows), "rows": rows,
         }
@@ -122,9 +162,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             Transaction.contract_date >= cutoff,
         ).order_by(Transaction.contract_date.desc())
         txns = (await s.execute(q)).scalars().all()
-        return {"label": "Under Contract", "source": "Sisu",
+        return {"label": "Under Contract", "source": _source_of(txns),
                 "computed_as": f"Deals under contract in the last {settings.SISU_CURRENT_WINDOW_DAYS} days",
-                "count": len(txns), "rows": [_txn_row(t) for t in txns]}
+                "count": len(txns), "rows": await _name_skyslope_rows(s, tenant_id, txns, [_txn_row(t) for t in txns])}
 
     if key == "active_listings":
         q = select(Transaction).where(
@@ -132,9 +172,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             Transaction.side == "sell", Transaction.listing_date >= cutoff,
         ).order_by(Transaction.listing_date.desc())
         txns = (await s.execute(q)).scalars().all()
-        return {"label": "Active Listings", "source": "Sisu",
+        return {"label": "Active Listings", "source": _source_of(txns),
                 "computed_as": f"Sell-side listings active in the last {settings.SISU_CURRENT_WINDOW_DAYS} days",
-                "count": len(txns), "rows": [_txn_row(t) for t in txns]}
+                "count": len(txns), "rows": await _name_skyslope_rows(s, tenant_id, txns, [_txn_row(t) for t in txns])}
 
     if key == "agents_producing":
         txns = await _closed(s, tenant_id, start, end)
@@ -147,7 +187,7 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
         rows = [{"id": str(aid), "name": names.get(aid, "Agent"),
                  "status": f"{c} closed", "source_url": None}
                 for aid, c in sorted(by_agent.items(), key=lambda x: -x[1])]
-        return {"label": "Agents Producing", "source": "Sisu",
+        return {"label": "Agents Producing", "source": _source_of(txns),
                 "computed_as": f"Agents with at least one closed sale, {span()}",
                 "count": len(rows), "rows": rows}
 

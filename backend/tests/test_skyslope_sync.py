@@ -179,7 +179,7 @@ async def test_the_mapping_reads_what_the_api_sends(fake):
     row = (await _rows(SkyslopeSale, w))[0]
     assert row.agent_guid == agent.lower(), "GUIDs are stored lowercase so a join cannot miss on case"
     assert row.status_raw == "Under Contract" and row.status_id == 11
-    assert row.status is None, "normalizing is the next phase"
+    assert row.status == "under_contract", "Phase 4 normalizes it at the end of every sync"
     assert row.stage_name == "In Escrow" and row.deal_side == "Buyer" and row.mls_number == "MLS-77"
     assert (row.city, row.state, row.zip) == ("Boise", "ID", "83702")
     assert float(row.sale_price) == 485000.5 and float(row.list_price) == 500000.0

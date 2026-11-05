@@ -791,7 +791,9 @@ async def _source_statuses(s, tenant_id) -> list[SourceStatus]:
     integs = (await s.execute(
         select(Integration).where(Integration.tenant_id == tenant_id)
     )).scalars().all()
-    display = {"qbo": "QuickBooks", "sisu": "Sisu", "fub": "Follow Up Boss", "arive": "Arive"}
+    # SkySlope under a neutral name: its own name is not ours to show without its written OK.
+    display = {"qbo": "QuickBooks", "sisu": "Sisu", "fub": "Follow Up Boss", "arive": "Arive",
+               "skyslope": "Transactions"}
     # Collapse multiple rows per provider (QBO is per-realm) into one status.
     agg: dict[str, dict] = {}
     for i in integs:
@@ -803,7 +805,12 @@ async def _source_statuses(s, tenant_id) -> list[SourceStatus]:
         if i.last_synced_at and (cur["last"] is None or i.last_synced_at > cur["last"]):
             cur["last"] = i.last_synced_at
     out = []
-    for prov in ("qbo", "sisu", "fub", "arive"):
+    # QuickBooks always, because the financials need it. The others only once this workspace has
+    # connected them at least once: a source it never had is not "offline", and listing all four
+    # told a SkySlope brokerage that four of its systems were down.
+    for prov in ("qbo", "sisu", "fub", "arive", "skyslope"):
+        if prov != "qbo" and prov not in agg:
+            continue
         a = agg.get(prov, {"status": "disconnected", "last": None})
         out.append(SourceStatus(
             name=display[prov], status=a["status"],
@@ -872,7 +879,7 @@ def _scorecards(
     *, portfolio_noi, portfolio_margin, ulrg_gci, ulrg_closed, ulrg_pending, ulrg_pipeline,
     producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
     members_sub="Members", re_key="ulrg", jv_key="sympli", member_tab="forum",
-    attach_sub="Attach rate",
+    attach_sub="Attach rate", gci_undefined=False,
 ) -> list[Scorecard]:
     """The portfolio strip.
 
@@ -888,7 +895,9 @@ def _scorecards(
             value=_compact_usd(portfolio_noi) if have_financials else "—",
             sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
             business_key="portfolio", key="combined_profit"),
-        Scorecard(label="Total GCI", value=_compact_usd(ulrg_gci), sub="this period", business_key=re_key, key="gci"),
+        # A SkySlope brokerage has no GCI field yet (decision 9): a gap, not $0 earned.
+        Scorecard(label="Total GCI", value="—" if gci_undefined else _compact_usd(ulrg_gci),
+                  sub="needs a GCI definition" if gci_undefined else "this period", business_key=re_key, key="gci"),
         Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key=re_key, key="units_closed"),
         Scorecard(label="Under Contract", value=str(ulrg_pending),
                   sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key=re_key, key="pending"),
@@ -925,6 +934,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         cfg = b.config or {}
         los = []                                       # per-LO performance (Sympli only)
         pipeline_cells = None                          # loan-pipeline pivot (Sympli only)
+        txn_source, txn_sample = None, False           # who writes this business's transactions
 
         # Operational (Phase 1) — only ULRG has live transaction data.
         if b.kind == roles.REAL_ESTATE:
@@ -939,8 +949,21 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             ops = _ops_ulrg(closed, volume, gci, pending, pipeline, active_listings,
                             producing, total, period_label(period))
             funnel = await _funnel(s, tenant_id, b.id, start, end)
+            from .skyslope_project import production_source
+            txn_source = await production_source(s, tenant_id, b)
+            if txn_source == "skyslope":
+                from .skyslope_sample import is_sample_tenant
+                txn_sample = await is_sample_tenant(s, tenant_id)
+                # No SkySlope field is GCI yet (decision 9): the projection writes it NULL, and a sum
+                # of nothing is not $0 earned. Said as a gap, never as a number.
+                for t in ops:
+                    if t.key == "gci":
+                        t.value, t.sub = "—", "needs a GCI definition"
+                # A lead-to-close funnel needs a lead source, and SkySlope holds files, not leads.
+                funnel = None
             sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
-                      ulrg_pipeline=pipeline, producing=producing, total_agents=total)
+                      ulrg_pipeline=pipeline, producing=producing, total_agents=total,
+                      gci_undefined=txn_source == "skyslope")
         else:
             ops = _ops_from_config(b)
             funnel = [FunnelRow(**f) for f in cfg.get("funnel", [])] if cfg.get("funnel") else None
@@ -1019,11 +1042,16 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             pl = []
 
         tag = "Real estate" if b.tag == "Brokerage" else b.tag   # ULRG is a team, not a brokerage
+        sources = _SOURCES.get(b.key, ["QuickBooks"])
+        if txn_source == "skyslope":
+            # A neutral provenance chip: SkySlope's name is not ours to show without its written OK.
+            sources = ["QuickBooks", "Transactions: sample" if txn_sample else "Transactions: live"]
         areas[b.key] = AreaPayload(
             id=str(b.id), key=b.key, name=b.name, tag=tag, status=derive_status(b, margin),
-            accent=b.accent, ink=b.ink, sources=_SOURCES.get(b.key, ["QuickBooks"]),
+            accent=b.accent, ink=b.ink, sources=sources,
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
             loan_officers=los, loan_pipeline=pipeline_cells,
+            transactions_source=txn_source if txn_source == "skyslope" else None, sample=txn_sample,
         )
 
     # One membership entity, several views: its area splits into The Forum (the operational
@@ -1196,7 +1224,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         ulrg_pipeline=sc["ulrg_pipeline"], producing=sc["producing"], total_agents=sc["total_agents"],
         sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
         attach_rate=attach, members=sc["members"], have_financials=have_financials,
-        members_sub=sc["members_sub"],
+        members_sub=sc["members_sub"], gci_undefined=bool(sc.get("gci_undefined")),
         # Name this tenant's own businesses on the tiles, so each drill lands somewhere real.
         # Fall back to the literals only when the tenant has no business of that kind — the
         # tile shows "—" in that case anyway, and the key is never followed.

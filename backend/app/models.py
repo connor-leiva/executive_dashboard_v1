@@ -4192,8 +4192,9 @@ class _SkyslopeFile:
     this row appeared here. SkySlope's timestamps carry no offset, so they are stored as UTC on an
     assumption SkySlope has not confirmed.
 
-    `status` is the normalized status and stays NULL until the status map exists. `status_raw` is a
-    free string with no published list, so nothing may be derived from it without that map.
+    `status` is the normalized status, set from `status_raw` by services/skyslope_normalize.py after
+    every sync (`unmapped` when the map names nothing). `status_raw` is a free string with no
+    published list, so nothing may be derived from it except through that map.
 
     `raw` holds the allow-listed fields as SkySlope sent them, and `content_hash` is a hash of `raw`
     plus `commission_raw`: a row whose hash has not moved is not rewritten, which is what lets an

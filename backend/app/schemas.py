@@ -167,6 +167,10 @@ class AreaPayload(BaseModel):
     funnel: list[FunnelRow] | None = None
     loan_officers: list[LoanOfficer] = []   # Sympli only — per-LO performance
     loan_pipeline: dict | None = None       # Sympli only — {stages, cells} pivot for the pipeline toggle
+    # "skyslope" when this business's transactions come from SkySlope (services/skyslope_project.py),
+    # which is what puts the transactions panel on its page. None for Sisu, the default.
+    transactions_source: str | None = None
+    sample: bool = False                    # the figures above are invented sample data
 
 
 class CompositionSeg(BaseModel):

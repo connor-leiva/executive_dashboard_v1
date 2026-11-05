@@ -130,6 +130,24 @@ async def _build_context(s, user: User, period: str, step_up: set | None = None)
     if fin:
         data["financials"] = fin
 
+    # A SkySlope brokerage's transactions panel: coverage, pipeline by state, past due, who has gone
+    # quiet. The tiles above already carry its totals, so without this "who is past due" is
+    # unanswerable. And when the files are invented, the model is told so in as many words: the
+    # tiles alone would let it quote sample numbers as a real team's.
+    from .skyslope_project import production_source
+    sky: dict = {}
+    for b in businesses:
+        if b.kind == "real_estate" and (b.display_tab or b.key) in tabs \
+                and await production_source(s, user.tenant_id, b) == "skyslope":
+            from .skyslope_metrics import overview
+            sky[b.key] = await overview(s, user.tenant_id, b.id, period)
+    if sky:
+        data["transactions_detail"] = sky
+        if any(v.get("sample") for v in sky.values()):
+            data["notice"] = ("The transaction figures for " + ", ".join(k for k, v in sky.items() if v.get("sample"))
+                              + " are INVENTED SAMPLE DATA loaded to show how the SkySlope integration will look. "
+                              "No real agent, deal or number is in them. Say so whenever you cite them.")
+
     if "forum" in tabs:
         data["forum_detail"] = await build_forum(s, user.tenant_id, period)
         # The Forum's quarterly event, when one is configured. Without this, "how many VIP

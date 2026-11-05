@@ -9,6 +9,7 @@ import { getJSON, getToken, logout, postJSON, tenantHeaders } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
+import TransactionsPanel, { SampleBanner } from "./TransactionsPanel.jsx";
 import UlrgTabs from "./ulrg/UlrgTabs.jsx";
 import BrandScorecardTabs from "./BrandScorecardTabs.jsx";
 import ForumShell from "./ForumShell.jsx";
@@ -458,8 +459,12 @@ function Overview({ data, onOpen, onDrill }) {
   const fwAvailable = fw.available !== false && buyerClosings != null;
   const { src: fwSource, partner: fwPartner } = fwNames(fw);
 
+  // The strip below rolls up every business, so invented figures in one of them reach it too.
+  const anySample = Object.values(areas || {}).some((a) => a && a.sample);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {anySample && <SampleBanner />}
       {/* Hero */}
       <div style={{
         position: "relative", overflow: "hidden", borderRadius: 16, padding: 28,
@@ -639,6 +644,9 @@ function AreaDetail({ area, onDrill, period }) {
         <Dot status={a.status} />
       </div>
 
+      {/* Above everything, because the tiles below are invented too, not just the panel. */}
+      {a.sample && <SampleBanner />}
+
       {hasThreeLens ? (
         <>
           {/* Three-lens financial view (Live / Projection / Booked) replaces the single P&L pane. */}
@@ -657,6 +665,10 @@ function AreaDetail({ area, onDrill, period }) {
           </Card>
           {opsCard}
         </div>
+      )}
+
+      {a.transactions_source === "skyslope" && (
+        <TransactionsPanel businessKey={a.key} period={period} accent={a.accent} />
       )}
 
       {a.funnel && (

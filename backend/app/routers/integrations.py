@@ -21,7 +21,7 @@ from ..tenancy import tenant_app_url
 import httpx
 
 from ..integrations import fub, qbo, skyslope, stripe_legacy
-from ..services import legacy_export, roles, skyslope_sync, sync_jobs
+from ..services import legacy_export, roles, skyslope_purge, skyslope_sample, skyslope_sync, sync_jobs
 from ..services.integrations_view import build_integrations_view
 from ..schemas import IntegrationsOut
 
@@ -251,11 +251,15 @@ async def _connect_skyslope(s: AsyncSession, user, tenant, biz, body: dict, bg: 
     rows = (await s.execute(select(Integration).where(
         Integration.tenant_id == user.tenant_id, Integration.provider == "skyslope"))).scalars().all()
 
+    sample_rows = [r for r in rows if skyslope_sample.is_sample(r)]
     integ = None
     if body.get("integration_id"):
         integ = next((r for r in rows if str(r.id) == str(body["integration_id"])), None)
         if integ is None:
             raise HTTPException(404, "Unknown integration")
+        if skyslope_sample.is_sample(integ):
+            raise HTTPException(400, "That connection is sample data and has no key to edit. "
+                                     "Connect a real key instead, and the sample is removed.")
     elif access_key:
         integ = next((r for r in rows if _skyslope_blob(r).get("access_key") == access_key), None)
     if integ is None:
@@ -279,6 +283,14 @@ async def _connect_skyslope(s: AsyncSession, user, tenant, biz, body: dict, bg: 
                                      "under My Account, Integrations in SkySlope.")
         except (skyslope.SkySlopeError, httpx.HTTPError):
             pass
+
+    if sample_rows:
+        # Sample and real data never share a workspace: a real key arriving clears the invented one,
+        # every row of it, and the audit log records that it happened. Only now, after the key has
+        # been checked, so a mistyped key does not cost the demo its data.
+        await skyslope_purge.purge_tenant(s, user.tenant_id, actor="connecting a real SkySlope key")
+        await s.flush()
+        integ, stored = None, {}
 
     if integ is None:
         integ = Integration(tenant_id=user.tenant_id, provider="skyslope", business_id=biz.id)
@@ -467,6 +479,12 @@ async def disconnect(integ_id: uuid.UUID, purge: bool = Query(False),
         Integration.id == integ_id, Integration.tenant_id == user.tenant_id))).scalar_one_or_none()
     if not integ:
         raise HTTPException(404, "Unknown integration")
+    if integ.provider == "skyslope" and skyslope_sample.is_sample(integ):
+        # Disconnecting invented data means not wanting it, and leaving it behind would keep showing
+        # invented numbers. Removed outright; the purge writes its own audit record.
+        await skyslope_purge.purge_tenant(s, user.tenant_id, actor="disconnecting sample data")
+        await s.commit()
+        return {"ok": True, "purged": True}
     # TODO: for qbo, also call Intuit's token-revocation endpoint before clearing.
     integ.status = "disconnected"
     integ.access_token_enc = None

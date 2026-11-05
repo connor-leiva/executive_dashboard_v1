@@ -18,9 +18,9 @@ its watermark would claim it holds data it no longer holds.
 THE RECORD SURVIVES THE PURGE. It is an `audit_log` row holding counts and a timestamp, with no
 SkySlope data in it, so it answers "when was this destroyed, and how much" after the data is gone.
 
-PHASE 5 (SKYSLOPE-SPEC.md §7): if the sync starts projecting into `transaction` and `agent`, those
-rows are SkySlope-sourced as well and this module has to delete them too. They are not named here
-yet because no code writes them.
+THE PROJECTION (SKYSLOPE-SPEC.md §7, services/skyslope_project.py) writes SkySlope's files into
+`transaction` and `agent` with `source = "skyslope"`. Those rows are SkySlope-sourced too, so they are
+named here and deleted, transactions first because they point at the agents.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import datetime as dt
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Base, Integration, SyncRun
+from ..models import Agent, Base, Integration, SyncRun, Transaction
 from .audit import audit
 
 PROVIDER = "skyslope"
@@ -51,6 +51,9 @@ async def counts(s: AsyncSession, tenant_id) -> dict[str, int]:
         Integration.tenant_id == tenant_id, Integration.provider == PROVIDER))).scalar_one()
     out["sync_run"] = (await s.execute(select(func.count()).select_from(SyncRun).where(
         SyncRun.tenant_id == tenant_id, SyncRun.provider == PROVIDER))).scalar_one()
+    for model in (Transaction, Agent):
+        out[model.__tablename__] = (await s.execute(select(func.count()).select_from(model).where(
+            model.tenant_id == tenant_id, model.source == PROVIDER))).scalar_one()
     return out
 
 
@@ -60,6 +63,8 @@ async def purge_tenant(s: AsyncSession, tenant_id, *, actor: str = "purge comman
     removed = await counts(s, tenant_id)
     for table in tables():
         await s.execute(delete(table).where(table.c.tenant_id == tenant_id))
+    for model in (Transaction, Agent):                 # this order: transactions point at agents
+        await s.execute(delete(model).where(model.tenant_id == tenant_id, model.source == PROVIDER))
     await s.execute(delete(Integration).where(
         Integration.tenant_id == tenant_id, Integration.provider == PROVIDER))
     await s.execute(delete(SyncRun).where(

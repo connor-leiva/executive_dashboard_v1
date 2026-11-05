@@ -79,6 +79,21 @@ async def business_financials(key: str, period: str = Query("mtd"),
     return await compute_financials(s, user.tenant_id, b, period)
 
 
+@router.get("/businesses/{key}/skyslope")
+async def business_skyslope(key: str, period: str = Query("mtd"),
+                            user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """The transactions panel: SkySlope's listings and sales for this business, with coverage and a
+    provenance chip on every number (services/skyslope_metrics.py). Behind the business's own tab,
+    the same gate as its financials."""
+    await assert_tab(user, s, key)
+    b = (await s.execute(select(Business).where(
+        Business.tenant_id == user.tenant_id, Business.key == key))).scalar_one_or_none()
+    if not b:
+        raise HTTPException(404, "Unknown business")
+    from ..services.skyslope_metrics import overview
+    return await overview(s, user.tenant_id, b.id, period)
+
+
 @router.put("/businesses/{key}/periods/{period}/close")
 async def close_books(key: str, period: str,
                       user: User = Depends(require_role("owner", "admin")), s: AsyncSession = Depends(get_session)):

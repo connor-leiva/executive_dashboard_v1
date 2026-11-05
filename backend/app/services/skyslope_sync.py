@@ -23,8 +23,13 @@ stored rows for it.
 WHO A FILE BELONGS TO comes from its own agent fields, never from the key that returned it. Co-agent
 sharing returns one file to several keys, and that key may not be the agent on it.
 
-SkySlope's status strings have no published list and are stored as sent. Normalizing them is the next
-phase, so `status` stays NULL here.
+SkySlope's status strings have no published list and are stored as sent, in `status_raw`. After every
+sync, services/skyslope_normalize.py sets `status` from them, and services/skyslope_project.py
+rebuilds the business's `transaction` rows. Both run on what is stored, so a status-map change or
+another key's rows are settled by the next sync, without a re-pull.
+
+A SAMPLE CONNECTION (services/skyslope_sample.py) is read through this same code with a stand-in for
+the HTTP client; `_api_for` is the only line that differs.
 """
 from __future__ import annotations
 
@@ -482,16 +487,26 @@ async def _run_pull(s, tenant_id, integ, api, kind, state, reading, now) -> dict
     return result
 
 
+def _api_for(integ: Integration):
+    """The real client, or for a sample connection the stand-in that never touches the network. Only
+    the source of the items differs: everything after this line is the same code for both."""
+    from .skyslope_sample import SampleApi, anchor_of, is_sample
+    if is_sample(integ):
+        return SampleApi(anchor_of(integ))
+    return skyslope.client(creds_for(integ))
+
+
 async def sync_skyslope(s: AsyncSession, tenant_id, integ: Integration) -> tuple[int, dict]:
     """One cycle for one access key. Returns (files read, the numbers for the run's `stats`).
 
     `rows_changed` is the check on this: run it twice in a row and the second reports zero.
     """
-    creds = creds_for(integ)
+    from . import skyslope_normalize, skyslope_project
+    api_context = _api_for(integ)
     # Two clicks on Sync queue rather than stack, so a second backfill cannot start beside the first.
     async with _LOCKS.setdefault(integ.id, asyncio.Lock()):
         try:
-            async with skyslope.client(creds) as api:
+            async with api_context as api:
                 now = dt.datetime.now(_UTC)
                 reading = await api.replica_timestamp()
                 watermark = (reading or {}).get("replicaLastCommitTimeUtc") if isinstance(reading, dict) else None
@@ -509,6 +524,11 @@ async def sync_skyslope(s: AsyncSession, tenant_id, integ: Integration) -> tuple
                     removed = await _mark_removed(s, tenant_id, now)
                     await s.commit()
                 users = await _sync_users(s, tenant_id, api, now)
+            # Phase 4 and the projection run on what is stored, not on this pull, so they also settle
+            # rows another key wrote and a status-map change made since.
+            statuses = await skyslope_normalize.apply(s, tenant_id)
+            projected = await skyslope_project.project(s, tenant_id)
+            await s.commit()
         except SQLAlchemyError:
             # The session holds a failed statement, and the caller still has to record the failure.
             await s.rollback()
@@ -517,4 +537,5 @@ async def sync_skyslope(s: AsyncSession, tenant_id, integ: Integration) -> tuple
     seen = sum(p["listings"] + p["sales"] for p in pulls)
     return seen, {"passes": pulls, "rows_seen": seen, "rows_changed": sum(p["changed"] for p in pulls),
                   "removed": removed, "watermark": watermark, "lag_seconds": reading.get("lagSeconds"),
-                  "integration_id": str(integ.id), **users}
+                  "integration_id": str(integ.id), "statuses_moved": statuses["moved"],
+                  "unmapped_statuses": statuses["unmapped"], "projected": projected, **users}

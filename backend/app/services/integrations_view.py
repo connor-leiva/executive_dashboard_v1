@@ -261,19 +261,26 @@ def _key_source(rows, biz_by_id, target, run, now, family, vendor, category, met
         cfg = i.config or {}
         b = biz_by_id[i.business_id]
         hint = cfg.get("key_hint") or ""
+        sample = bool(cfg.get("sample"))
         label = cfg.get("label") or (f"Access key ····{hint}" if hint else "Access key")
         ok = i.status != "error"
         if i.last_synced_at and (freshest is None or _aware(i.last_synced_at) > freshest):
             freshest = _aware(i.last_synced_at)
+        if sample:
+            # Invented data has no key to edit, and disconnecting it removes it (routers/integrations.py).
+            actions, summary = ["sync", "disconnect"], [["Data", "Invented sample, not from SkySlope"], ["For", b.name]]
+        else:
+            actions = (["sync"] if ok else ["reconnect"]) + ["edit", "disconnect"]
+            summary = [["Key", f"····{hint}"], ["For", b.name]] if hint else [["For", b.name]]
         entities.append(EntityRow(
             integration_id=str(i.id), business_key=b.key, business_name=label,
             state="ok" if ok else "error",
             last_synced_at=i.last_synced_at.isoformat() if i.last_synced_at else None,
             detail=None if ok else i.last_error, provider=prov, accent=b.accent,
-            actions=(["sync"] if ok else ["reconnect"]) + ["edit", "disconnect"],
+            actions=actions,
             # Only what the edit form needs. The sync's watermark is not for the page.
             config={"label": cfg.get("label") or ""},
-            config_summary=[["Key", f"····{hint}"], ["For", b.name]] if hint else [["For", b.name]]))
+            config_summary=summary))
         if not ok:
             alerts.append(Alert(title=f"{label} needs attention",
                                 detail=i.last_error or "Its last sync failed.",
@@ -307,7 +314,8 @@ def _key_source(rows, biz_by_id, target, run, now, family, vendor, category, met
         integration_id=None, business_key=bkey,
         needs_kind=None if live or target else CONNECTABLE_KIND[prov],
         business_name=bname,
-        tag=f"{n} keys" if n > 1 else None)
+        tag=("Sample data" if any((i.config or {}).get("sample") for i in live)
+             else f"{n} keys" if n > 1 else None))
     return source, alerts, freshest, n
 
 

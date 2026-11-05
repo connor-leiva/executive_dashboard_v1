@@ -349,7 +349,13 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         ).scalars().all()
     }
 
-    # 2) Batch-upsert transactions.
+    # 2) Batch-upsert transactions -- unless this business's production is SkySlope's, set on the
+    # business explicitly. No reader filters `transaction` by source, so a second writer would add
+    # to the tiles rather than replace them (services/skyslope_project.py, "One writer").
+    biz = await s.get(Business, business_id) if business_id else None
+    if biz is not None and (biz.config or {}).get("production_source") == "skyslope":
+        print("[sisu] transactions skipped: this business's production comes from SkySlope", flush=True)
+        return len(agent_rows)
     txn_rows = [
         dict(tenant_id=tenant_id, business_id=business_id, source="sisu",
              external_id=t["external_id"], side=t.get("side"), status=t["status"],

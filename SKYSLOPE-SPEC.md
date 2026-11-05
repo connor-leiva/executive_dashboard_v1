@@ -1,8 +1,101 @@
 # SkySlope integration: audit and build record
 
-**Status, 2026-11-04: Phases 1 to 3 are built against a fake shaped from the OpenAPI file. Nothing has
-met the real API. Phases 4 to 6 are not started.** Connor reports that SkySlope confirmed the use and
-accepted every default in §8. What that confirmation covers in writing is still open: see §10.
+**Status, 2026-11-05: Phases 1 to 6 are built; Phases 1 to 3 are deployed. Nothing has met the real
+API.** No application Client ID and Secret have been issued yet (SkySlope's CSM sends those; Connor has
+only a user's Access Key). To demo the product before then, a sample of invented data runs through the
+real code: see §11. Connor reports that SkySlope confirmed the use and accepted every default in §8.
+What that confirmation covers in writing is still open: see §10.
+
+## 11. Phases 4 to 6, and the sample (2026-11-05)
+
+Built to demo the integration to Activated Agent's team in the live `activatedagent` workspace before
+any real key exists, without a mock-up: invented files go through the real sync, status map,
+projection and panel.
+
+**What each phase became:**
+
+- **Phase 4, normalize:** `services/skyslope_normalize.py`. It is the spec's status table with
+  decisions 4 and 5 applied: `Pre-contract` and `Incomplete` each get their own state. A workspace can
+  override the table in `tenant.config["skyslope_status_map"]`, and an override naming an unknown
+  state is ignored. Anything unmatched becomes `unmapped`, which counts for nothing and is listed in
+  the panel and in the run's stats. It runs after every sync on the stored rows, so a change to the
+  map needs no re-pull.
+- **Phase 4, attribution:** *not the spec's Sisu matching.* Activated Agent has no Sisu, so there is
+  nothing to match against (blocker 5). Instead, SkySlope users become their own `agent` rows
+  (`source = "skyslope"`). The "Needs match" view is not built.
+- **Decision 2 (B), feed `transaction`:** `services/skyslope_project.py`. Each business has one
+  writer:
+  - the business's `config["production_source"]`, if set;
+  - otherwise SkySlope, if it has a live SkySlope connection and no live Sisu one;
+  - otherwise Sisu.
+
+  Every live workspace is therefore unchanged. A business whose owner is not SkySlope has its
+  SkySlope rows removed, and the Sisu writer stands down when the config says `skyslope`. The
+  projection is a rebuild, not a log. It writes no address, buyer or contact field, and `gci` stays
+  NULL.
+- **Phase 5:** `services/skyslope_metrics.py` and `GET /businesses/{key}/skyslope`, behind the
+  business's tab.
+  - The metrics: active listings, under contract (with past due), new contracts, closed, canceled
+    and not producing (60 days, from `tenant.config["skyslope_not_producing_days"]`).
+  - Coverage: "All N agents", or "Partial" when every key was refused `/api/users`.
+  - Every metric carries a chip: `live`, `needs_sync`, `needs_key_scope` or `needs_definition`.
+  - GCI is always `needs_definition` (decision 9).
+- **Phase 6:** `frontend/src/TransactionsPanel.jsx` on the generic area page, shown when the area says
+  `transactions_source: "skyslope"`. The source is named neutrally ("Transactions"; blocker 6).
+
+**Changed outside SkySlope, on purpose:**
+
+- **GCI:** a SkySlope-sourced business shows GCI as "—, needs a GCI definition", on the tile and on
+  the portfolio strip, never `$0`.
+- **Funnel:** its lead-to-close funnel is hidden, because SkySlope holds files, not leads.
+- **Drill-downs:** they name their source from the rows (`Sisu` or `Transactions`), link out only to
+  Sisu for Sisu rows, and name a SkySlope deal by its agent and city rather than its GUID.
+- **The header's source list:** it shows QuickBooks always, and Sisu, Follow Up Boss and Arive only
+  once the workspace has connected them. Before, it listed all four everywhere, so a workspace that
+  never had Arive read "1 offline". **This changes the header on every workspace missing one of the
+  four.** Spring's workspace has all four, so hers is unchanged.
+
+**Smaller choices:**
+
+- SkySlope's `Expired` sale (past its closing date) is counted as under contract and flagged past due,
+  as the Pending Pipeline tile counts it. A contract whose closing date has passed is also flagged
+  past due, derived when read.
+- A `Dual` deal is projected as `sell`, because `transaction` has one side per row.
+
+**The sample** (`services/skyslope_sample.py`, `scripts/skyslope_sample.py`):
+
+- **What it is:** 14 invented agents at example.com addresses in Idaho's Treasure Valley, plus 103
+  sales and 44 listings dated around the day it is loaded.
+- **Where it is marked:**
+  - a banner on the portfolio and the business page;
+  - "Transactions: sample" on the tiles' card, and "Sample" on every panel chip;
+  - a "Sample data" tag on the Settings card;
+  - an explicit notice in the Ask panel's context.
+- **When it is removed, by `services/skyslope_purge.py`, which now covers the projected
+  `transaction` and `agent` rows:**
+  - connecting a real key (only after the key checks out, so a typo keeps the demo);
+  - disconnecting the sample;
+  - `--remove`.
+- **When it is refused:** in a workspace that has any real connection. It needs no application
+  credentials and never opens a client.
+
+**Open, for Connor:**
+
+- **Sisu on Activated Agent:** if AA connects Sisu for activity (the spec's goal), the rule above hands
+  production back to Sisu. To keep SkySlope as the transaction source, set `production_source:
+  "skyslope"` on AA's business. But then Sisu also stops writing its activity dates, because those
+  live on the `transaction` rows. That needs a decision before Sisu goes on AA.
+- **Validation:** Phase 5's done-when (a hand count over a parallel week) and Phase 6's psql check
+  wait for live data.
+
+**How it was checked:**
+
+- 19 new tests in `tests/test_skyslope_demo.py`, one per control, including that a Sisu business is
+  exactly as it was.
+- The existing SkySlope suites pass. One Phase 3 assertion, "status stays NULL", was updated because
+  this phase sets it.
+- A production build in the browser, against a scratch copy of the AA workspace, checked at desktop
+  and at 375px: the page width stays 375px, and the agent table scrolls inside its card.
 
 The handed-over spec is [docs/skyslope-integration-spec.md](docs/skyslope-integration-spec.md),
 kept verbatim. It still governs everything this file does not change. Everything here was read
