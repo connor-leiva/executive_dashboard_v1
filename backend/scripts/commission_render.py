@@ -324,7 +324,8 @@ def recompute(doc: dict) -> dict:
     return doc
 
 
-def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
+def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str,
+          show_caveats: bool = False):
     label = period_label(doc["period"])
     payee, email = doc["payee"]["name"], doc["payee"]["email"]
     _TITLE[0] = f"Commission Statement — {payee} — {label}"
@@ -374,7 +375,14 @@ def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
                 cohort2_table(doc["_c2_prior_rows"], doc["_c2_prior"], None,
                               billed_label=f"—  billed {prior_label.split()[0][:3]}")]))
 
-        checks = caveats(doc)
+        # The caveats are not printed on the statement. Connor's call: the document a
+        # contractor receives states what they are owed, and the checks behind it are an
+        # internal matter settled before it is sent. They are still COMPUTED -- the refusals
+        # that drop a figure, and the tie-outs that refuse to print a contradictory one, are
+        # unchanged and are not commentary -- and they are still written to the payload and
+        # printed by the gather, which is where they get read now. --caveats puts the section
+        # back on the page for an internal copy.
+        checks = caveats(doc) if show_caveats else []
         if checks:
             s.append(KeepTogether([
                 Paragraph("Before this is paid", H2),
@@ -427,6 +435,11 @@ def main() -> None:
     ap.add_argument("--prepared", default=None, help='e.g. "Nov 4, 2026  ·  Revised"')
     ap.add_argument("--prior-label", default="August 2026",
                     help="which earlier statement the carried rows were billed on")
+    ap.add_argument("--caveats", action="store_true",
+                    help="print the 'Before this is paid' checks on the document. Off by "
+                         "default: the statement states what the contractor is owed, and the "
+                         "checks are settled internally first. They are always computed, "
+                         "always in the payload, and always printed by the gather.")
     a = ap.parse_args()
 
     src = pathlib.Path(a.payload)
@@ -444,7 +457,7 @@ def main() -> None:
     except Exception:                                        # noqa: BLE001
         prepared = a.prepared or str(dt.date.today())
 
-    build(doc, out, prepared, a.prior_label)
+    build(doc, out, prepared, a.prior_label, show_caveats=a.caveats)
     print(f"wrote {out}")
     print(f"  clients {doc['_clients']} ({doc['_billed_clients']} billed)")
     print(f"  cash    {usd(doc['_cash_total'])}   less prior {usd(doc['_c2_prior'])}")

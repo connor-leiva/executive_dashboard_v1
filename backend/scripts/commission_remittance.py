@@ -161,7 +161,8 @@ def rep_detail(rep):
                  bold_rows=(len(data) - 1,))
 
 
-def build(c: dict, out: pathlib.Path, reference: str, prepared: str):
+def build(c: dict, out: pathlib.Path, reference: str, prepared: str,
+          show_caveats: bool = False):
     label = (period_label(c["periods"][-1]) if c["periods"] else "")
     _TITLE[0] = f"Commission Remittance — {PROGRAMME} — {label} — {reference}"
 
@@ -203,22 +204,25 @@ def build(c: dict, out: pathlib.Path, reference: str, prepared: str):
                 Spacer(1, 4),
                 rep_detail(rep)]))
 
-        checks = []
-        for rep in c["reps"]:
-            seen = set()
-            for st in rep["statements"]:
-                for n in st["caveats"]:
-                    if n in seen:
-                        continue          # the same caveat on each of a rep's three months
-                    seen.add(n)
-                    checks.append(f"{rep['name']}: {n}")
-        if checks:
-            s.append(KeepTogether([
-                Paragraph("Before this is paid", H2),
-                Paragraph("Carried from the individual statements, unedited. Each line needs a "
-                          "person to confirm it.", BODY),
-                Spacer(1, 5),
-                check_table(checks)]))
+        # Not printed. See commission_render.build() for why; the same applies with more
+        # force here, because this page leaves the building.
+        if show_caveats:
+            checks = []
+            for rep in c["reps"]:
+                seen = set()
+                for st in rep["statements"]:
+                    for n in st["caveats"]:
+                        if n in seen:
+                            continue      # the same caveat on each of a rep's three months
+                        seen.add(n)
+                        checks.append(f"{rep['name']}: {n}")
+            if checks:
+                s.append(KeepTogether([
+                    Paragraph("Before this is paid", H2),
+                    Paragraph("Carried from the individual statements, unedited. Each line "
+                              "needs a person to confirm it.", BODY),
+                    Spacer(1, 5),
+                    check_table(checks)]))
 
         s.append(KeepTogether([
             Paragraph("Approval", H2),
@@ -257,6 +261,9 @@ def main() -> None:
                     help="extra <period>-<slug> to include, e.g. 2026-08-brianna")
     ap.add_argument("--reference", default=None,
                     help="document reference; defaults to BC-COMM-<period>-EB")
+    ap.add_argument("--caveats", action="store_true",
+                    help="print the 'Before this is paid' checks. Off by default: this page "
+                         "goes to the agency.")
     ap.add_argument("--out", default=None, type=pathlib.Path)
     ap.add_argument("--prepared", default=None)
     a = ap.parse_args()
@@ -287,7 +294,7 @@ def main() -> None:
     except Exception:                                        # noqa: BLE001
         prepared = a.prepared or str(dt.date.today())
 
-    build(c, out, reference, prepared)
+    build(c, out, reference, prepared, show_caveats=a.caveats)
 
     print(f"wrote {out}")
     print(f"  reference {reference}   periods {', '.join(c['periods'])}")
