@@ -427,6 +427,27 @@ QUERIES: dict[str, tuple[str, str]] = {
         " WHERE q.stripe_ever <> q.commission_ever"
         " ORDER BY q.stripe_ever - q.commission_ever DESC, q.name",
     ),
+    "dup_won_opps": (
+        "Any contact with more than one WON launch opportunity. The gap fill emits one row "
+        "per won opportunity, not per member, so a second one would duplicate the member's "
+        "whole gap on the statement.",
+        "SELECT meta ->> 'contact_id' AS contact_id, string_agg(name, ' | ') AS names,"
+        " count(*) AS won_opps, sum(amount) AS total_value"
+        " FROM metric_record WHERE source = 'ghl' AND kind = 'bc_launch_opp'"
+        " AND status = 'won' AND meta ->> 'contact_id' IS NOT NULL"
+        " GROUP BY 1 HAVING count(*) > 1 ORDER BY 3 DESC",
+    ),
+    "refunds": (
+        "Every beCollective Stripe charge carrying a refund. The gap fill sums `amount` and "
+        "the commission table stores cash NET of refunds, so a refund here inflates the "
+        "shortfall and pays commission on money that went back.",
+        "SELECT lower(email) AS email, name,"
+        " to_char(occurred_on, 'YYYY-MM-DD') AS paid, status, amount AS gross,"
+        " (meta ->> 'amount_refunded') AS refunded"
+        " FROM metric_record WHERE source = 'stripe_bc' AND kind = 'payment'"
+        " AND coalesce((meta ->> 'amount_refunded')::numeric, 0) <> 0"
+        " ORDER BY occurred_on DESC",
+    ),
 }
 
 

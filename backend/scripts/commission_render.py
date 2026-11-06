@@ -24,6 +24,8 @@ import json
 import pathlib
 import sys
 
+from xml.sax import saxutils
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -60,6 +62,21 @@ CHECK = ParagraphStyle("CHECK", parent=ss["Normal"], fontName="Helvetica", fontS
 
 _TITLE = [""]
 _PAGES = [0]
+
+
+def esc(v) -> str:
+    """Text for a Paragraph. reportlab parses a mini-XML, so unescaped data is not merely
+    mis-styled: an angle-bracketed fragment is removed from the page and nothing reports it.
+    Applied to every value coming from the data (names, plans, stages, reasons, caveats),
+    never to the few strings this file marks up itself."""
+    return saxutils.escape("" if v is None else str(v))
+
+
+def rate_label(rate) -> str:
+    """The rep's real rate. Trailing zeros trimmed, so the common case still reads "10%"
+    rather than "10.000%" and a genuine fraction still reads correctly."""
+    pct = round(float(rate or 0) * 100, 3)
+    return f"{pct:.3f}".rstrip("0").rstrip(".") + "%"
 
 
 def usd(v) -> str:
@@ -106,6 +123,9 @@ def kv_table(rows, flag_rows=(), bold_rows=()):
     return _grid(data, [3.3 * inch, 3.4 * inch], flag_rows, bold_rows)
 
 
+_RATE = [0.10]          # set by build(), so a column header cannot disagree with the maths
+
+
 def cohort2_table(rows, subtotal_cash, subtotal_due, billed_label="—  billed earlier"):
     """Stage, and the contract columns only when the data actually carries them.
 
@@ -118,13 +138,13 @@ def cohort2_table(rows, subtotal_cash, subtotal_due, billed_label="—  billed e
     head += ["Cash collected"]
     if money_cols:
         head += ["Remaining balance"]
-    head += ["Commission (10%)"]
+    head += [f"Commission ({rate_label(_RATE[0])})"]
     data = [[Paragraph(h, CELLH) for h in head]]
     for r in rows:
         due = (usd(r["commission"]) if r.get("commission") is not None else billed_label)
-        row = [Paragraph(r["member"] or "(no name)", CELL),
-               Paragraph(r.get("stage") or "—", CELL),
-               Paragraph(r.get("plan") or "—", CELL)]
+        row = [Paragraph(esc(r["member"] or "(no name)"), CELL),
+               Paragraph(esc(r.get("stage") or "—"), CELL),
+               Paragraph(esc(r.get("plan") or "—"), CELL)]
         if money_cols:
             row.append(Paragraph(usd(r["contract"]) if r.get("contract") else "—", CELL))
         row.append(Paragraph(usd(r["cash"]), CELL))
@@ -145,10 +165,11 @@ def cohort2_table(rows, subtotal_cash, subtotal_due, billed_label="—  billed e
 
 
 def cohort1_table(rows, cash, due):
-    head = ["Client", "Payment plan", "Instalment", "Commission (10%)"]
+    head = ["Client", "Payment plan", "Instalment", f"Commission ({rate_label(_RATE[0])})"]
     data = [[Paragraph(h, CELLH) for h in head]]
     for r in rows:
-        data.append([Paragraph(r["member"], CELL), Paragraph(r.get("plan") or "—", CELL),
+        data.append([Paragraph(esc(r["member"]), CELL),
+                     Paragraph(esc(r.get("plan") or "—"), CELL),
                      Paragraph(usd(r["cash"]), CELL), Paragraph(usd(r["commission"]), CELL)])
     data.append([Paragraph("Subtotal", CELLH), Paragraph("", CELL),
                  Paragraph(usd(cash), CELLH), Paragraph(usd(due), CELLH)])
@@ -181,7 +202,8 @@ def caveats(doc: dict) -> list[str]:
     is what stops the next list going the same way.
     """
     out, seen = [], set()
-    buckets = [doc.get("exceptions"),
+    buckets = [doc.get("_review_changes"),
+               doc.get("exceptions"),
                (doc.get("cohort1") or {}).get("notes"),
                ((doc.get("cohort1") or {}).get("meta") or {}).get("notes"),
                (doc.get("cohort2") or {}).get("notes")]
@@ -195,7 +217,7 @@ def caveats(doc: dict) -> list[str]:
 
 
 def check_table(items):
-    data = [[Paragraph(f"{i}.", CHECK), Paragraph(n, CHECK)]
+    data = [[Paragraph(f"{i}.", CHECK), Paragraph(esc(n), CHECK)]
             for i, n in enumerate(items, 1)]
     tbl = Table(data, colWidths=[0.28 * inch, None], hAlign="LEFT")
     tbl.setStyle(TableStyle([
@@ -212,7 +234,41 @@ def check_table(items):
 
 def recompute(doc: dict) -> dict:
     """Totals from the rows that survive review. Never trusts the gather's own sums: a person
-    has edited the file since, and the whole point of the edit is that it changes them."""
+    has edited the file since, and the whole point of the edit is that it changes them.
+
+    That promise held for cohort 2 only. Cohort 1's `cash` and `commission` were read straight
+    out of the payload and handed to the table as its own subtotal, so striking a cohort-1 row
+    removed the line and moved no figure -- deleting all ten of one statement's cohort-1 rows
+    still printed Total due $1,285.00. Both cohorts are rebuilt from their surviving rows now,
+    and the asserts tie each printed subtotal to the rows printed under it.
+    """
+    rate = doc.get("rate_pct", 0.10)
+
+    # Cohort 1 is rebuilt exactly like cohort 2. It is the hand-kept tracker cohort and most of
+    # a tracker month's commission, so it is where a reviewer is MOST likely to strike a row.
+    c1doc = doc["cohort1"]
+    c1_all = list(c1doc.get("rows") or [])
+    c1 = [r for r in c1_all if not r.get("excluded")]
+    for r in c1:
+        if r.get("commission") is None:
+            r["commission"] = round(r["cash"] * rate, 2)
+    # Keep what the gather computed BEFORE overwriting it. Once both sides of a tie-out are
+    # derived from the same rows nothing can disagree, so an assert there cannot fail and is
+    # worth nothing. The useful signal is the DIFFERENCE between what the gather produced and
+    # what survived review: that is the reviewer's edit, and it belongs on the page rather
+    # than in an exception nobody sees.
+    was_cash, was_due = c1doc.get("cash"), c1doc.get("commission")
+
+    c1doc["rows"] = c1
+    c1doc["cash"] = round(sum(r["cash"] for r in c1), 2)
+    c1doc["commission"] = round(sum(r["commission"] for r in c1), 2)
+    doc["_review_changes"] = []
+    if was_cash is not None and round(float(was_cash), 2) != c1doc["cash"]:
+        doc["_review_changes"].append(
+            f"First-cohort cash was changed by review: the gather produced "
+            f"{usd(was_cash)} ({usd(was_due)} commission) and this statement carries "
+            f"{usd(c1doc['cash'])} ({usd(c1doc['commission'])}).")
+
     c2 = [r for r in doc["cohort2"]["rows"] if not r.get("excluded")]
     billable = [r for r in c2 if not r.get("already_billed")]
     prior = [r for r in c2 if r.get("already_billed")]
@@ -228,17 +284,39 @@ def recompute(doc: dict) -> dict:
     for r in prior:
         r["commission"] = None
     doc["_c2_due"] = round(sum(r["commission"] for r in billable), 2)
+    was_c2 = (doc["cohort2"] or {}).get("cash")
+    if was_c2 is not None and round(float(was_c2), 2) != round(
+            doc["_c2_billable"] + doc["_c2_prior"], 2):
+        doc["_review_changes"].append(
+            f"Second-cohort cash was changed by review: the gather produced {usd(was_c2)} "
+            f"and this statement carries "
+            f"{usd(round(doc['_c2_billable'] + doc['_c2_prior'], 2))}.")
 
-    c1 = doc["cohort1"]
-    doc["_billable"] = round(c1["cash"] + doc["_c2_billable"], 2)
-    doc["_due"] = round(c1["commission"] + doc["_c2_due"], 2)
-    doc["_cash_total"] = round(c1["cash"] + doc["_c2_billable"] + doc["_c2_prior"], 2)
-    doc["_clients"] = len(c1["rows"]) + len(c2)
-    doc["_billed_clients"] = len(c1["rows"]) + len(billable)
-    doc["_excluded"] = [r for r in doc["cohort2"]["rows"] if r.get("excluded")]
+    doc["_billable"] = round(c1doc["cash"] + doc["_c2_billable"], 2)
+    doc["_due"] = round(c1doc["commission"] + doc["_c2_due"], 2)
+    doc["_cash_total"] = round(c1doc["cash"] + doc["_c2_billable"] + doc["_c2_prior"], 2)
+    doc["_clients"] = len(c1) + len(c2)
+    doc["_billed_clients"] = len(c1) + len(billable)
+    # Exclusions from BOTH cohorts, so a struck cohort-1 row says why on the page instead of
+    # just vanishing from it.
+    doc["_excluded"] = ([r for r in c1_all if r.get("excluded")]
+                        + [r for r in doc["cohort2"]["rows"] if r.get("excluded")])
 
-    # The arithmetic has to close, or the document is not worth printing.
-    assert round(doc["_cash_total"] - doc["_c2_prior"], 2) == doc["_billable"], "cash does not tie"
+    # The one check here that is not derived from the same rows it checks, and so the only one
+    # that can actually fail: every commission figure PRINTED on the document must be that
+    # row's cash at the stated rate, and they must add up to the stated total. A hand-edited
+    # cash figure with its commission left alone, or a commission edited without its cash, is
+    # caught here instead of being printed as a number that contradicts its own row.
+    printed = [r for r in c1 + billable]
+    for r in printed:
+        want = round(r["cash"] * rate, 2)
+        if abs(r["commission"] - want) > 0.011:        # a cent of float slack, no more
+            raise AssertionError(
+                f"{r.get('member')!r}: the statement would print {usd(r['commission'])} "
+                f"commission on {usd(r['cash'])} cash, but {rate_label(rate)} of that is "
+                f"{usd(want)}. Fix the row or the rate before this is printed.")
+    assert doc["_due"] == round(sum(r["commission"] for r in printed), 2), (
+        "the stated total is not the sum of the printed commission figures")
     return doc
 
 
@@ -246,10 +324,11 @@ def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
     label = period_label(doc["period"])
     payee, email = doc["payee"]["name"], doc["payee"]["email"]
     _TITLE[0] = f"Commission Statement — {payee} — {label}"
+    _RATE[0] = doc.get("rate_pct", 0.10)
 
     def story():
         s = [
-            Paragraph(f"Commission Statement — {payee} —<br/>{label}", H1),
+            Paragraph(f"Commission Statement — {esc(payee)} —<br/>{label}", H1),
             Paragraph(f"{prepared}  ·  @Connor", META),
             Paragraph("Summary", H2),
             Paragraph(f"Total commission due to {payee} for {label}: <b>{usd(doc['_due'])}</b>"
@@ -260,10 +339,11 @@ def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
             Paragraph("Statement detail", H2),
         ]
         detail = [("Item", "Detail"),
-                  ("Payee", f"{payee} ({email})"),
+                  ("Payee", f"{esc(payee)} ({esc(email)})"),
                   ("Business", "beCollective"),
                   ("Commission period", label),
-                  ("Commission basis", f"{int(doc.get('rate_pct', .1) * 100)}% of cash collected"),
+                  ("Commission basis",
+                   f"{rate_label(doc.get('rate_pct', .1))} of cash collected"),
                   ("Clients", f"{doc['_clients']} ({doc['_billed_clients']} billed this period)"),
                   ("Total cash collected", usd(doc["_cash_total"]))]
         flag = ()
@@ -305,11 +385,12 @@ def build(doc: dict, out: pathlib.Path, prepared: str, prior_label: str):
                             "cohort is tracked separately and is not included here; its "
                             "commission for this period is owed under a separate statement.")
         for r in doc["_excluded"]:
+            # `or`, not a dict default: a present-but-empty reason left the sentence dangling.
             notes.append(f"{r['member']} appeared in the period's data and has been removed. "
-                         f"{r.get('reason', 'Not attributable to this rep.')}")
+                         f"{r.get('reason') or 'Not attributable to this rep.'}")
         body = [Paragraph("Notes", H2)]
         for i, n in enumerate(notes, 1):
-            body += [Paragraph(f"{i}. {n}", BODY), Spacer(1, 4)]
+            body += [Paragraph(f"{i}. {esc(n)}", BODY), Spacer(1, 4)]
         s.append(KeepTogether(body))
         s.append(KeepTogether([
             Paragraph("Approval", H2),

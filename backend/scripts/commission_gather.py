@@ -169,7 +169,11 @@ def cohort1_cash_from_stripe(period: str, emails: list[str]) -> tuple[dict, list
         conn.read_only = True
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT lower(email), coalesce(sum(amount), 0) FROM metric_record"
+                # Net of refunds, for the same reason as the gap query: a refunded
+                # instalment is not cash the rep earned on.
+                "SELECT lower(email), coalesce(sum(amount"
+                "   - coalesce((meta ->> 'amount_refunded')::numeric, 0)), 0)"
+                " FROM metric_record"
                 " WHERE source = 'stripe_bc' AND kind = 'payment' AND status = 'succeeded'"
                 " AND lower(email) = ANY(%(em)s)"
                 " AND to_char(occurred_on, 'YYYY-MM') = %(p)s GROUP BY 1",
@@ -263,6 +267,33 @@ _EMAIL_LOOKUP = (
     "      OR lower(r.name) = lower(opp.name)) LIMIT 1")
 
 
+def allocate_unrecorded(payments, commission_ever):
+    """Which dollars of a member's Stripe history the commission table never recorded.
+
+    `payments` is [(paid 'YYYY-MM-DD', amount)] oldest first; `commission_ever` is everything
+    the commission table holds for that member. Returns [(month, paid, amount)] for the
+    uncovered part, oldest first.
+
+    Covers the oldest payments first: the earliest cash is the most likely to have been
+    invoiced already, and the rule must give the same answer on every run without remembering
+    the last one. The consequence that matters is that the months PARTITION the shortfall --
+    gathering August, September and October separately cannot total more than is owed, which a
+    per-run cap could not promise because no run can see the others.
+    """
+    cover = round(float(commission_ever or 0), 2)
+    out = []
+    for paid, amount in payments:
+        amount = round(float(amount), 2)
+        if cover >= amount:
+            cover = round(cover - amount, 2)
+            continue                             # already accounted for
+        free = round(amount - cover, 2)          # a single payment can be part covered
+        cover = 0.0
+        if free > 0:
+            out.append((paid[:7], paid, free))
+    return out
+
+
 def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
     """Cash this rep's won members paid that the commission table never recorded.
 
@@ -290,7 +321,12 @@ def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
         "    WHERE sc.contact_id = opp.meta ->> 'contact_id' AND sc.rep_email IS NOT NULL"
         "    ORDER BY sc.is_current DESC, sc.call_time_utc DESC LIMIT 1), '') AS rep,"
         f"  ({_EMAIL_LOOKUP}) AS email,"
-        "  coalesce((SELECT sum(sp.amount) FROM metric_record sp"
+        # NET of refunds. commission_payment stores `amount - amountRefunded`, so summing
+        # gross here invented a shortfall out of a refund and paid commission on returned
+        # money. The refund lives in meta.amount_refunded (see sync.py and billing.py).
+        "  coalesce((SELECT sum(sp.amount"
+        "      - coalesce((sp.meta ->> 'amount_refunded')::numeric, 0))"
+        "    FROM metric_record sp"
         "    WHERE sp.source = 'stripe_bc' AND sp.kind = 'payment'"
         "    AND sp.status = 'succeeded'"
         f"    AND lower(sp.email) = ({_EMAIL_LOOKUP})), 0) AS stripe_ever,"
@@ -306,13 +342,26 @@ def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
         " WHERE q.rep = lower(%(rep)s) AND q.stripe_ever > q.commission_ever"
         " ORDER BY q.member")
 
+    # What the query above cannot see, counted so it is stated rather than assumed away: an
+    # opportunity that is not yet 'won' but is already collecting, or one that has lost its
+    # contact id, is outside the gap check entirely.
+    blind_sql = (
+        "SELECT count(*) FILTER (WHERE status <> 'won') AS not_won,"
+        " count(*) FILTER (WHERE meta ->> 'contact_id' IS NULL) AS no_contact"
+        " FROM metric_record WHERE source = 'ghl' AND kind = 'bc_launch_opp'")
+
+    # EVERY payment, not just this period's. FIFO cannot decide what is uncovered in October
+    # without knowing what August and September collected. occurred_on then amount then name
+    # so the order is total and the same on every run: two charges on one day must not swap
+    # places between gathers, or which of them is "covered" changes with the wind.
     pays_sql = (
         "SELECT lower(email) AS email,"
-        " to_char(occurred_on, 'YYYY-MM-DD') AS paid, amount, name"
+        " to_char(occurred_on, 'YYYY-MM-DD') AS paid,"
+        " (amount - coalesce((meta ->> 'amount_refunded')::numeric, 0)) AS net, name"
         " FROM metric_record WHERE source = 'stripe_bc' AND kind = 'payment'"
         " AND status = 'succeeded' AND lower(email) = ANY(%(em)s)"
-        " AND to_char(occurred_on, 'YYYY-MM') = %(p)s"
-        " ORDER BY occurred_on, name")
+        " AND (amount - coalesce((meta ->> 'amount_refunded')::numeric, 0)) > 0"
+        " ORDER BY occurred_on, 3, name")
 
     try:
         with psycopg.connect(url, connect_timeout=30) as conn:
@@ -320,10 +369,12 @@ def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
             with conn.cursor() as cur:
                 cur.execute(members_sql, {"rep": cfg["email"]})
                 gapped = cur.fetchall()
+                cur.execute(blind_sql)
+                not_won, no_contact = cur.fetchone()
                 emails = [g[5] for g in gapped if g[5]]
                 pays = []
                 if emails:
-                    cur.execute(pays_sql, {"em": emails, "p": period})
+                    cur.execute(pays_sql, {"em": emails})
                     pays = cur.fetchall()
     except Exception as e:                                   # noqa: BLE001
         return [], [f"Could not check for unrecorded Stripe cash ({type(e).__name__}). "
@@ -333,7 +384,35 @@ def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
     for email, paid, amount, name in pays:
         by_email.setdefault(email, []).append((paid, money(amount), name))
 
+    # ONE entry per member, not per opportunity. members_sql returns a row per won
+    # bc_launch_opp; a member with two of them (a re-created or upgraded opp, or two duplicate
+    # GHL contacts on one email) would otherwise have the same uncovered payments appended
+    # once per row and their whole gap paid twice on one statement. Keyed on the email the
+    # payments are matched by, since that is what decides which payments get claimed; the
+    # product's own attribution dedupes at exactly this point.
+    seen_key, collapsed, merged = set(), [], {}
+    for g in gapped:
+        key = (g[5] or "").strip().lower() or f"opp:{g[1]}"
+        if key in seen_key:
+            merged.setdefault(g[0], []).append(g[1])
+            continue
+        seen_key.add(key)
+        collapsed.append(g)
+    gapped = collapsed
+
     rows, notes = [], []
+    for member, opps in merged.items():
+        notes.append(
+            f"{member} has more than one won opportunity in the CRM ({len(opps) + 1} of them). "
+            f"Their collected cash is counted ONCE here, against the first. Tidy the duplicate "
+            f"opportunities in GHL -- an extra one is also an extra contract value in every "
+            f"other report.")
+    if not_won or no_contact:
+        notes.append(
+            f"The unrecorded-cash check only looks at won opportunities carrying a contact id. "
+            f"Outside it: {not_won} opportunit(ies) not marked won and {no_contact} with no "
+            f"contact id. A member already paying before their opportunity is marked won would "
+            f"not be found by it.")
     for member, opp_id, stage, contract, _rep, email, stripe_ever, payers, commission_ever             in gapped:
         shortfall = round(money(stripe_ever) - money(commission_ever), 2)
         if shortfall <= 0:                       # cannot happen given the WHERE; belt and braces
@@ -348,42 +427,51 @@ def cohort2_gaps(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
                          f"({', '.join(who)}), so whose money it is cannot be told from the "
                          f"feed. NOT included -- resolve the address before paying on it.")
             continue
-        left = shortfall
-        in_period = by_email.get(email, [])
-        for paid, amount, _name in in_period:
-            if left <= 0:
-                break
-            add = round(min(amount, left), 2)
-            left = round(left - add, 2)
+        uncovered = allocate_unrecorded(
+            [(paid, amount) for paid, amount, _name in by_email.get(email, [])],
+            money(commission_ever))
+
+        by_month = {}
+        for m, _paid, amt in uncovered:
+            by_month[m] = round(by_month.get(m, 0.0) + amt, 2)
+
+        for m, paid, amount in uncovered:
+            if m != period:
+                continue
             rows.append({
-                "paid": paid, "member": member, "cash": add,
+                "paid": paid, "member": member, "cash": amount,
                 "already_billed": False, "opportunity_id": opp_id,
                 "collected_to_date": money(stripe_ever), "stage": stage,
                 "contract": money(contract) or None,
                 "remaining": (round(money(contract) - money(stripe_ever), 2)
                               if contract else None),
-                "commission": round(add * cfg["rate_pct"], 2),
+                "commission": round(amount * cfg["rate_pct"], 2),
                 "source": "stripe",
             })
-        added = round(shortfall - left, 2)       # `left` is what the cap did not absorb
+
+        added = by_month.get(period, 0.0)
+        allocated = round(sum(by_month.values()), 2)
+        spread = ", ".join(f"{m} {_usd(v)}" for m, v in sorted(by_month.items()))
+        # The breakdown goes on EVERY one of this member's statements, not just the month in
+        # hand. A rep reading one month cannot otherwise tell whether the rest was settled or
+        # forgotten, and in this case it was forgotten: the whole history had never been
+        # invoiced to anybody.
         notes.append(
-            f"{member}: {_usd(shortfall)} collected that the commission table never recorded. "
-            f"{_usd(added)} of it arrived in {period} and is on this statement"
-            + (f"; {_usd(left)} arrived in earlier months and is NOT on it -- it has never "
-               f"been invoiced either, so confirm whether it was already paid by hand."
-               if left > 0 else "."))
+            f"{member}: {_usd(allocated)} collected that the commission table never recorded. "
+            f"By month: {spread}. This statement carries the {period} part, {_usd(added)}."
+            + ("" if allocated == added else
+               " The other months are owed too and need their own statements -- confirm "
+               "whether any of it was already paid by hand before paying twice."))
         if money(commission_ever) > 0:
-            # Partly recorded and partly not, with no shared key between a GHL transaction and
-            # a Stripe charge to match them one to one. The lifetime total is still capped at
-            # the shortfall, so the rep cannot be overpaid overall -- but WHICH month a dollar
-            # falls in is inferred here, and that is worth saying on a document someone pays
-            # from.
+            # Part recorded, part not, and a GHL transaction and a Stripe charge share no key
+            # to match them one to one. FIFO makes the split deterministic and makes the
+            # months add up to the shortfall exactly -- it does not make it EVIDENCE of which
+            # dollar is which, and on a document somebody pays from that distinction matters.
             notes.append(
                 f"{member}'s cash appears in BOTH records "
-                f"({_usd(money(commission_ever))} recorded, {_usd(money(stripe_ever))} "
-                f"collected). The total added is capped at the difference, but the month it "
-                f"is attributed to is inferred from the Stripe dates, not matched payment by "
-                f"payment. Check this one before paying.")
+                f"({_usd(money(commission_ever))} recorded of {_usd(money(stripe_ever))} "
+                f"collected). The unrecorded part is assigned to months oldest-first, which "
+                f"is a rule, not a matched payment trail. Check this one before paying.")
     return rows, notes
 
 
@@ -517,10 +605,14 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     if not partial and meta.get("cash_from") == "tracker":
         out.append("Confirm each cohort-1 instalment actually settled: the tracker is kept by "
                    "hand and a plan being active is not a payment succeeding.")
-    if c1 and meta.get("cash_from") == "stripe":
+    if meta.get("cash_from") == "stripe":
+        # NOT gated on c1 being non-empty. Gated, the sentence disappeared exactly when Stripe
+        # found nothing -- the case where the undercount is total and the reader most needs it.
         out.append("Cohort-1 cash here is what the beCollective Stripe account actually "
                    "collected, not what the tracker says. A member who paid by some other "
-                   "route this period would be missing from it, so this is a floor.")
+                   "route this period would be missing from it, so this is a floor."
+                   + ("" if c1 else " Stripe shows NO cohort-1 cash for this rep this period, "
+                                    "which is not the same as none having been collected."))
     if partial:
         out.append("PARTIAL STATEMENT: the first cohort is excluded from this run. That "
                    "cohort was the majority of September's commission and is still kept "
