@@ -553,9 +553,22 @@ def cohort2(period: str, cfg: dict) -> tuple[list[dict], list[str]]:
 
 
 def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
-               partial: bool = False, c1meta: dict | None = None) -> list[str]:
-    """What a person has to look at. Never fixed silently, never guessed."""
-    out = []
+               partial: bool = False, c1meta: dict | None = None
+               ) -> tuple[list[str], list[str]]:
+    """What a person has to look at. Never fixed silently, never guessed.
+
+    Returns (exceptions, scope_notes).
+
+    `exceptions` bear on whether and how much to pay, so they follow the figures everywhere the
+    figures go -- the rep's own statement and any aggregate built from it.
+
+    `scope_notes` say where this statement sits relative to the others: that a rep has no
+    first-cohort members, or which other reps' tracker rows were left out. They belong on the
+    rep's own page, where they answer "is anything of mine missing?". They do NOT belong on an
+    agency remittance, where they name reps who are not on the document and tell a third party
+    how big another contractor's book is.
+    """
+    out, scope = [], []
     payee = cfg["payee"]
     first = payee.split()[0].lower()
     # The tracker abbreviates a rep to a first name and initial, so match on the first name
@@ -569,8 +582,8 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     if not c1 and not partial:
         # Two different facts, and the difference decides whether anybody needs to act.
         if meta.get("members_for_this_rep") == 0:
-            out.append(f"{payee} has no members in the first cohort, so there is nothing to "
-                       f"settle for it. This statement is complete, not partial.")
+            scope.append(f"{payee} has no members in the first cohort, so there is nothing to "
+                         f"settle for it. This statement is complete, not partial.")
         else:
             out.append(f"{payee} has {meta.get('members_for_this_rep')} first-cohort members "
                        f"but none of them paid this period. Worth a glance: a whole cohort "
@@ -585,9 +598,10 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
             f"{name} ({v['rows']} rows" + (f", ${v['cash']:,.2f})" if show_cash else ")")
             for name, v in sorted(bucket.items()))
     if other:
-        out.append("First-cohort rows belonging to other reps were excluded from this "
-                   f"statement: {describe(other)}. They are somebody else's to settle, "
-                   f"not missing.")
+        # Scope, not payment: it names OTHER reps and their row counts.
+        scope.append("First-cohort rows belonging to other reps were excluded from this "
+                     f"statement: {describe(other)}. They are somebody else's to settle, "
+                     f"not missing.")
     orphan = meta.get("excluded_rows_with_no_rep") or {}
     if orphan:
         out.append(f"First-cohort tracker rows with NO rep name, excluded and owed to nobody: "
@@ -605,9 +619,10 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     if not partial and meta.get("cash_from") == "tracker":
         out.append("Confirm each cohort-1 instalment actually settled: the tracker is kept by "
                    "hand and a plan being active is not a payment succeeding.")
-    if meta.get("cash_from") == "stripe":
-        # NOT gated on c1 being non-empty. Gated, the sentence disappeared exactly when Stripe
-        # found nothing -- the case where the undercount is total and the reader most needs it.
+    if meta.get("cash_from") == "stripe" and (meta.get("members_for_this_rep") or 0) > 0:
+        # Gated on the ROSTER, not the cash. Gated on cash it vanished exactly when Stripe
+        # found nothing, which is when the undercount is total; ungated it printed on
+        # statements whose rep has no first-cohort members, where it is true of nobody.
         out.append("Cohort-1 cash here is what the beCollective Stripe account actually "
                    "collected, not what the tracker says. A member who paid by some other "
                    "route this period would be missing from it, so this is a floor."
@@ -624,7 +639,7 @@ def exceptions(c1: list[dict], c2: list[dict], cfg: dict,
     out.append("Confirm every cohort-2 sale is really this rep's before paying. Attribution "
                "comes from the Sales Rep field on the GHL opportunity, and a wrong one there "
                "is a wrong payment here.")
-    return out
+    return out, scope
 
 
 def main() -> None:
@@ -659,6 +674,7 @@ def main() -> None:
     c2_prior = round(sum(r["cash"] for r in c2 if r["already_billed"]), 2)
     c2_due = round(sum(r["commission"] or 0 for r in c2), 2)
 
+    excs, scope_notes = exceptions(c1, c2, cfg, partial=a.cohort2_only, c1meta=c1meta)
     doc = {
         "period": a.period,
         "payee": {"name": cfg["payee"], "email": cfg["email"]},
@@ -671,7 +687,10 @@ def main() -> None:
         "totals": {"cash_collected": round(c1_cash + c2_billable + c2_prior, 2),
                    "billable_cash": round(c1_cash + c2_billable, 2),
                    "commission_due": round(c1_due + c2_due, 2)},
-        "exceptions": exceptions(c1, c2, cfg, partial=a.cohort2_only, c1meta=c1meta),
+        "exceptions": excs,
+        # Scope notes stay on the rep's own page -- see exceptions() for why they must not
+        # travel onto an aggregate sent outside.
+        "scope_notes": scope_notes,
         "notes_for_the_statement": [
             "Commission is paid on cash collected only. Remaining balances earn commission as "
             "they are collected in future periods.",
@@ -699,6 +718,8 @@ def main() -> None:
     print("\nNEEDS A PERSON:")
     for e in doc["exceptions"]:
         print(f"  - {e}")
+    for e in doc["scope_notes"]:
+        print(f"  . {e}")
     for n in c2notes:
         print(f"  ! {n}")
 

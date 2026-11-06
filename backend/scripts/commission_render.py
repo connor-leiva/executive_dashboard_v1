@@ -192,10 +192,10 @@ def grand_total(doc, label):
     return _grid(rows, [3.3 * inch, 1.7 * inch, 1.7 * inch], bold_rows=(len(rows) - 1,))
 
 
-def caveats(doc: dict) -> list[str]:
+def caveats(doc: dict, include_scope: bool = True) -> list[str]:
     """Every caveat in the payload, in the order a reader needs them.
 
-    Deliberately reads all three lists the gather writes. They were added at different times
+    Deliberately reads every list the gather writes. They were added at different times
     and nothing kept them in step with this file -- the renderer knew about one of the three,
     so a caveat landing in either of the others was computed, logged and silently dropped.
     Asking the payload what it has, rather than naming the keys this file happens to remember,
@@ -204,6 +204,10 @@ def caveats(doc: dict) -> list[str]:
     out, seen = [], set()
     buckets = [doc.get("_review_changes"),
                doc.get("exceptions"),
+               # Scope notes: on the rep's own page they answer "is anything of mine
+               # missing?". An aggregate sent to an agency passes include_scope=False,
+               # because they name reps who are not on that document.
+               (doc.get("scope_notes") if include_scope else None),
                (doc.get("cohort1") or {}).get("notes"),
                ((doc.get("cohort1") or {}).get("meta") or {}).get("notes"),
                (doc.get("cohort2") or {}).get("notes")]
