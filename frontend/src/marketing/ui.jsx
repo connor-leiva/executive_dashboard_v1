@@ -1,6 +1,5 @@
 import React from "react";
 import { CORE, CADET, NEUTRAL, TYPE } from "../brand/axcion.jsx";
-import plateLight from "./assets/aperture-light.jpg";
 import plateInk from "./assets/aperture-ink.jpg";
 import plateDetail from "./assets/aperture-detail.jpg";
 import utahLifeTeam from "./assets/utah-life-team.jpg";
@@ -91,10 +90,10 @@ export const PHOTOS = {
   utahLifeTeam,
 };
 
-/* aperture-paper.jpg is part of the generated set but no page uses it, so it is not imported
-   and does not ship. */
+/* aperture-paper.jpg and aperture-light.jpg are part of the generated set but no page uses
+   them (the light plate sat behind the scroll sequence's figure, which no longer has one), so they
+   are not imported and do not ship. */
 export const PLATE = {
-  light: plateLight,
   ink: plateInk,
   detail: plateDetail,
 };
@@ -103,8 +102,8 @@ export const MAXW = 1120;
 export const wrap = { maxWidth: MAXW, margin: "0 auto", padding: "0 24px" };
 
 export const label = {
-  fontFamily: TYPE.text, fontWeight: 600, fontSize: 11, letterSpacing: "0.14em",
-  textTransform: "uppercase", color: NEUTRAL[500], margin: 0,
+  fontFamily: TYPE.text, fontWeight: 500, fontSize: 13, letterSpacing: 0,
+  color: NEUTRAL[500], margin: 0,
 };
 export const body = { fontFamily: TYPE.text, fontWeight: 400, fontSize: 15, lineHeight: 1.6, color: NEUTRAL[600], margin: 0 };
 export const card = { background: WHITE, border: `1px solid ${NEUTRAL[100]}`, borderRadius: 14, padding: 24 };
@@ -112,15 +111,15 @@ export const card = { background: WHITE, border: `1px solid ${NEUTRAL[100]}`, bo
 /* §07 steps, clamped so they hold at desktop and degrade on a phone. Tracking follows the
    guide: -0.035em above 40px, -0.02em from 24px up. */
 export const displayType = {
-  fontFamily: TYPE.display, fontWeight: 700, fontSize: "clamp(38px, 6.6vw, 74px)",
-  lineHeight: 1.02, letterSpacing: "-0.042em", color: CORE.ink, margin: 0,
+  fontFamily: TYPE.display, fontWeight: 500, fontSize: "clamp(38px, 6.6vw, 74px)",
+  lineHeight: 1.04, letterSpacing: "-0.03em", color: CORE.ink, margin: 0, textWrap: "balance",
 };
 export const h1Type = {
-  fontFamily: TYPE.display, fontWeight: 700, fontSize: "clamp(24px, 3.2vw, 34px)",
+  fontFamily: TYPE.display, fontWeight: 500, fontSize: "clamp(24px, 3.2vw, 34px)",
   lineHeight: 1.15, letterSpacing: "-0.02em", color: CORE.ink, margin: 0,
 };
 export const h2Type = {
-  fontFamily: TYPE.display, fontWeight: 700, fontSize: 20, lineHeight: 1.2,
+  fontFamily: TYPE.display, fontWeight: 500, fontSize: 20, lineHeight: 1.2,
   letterSpacing: "-0.02em", color: CORE.ink, margin: 0,
 };
 
@@ -176,7 +175,7 @@ export function Section({ id, children, style, className }) {
 export function PageHead({ eyebrow, title, sub, children }) {
   return (
     <div style={{ maxWidth: 720 }}>
-      <p style={{ ...label, color: CORE.cadet }}>{eyebrow}</p>
+      <p style={label}>{eyebrow}</p>
       <h1 style={{ ...displayType, marginTop: 18 }}>{title}</h1>
       {sub ? <p style={{ ...body, fontSize: 17, marginTop: 20, maxWidth: 620 }}>{sub}</p> : null}
       {children}
@@ -238,9 +237,9 @@ export function Photo({ src, alt, brief, ratio = "4 / 3", caption, overlay = nul
 export function EarlyPill() {
   return (
     <span style={{
-      fontFamily: TYPE.text, fontWeight: 600, fontSize: 10, letterSpacing: "0.1em",
-      textTransform: "uppercase", color: CADET[700], background: CADET[100],
-      border: `1px solid ${CADET[200]}`, borderRadius: 999, padding: "3px 9px",
+      fontFamily: TYPE.text, fontWeight: 500, fontSize: 12, letterSpacing: 0,
+      color: CADET[700], background: CADET[100],
+      border: `1px solid ${CADET[200]}`, borderRadius: 6, padding: "2px 8px",
     }}>
       Early access
     </span>
@@ -254,14 +253,9 @@ export function EarlyPill() {
 export function Styles() {
   return (
     <>
-    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden>
-      <filter id="acu-grain-f">
-        <feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" stitchTiles="stitch" />
-        <feColorMatrix type="saturate" values="0" />
-      </filter>
-    </svg>
     <style>{`
-      .acu-btn { transition: background .15s ease, border-color .15s ease, color .15s ease; }
+      .acu-btn { transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms cubic-bezier(0.22, 1, 0.36, 1), color 150ms cubic-bezier(0.22, 1, 0.36, 1); }
+      .acu-btn:active, .acu-btn-ink:active { transform: scale(.98); }
       .acu-btn-primary:hover { background: ${NEUTRAL[800]}; border-color: ${NEUTRAL[800]}; }
       .acu-btn-primary-dark:hover { background: ${NEUTRAL[100]}; border-color: ${NEUTRAL[100]}; }
       .acu-btn-ghost:hover { border-color: ${NEUTRAL[400]}; background: ${alpha(CORE.ink, 0.04)}; }
@@ -310,10 +304,51 @@ export function Styles() {
       }
       html { scroll-behavior: smooth; }
 
+      /* ── hero ────────────────────────────────────────────────────────────────────── */
+      /* Content sits at the optical centre, a little above the true middle. */
+      .acu-hero { min-height: calc(100svh - 69px); display: flex; align-items: center;
+        padding: 32px 0 80px; box-sizing: border-box; }
+      .acu-hero > div { width: 100%; }
+      .acu-hero-in { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+        gap: 56px; align-items: center; }
+      .acu-hero-h { font-family: ${TYPE.display}; font-weight: 500; color: ${CORE.ink};
+        font-size: clamp(38px, 3.9vw, 56px); line-height: 1.06; letter-spacing: -.03em;
+        margin: 16px 0 0; text-wrap: balance; }
+      .acu-hero-sub { font-family: ${TYPE.text}; font-size: 18px; line-height: 28px;
+        color: ${NEUTRAL[600]}; max-width: 30rem; margin: 20px 0 0; }
+      .acu-hero-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 32px; }
+      .acu-textlink { font-family: ${TYPE.text}; font-weight: 600; font-size: 15px; color: ${CORE.ink};
+        text-decoration: none; transition: color 150ms cubic-bezier(0.22, 1, 0.36, 1); }
+      .acu-textlink:hover { color: ${CORE.cadet}; }
+      .acu-textlink:focus-visible { outline: 2px solid ${CORE.cadet}; outline-offset: 3px; border-radius: 4px; }
+      .acu-hero-note { font-family: ${TYPE.text}; font-size: 13px; line-height: 20px;
+        color: ${NEUTRAL[500]}; margin: 16px 0 0; }
+      .acu-panel-static .acu-row { grid-template-columns: 1.1fr 1.25fr 1fr .95fr; align-items: baseline; }
+      .acu-panel-static .acu-row > span { white-space: nowrap; }
+      .acu-panel-static::before { box-shadow: 0 1px 2px ${alpha(CORE.ink,.05)}, 0 24px 48px -28px ${alpha("#1F3A36",.35)}; }
+      @media (max-width: 960px) {
+        .acu-hero { min-height: 0; padding: 40px 0 56px; }
+        .acu-hero-in { grid-template-columns: 1fr; gap: 40px; }
+        .acu-hero-sub { font-size: 17px; }
+      }
+      @media (max-width: 640px) {
+        .acu-panel-static .acu-p-tabs span:nth-child(n+3) { display: none; }
+        .acu-panel-static .acu-p-body { padding: 12px; gap: 12px; }
+        .acu-panel-static .acu-kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+        .acu-panel-static .acu-kpi { padding: 12px; }
+        .acu-panel-static .acu-kpi:nth-child(3) { display: none; }
+        .acu-panel-static .acu-kpi > div:nth-child(2) { font-size: 24px !important; }
+        .acu-panel-static .acu-row { grid-template-columns: 1fr auto; padding: 10px 12px; }
+        .acu-panel-static .acu-row > span:nth-child(2),
+        .acu-panel-static .acu-row > span:nth-child(4) { display: none; }
+        .acu-panel-static .acu-row:nth-child(4) { display: none; }
+      }
+
       /* ── scroll sequence ─────────────────────────────────────────────────────────── */
       .acu-track { position: relative; height: 360vh; }
       .acu-stage { position: sticky; top: 0; height: 100vh; overflow: hidden;
-        display: grid; place-items: center; background: ${WHITE}; }
+        display: grid; place-items: center; background: ${CORE.paper}; }
+      .acu-track { border-top: 1px solid ${NEUTRAL[100]}; }
 
       /* The Ink bands take a real plate rather than flat colour, with the fill blended so
          type keeps its contrast. Checked: body text on the darkest point of the plate is
@@ -322,28 +357,12 @@ export function Styles() {
         background-image: linear-gradient(${alpha(CORE.ink, .78)}, ${alpha(CORE.ink, .88)}), url("${PLATE.ink}");
         background-size: cover; background-position: 42% center; }
 
-      .acu-bloom { position: absolute; left: 50%; top: 50%; width: min(1000px, 96vw);
-        height: min(760px, 84vh); transform: translate(-50%,-50%); pointer-events: none;
-        z-index: 0; opacity: 0;
-        /* A real plate now, masked to a soft circle so it dissolves into the white ground
-           instead of ending at a rectangle. The radial gradient underneath keeps the colour
-           if the image has not decoded yet. */
-        background-image: url("${PLATE.light}");
-        background-size: cover; background-position: center;
-        -webkit-mask-image: radial-gradient(closest-side circle at 50% 50%,
-          #000 0%, rgba(0,0,0,.85) 42%, rgba(0,0,0,.28) 64%, transparent 80%);
-        mask-image: radial-gradient(closest-side circle at 50% 50%,
-          #000 0%, rgba(0,0,0,.85) 42%, rgba(0,0,0,.28) 64%, transparent 80%); }
-
-      /* z-index 1 — above the bloom, BELOW the scene. mix-blend-mode blends with what is
-         painted beneath it, and .acu-scene is its own compositing layer; blending across
-         that edge draws a hard rectangular seam. Grain belongs on the ground. */
-      .acu-grain { position: absolute; inset: 0; z-index: 1; pointer-events: none;
-        opacity: .5; mix-blend-mode: overlay; }
-
       .acu-seq-copy { position: absolute; top: 14vh; left: 0; right: 0; z-index: 3;
         text-align: center; padding: 0 28px; will-change: transform, opacity; }
       .acu-seq-copy .acu-display { max-width: 16ch; margin: 14px auto 0; }
+      .acu-seq-h2 { font-family: ${TYPE.display}; font-weight: 500; color: ${CORE.ink};
+        font-size: clamp(28px, 3.2vw, 40px); line-height: 1.1; letter-spacing: -.02em;
+        max-width: 22ch; margin: 12px auto 0; text-wrap: balance; }
       .acu-seq-sub { font-family: ${TYPE.text}; font-size: clamp(16px,1.5vw,19px);
         color: ${NEUTRAL[500]}; max-width: 52ch; margin: 22px auto 0; }
       .acu-seq-cta { display: flex; flex-wrap: wrap; align-items: center;
@@ -352,16 +371,16 @@ export function Styles() {
         line-height: 1.35; margin: 0; max-width: 22ch; text-align: left; }
       .acu-btn-ink { display: inline-flex; align-items: center; justify-content: center;
         font-family: ${TYPE.text}; font-weight: 600; font-size: 16px; text-decoration: none;
-        color: ${WHITE}; background: ${CORE.ink}; border-radius: 999px; padding: 15px 30px;
-        transition: transform .2s, opacity .2s; }
-      .acu-btn-ink:hover { transform: translateY(-1px); opacity: .9; }
+        color: ${WHITE}; background: ${CORE.ink}; border-radius: 999px; padding: 14px 28px;
+        transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), transform 120ms cubic-bezier(0.22, 1, 0.36, 1); }
+      .acu-btn-ink:hover { background: ${NEUTRAL[800]}; }
       .acu-btn-ink:focus-visible { outline: 2px solid ${CORE.cadet}; outline-offset: 3px; }
 
-      .acu-display { font-family: ${TYPE.display}; font-weight: 700; color: ${CORE.ink};
-        font-size: clamp(40px,7.4vw,86px); line-height: 1.02; letter-spacing: -.042em;
+      .acu-display { font-family: ${TYPE.display}; font-weight: 500; color: ${CORE.ink};
+        font-size: clamp(40px,7.4vw,86px); line-height: 1.04; letter-spacing: -.03em;
         margin: 0; text-wrap: balance; }
-      .acu-eyebrow { font-family: ${TYPE.data}; font-size: 11px; font-weight: 600;
-        letter-spacing: .16em; text-transform: uppercase; color: ${NEUTRAL[500]}; margin: 0; }
+      .acu-eyebrow { font-family: ${TYPE.text}; font-size: 13px; font-weight: 500;
+        letter-spacing: 0; color: ${NEUTRAL[500]}; margin: 0; }
 
       .acu-scene { position: relative; z-index: 2; width: min(940px, 90vw);
         will-change: transform; }
@@ -376,20 +395,18 @@ export function Styles() {
       .acu-p-top { display: flex; align-items: center; gap: 16px; padding: 14px 18px;
         border-bottom: 1px solid ${NEUTRAL[100]}; background: ${NEUTRAL[50]};
         border-radius: 18px 18px 0 0; }
-      .acu-p-tabs { display: flex; gap: 18px; font-family: ${TYPE.text}; font-size: 12.5px;
+      .acu-p-tabs { display: flex; gap: 18px; font-family: ${TYPE.text}; font-size: 13px;
         color: ${NEUTRAL[500]}; }
       .acu-p-tabs b { color: ${CORE.ink}; font-weight: 600; }
-      .acu-p-cta { margin-left: auto; font-family: ${TYPE.text}; font-size: 11.5px;
-        font-weight: 600; color: ${WHITE}; background: ${CORE.ink}; border-radius: 999px;
-        padding: 6px 14px; white-space: nowrap; }
-      /* NO background on the body: an opaque one here sits over the bloom from the first
-         frame and cuts a hard horizontal seam across it. */
+      .acu-p-cta { margin-left: auto; font-family: ${TYPE.text}; font-size: 12px;
+        font-weight: 500; color: ${WHITE}; background: ${CORE.ink}; border-radius: 8px;
+        padding: 6px 12px; white-space: nowrap; }
       .acu-p-body { padding: 18px; display: grid; gap: 14px; }
 
       .acu-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
       .acu-kpi { border: 1px solid ${NEUTRAL[100]}; border-radius: 12px; padding: 16px;
         background: ${NEUTRAL[50]}; will-change: transform, opacity; }
-      .acu-kpi-d { font-family: ${TYPE.text}; font-size: 11.5px; color: ${NEUTRAL[500]}; margin-top: 5px; }
+      .acu-kpi-d { font-family: ${TYPE.text}; font-size: 12px; color: ${NEUTRAL[500]}; margin-top: 4px; }
       .acu-hero-kpi { position: relative; border: none; background: transparent; --kpi-a: 0; }
       .acu-hero-kpi::before { content: ""; position: absolute; inset: 0; border-radius: 12px;
         background: ${WHITE}; border: 1px solid ${CADET[200]}; opacity: var(--kpi-a); z-index: 0; }
@@ -401,24 +418,24 @@ export function Styles() {
       .acu-rows::before { content: ""; position: absolute; inset: 0; border-radius: 12px;
         border: 1px solid ${NEUTRAL[100]}; opacity: var(--rows-a); pointer-events: none; z-index: 2; }
       .acu-row { display: grid; grid-template-columns: 1.4fr .8fr 1fr .8fr; gap: 10px;
-        padding: 11px 16px; border-top: 1px solid ${NEUTRAL[100]}; font-family: ${TYPE.text};
-        font-size: 12.5px; will-change: transform, opacity; }
+        padding: 12px 16px; border-top: 1px solid ${NEUTRAL[100]}; font-family: ${TYPE.text};
+        font-size: 13px; will-change: transform, opacity; }
       .acu-row:first-child { border-top: none; background: ${NEUTRAL[50]}; }
       .acu-row-n { font-family: ${TYPE.data}; font-variant-numeric: tabular-nums;
         color: ${NEUTRAL[700]}; text-align: right; }
-      .acu-row-s { color: ${NEUTRAL[500]}; text-align: right; font-size: 11.5px; }
+      .acu-row-s { color: ${NEUTRAL[500]}; text-align: right; font-size: 12px; }
 
       .acu-anno { position: absolute; z-index: 6; pointer-events: none; opacity: 0;
         will-change: opacity; }
-      .acu-anno-lbl { font-family: ${TYPE.data}; font-size: 10.5px; font-weight: 600;
-        letter-spacing: .15em; text-transform: uppercase; color: ${CADET[700]};
+      .acu-anno-lbl { font-family: ${TYPE.text}; font-size: 13px; font-weight: 500;
+        letter-spacing: 0; color: ${CADET[700]};
         white-space: nowrap; opacity: 0; }
       .acu-anno svg { overflow: visible; display: block; }
       .acu-anno path { stroke: ${CORE.cadet}; stroke-width: 1; fill: none; }
 
       .acu-scroll-hint { position: absolute; bottom: 26px; left: 50%;
-        transform: translateX(-50%); z-index: 6; font-family: ${TYPE.data}; font-size: 10.5px;
-        font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: ${NEUTRAL[500]}; }
+        transform: translateX(-50%); z-index: 6; font-family: ${TYPE.text}; font-size: 13px;
+        font-weight: 500; letter-spacing: 0; color: ${NEUTRAL[500]}; }
 
       @media (max-width: 820px) {
         .acu-track { height: 300vh; }
@@ -444,7 +461,6 @@ export function Styles() {
           transform: none !important; }
         .acu-anno, .acu-anno-lbl { opacity: 1 !important; }
         .acu-anno path { stroke-dashoffset: 0 !important; }
-        .acu-bloom { opacity: .5 !important; }
         .acu-scroll-hint { display: none; }
       }
     `}</style>

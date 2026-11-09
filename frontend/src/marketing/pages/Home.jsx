@@ -1,11 +1,11 @@
 import React from "react";
 import { CORE, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { ProductIcon } from "../../brand/productIcons.jsx";
-import Sequence from "../Sequence.jsx";
-import { SITE, SOURCES, PROBLEM, STEPS, MODULES, TRACE } from "../content.js";
+import Sequence, { ProductPanel } from "../Sequence.jsx";
+import { SITE, HERO, SOURCES, PROBLEM, STEPS, MODULES, TRACE } from "../content.js";
 import {
   label, body, card, h1Type, h2Type,
-  Primary, Ghost, Section, EarlyPill, Photo, PHOTOS, WHITE, alpha,
+  Primary, Ghost, Section, EarlyPill, Photo, PHOTOS, WHITE, alpha, wrap,
 } from "../ui.jsx";
 
 /* The old side-by-side hero and its <ProductStill> lived here. Both are gone: Sequence.jsx
@@ -15,7 +15,31 @@ import {
 export default function Home({ Link }) {
   return (
     <>
-      {/* The scroll sequence IS the hero now — see Sequence.jsx. */}
+      {/* The hero: claim on the left, the product at rest on the right. One primary action,
+          the trial as a quiet link, and the read-only promise as one line under them. */}
+      <section className="acu-hero">
+        <div style={wrap}>
+          <div className="acu-hero-in">
+            <div>
+              <p className="acu-eyebrow">{HERO.eyebrow}</p>
+              <h1 className="acu-hero-h">
+                Track production,<br /><span style={{ color: NEUTRAL[500] }}>not spreadsheets</span>
+              </h1>
+              <p className="acu-hero-sub">
+                Every number Axcion shows you came from somewhere. Scroll, and watch one land.
+              </p>
+              <div className="acu-hero-cta">
+                <a className="acu-btn-ink" href={`mailto:${SITE.contactEmail}?subject=Axcion%20demo`}>Book a demo</a>
+                <a className="acu-textlink" href={SITE.signupUrl}>{SITE.signupLabel} &rarr;</a>
+              </div>
+              <p className="acu-hero-note">{HERO.note}</p>
+            </div>
+            <ProductPanel />
+          </div>
+        </div>
+      </section>
+
+      {/* The scroll sequence follows as the second section — see Sequence.jsx. */}
       <Sequence />
 
       <Section style={{ paddingTop: 0 }}>
