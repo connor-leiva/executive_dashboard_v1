@@ -26,8 +26,8 @@ const monthWords = (m) => (!m || m === "ytd" ? "the year to date" : fmtMonth(m))
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 
 /* Gold means a judgment or an unresolved item, never an error (7.2). A gap is not a mistake:

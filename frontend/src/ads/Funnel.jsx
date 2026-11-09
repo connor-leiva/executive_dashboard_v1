@@ -92,7 +92,6 @@ export default function Funnel({ rungs, spend, onDrill }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 12px" }}>
                 <span style={{ flex: 1, height: 1, background: C.line }} />
                 <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
-                               letterSpacing: 0, textTransform: "none",
                                color: C.muted }}>
                   In Axcion
                 </span>
@@ -103,7 +102,6 @@ export default function Funnel({ rungs, spend, onDrill }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                 <span style={{ flex: 1, height: 1, background: C.line }} />
                 <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
-                               letterSpacing: 0, textTransform: "none",
                                color: C.muted }}>
                   On Meta
                 </span>
@@ -238,8 +236,8 @@ export default function Funnel({ rungs, spend, onDrill }) {
 function Fig({ label, value }) {
   return (
     <div>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                    textTransform: "none", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: C.muted }}>{label}</div>
       <div style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 14,
                     color: C.ink, marginTop: 1 }}>{value}</div>
     </div>

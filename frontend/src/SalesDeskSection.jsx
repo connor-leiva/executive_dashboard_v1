@@ -267,7 +267,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
 
         .sd-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; margin-bottom:14px; }
         .sd-kpi { background:${T.white}; border:1px solid ${T.line}; border-radius:13px; padding:13px 15px; }
-        .sd-kpi-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.tertiary}; }
+        .sd-kpi-l { font-size:12px; font-weight:600; color:${T.tertiary}; }
         .sd-kpi-v { font-family:var(--font-display); font-size:24px; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums; }
         .sd-kpi-v.good { color:${T.meadow}; } .sd-kpi-v.warn { color:${T.amber}; }
         .sd-kpi-s { font-size:12px; color:${T.muted}; margin-top:2px; }
@@ -275,7 +275,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-card { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px 16px;
           box-shadow:0 12px 30px ${alpha(T.evergreen, .05)}; margin-bottom:14px; }
         .sd-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
-        .sd-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; }
+        .sd-title { font-family:var(--font-display); font-size:12px; font-weight:600; }
         .sd-sub { font-size:12px; color:${T.muted}; }
         .sd-clear { border:none; background:none; font:inherit; font-size:12px; font-weight:600; color:${T.petalDeep}; cursor:pointer; padding:0; }
 
@@ -284,13 +284,13 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         /* Commissions */
         .sd-comm .sd-sel { font:inherit; font-size:12px; color:${T.ink}; border:1px solid ${T.line};
           border-radius:8px; padding:5px 8px; background:${T.white}; }
-        .sd-closed { margin-left:8px; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.meadowInk}; background:${T.meadowBg};
+        .sd-closed { margin-left:8px; font-size:12px; font-weight:600;
+          color:${T.meadowInk}; background:${T.meadowBg};
           border-radius:999px; padding:2px 8px; }
         .sd-ctot { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:12px 0 14px; }
         .sd-ctot > div { border:1px solid ${T.line}; border-radius:12px; padding:10px 12px;
           display:flex; flex-direction:column; gap:3px; min-width:0; }
-        .sd-ctot .l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; }
+        .sd-ctot .l { font-size:12px; font-weight:600; color:${T.muted}; }
         .sd-ctot .v { font-family:var(--font-display); font-size:18px; font-weight:600; color:${T.ink};
           font-variant-numeric:tabular-nums; }
         /* NOT .sd-tblwrap - that one is display:none on phones, which would hide the whole
@@ -322,8 +322,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-c-grid.more { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:10px;
           padding-top:10px; border-top:1px solid ${alpha(T.line, .7)}; }
         .sd-c-stat { min-width:0; }
-        .sd-c-l { display:block; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.tertiary}; }
+        .sd-c-l { display:block; font-size:12px; font-weight:600;
+          color:${T.tertiary}; }
         .sd-c-v { display:block; font-family:var(--font-display); font-size:17px; font-weight:600;
           margin-top:2px; font-variant-numeric:tabular-nums; color:${T.ink}; }
         .sd-c-foot { font-size:12px; color:${T.tertiary}; line-height:1.5; margin-top:4px; }
@@ -332,7 +332,7 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           .sd-cards { display:block; }
         }
         .sd-tbl { width:100%; border-collapse:collapse; }
-        .sd-tbl th { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted};
+        .sd-tbl th { font-size:12px; font-weight:600; color:${T.muted};
           text-align:right; padding:6px 7px; border-bottom:1px solid ${T.line}; white-space:nowrap; }
         .sd-tbl th:first-child { text-align:left; }
         .sd-tbl td { font-size:13px; padding:9px 7px; border-bottom:1px solid ${alpha(T.line, .5)}; text-align:right;
@@ -421,8 +421,8 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .drx-tblwrap { overflow-x:auto; }
         .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .drx-tbl th { text-align:left; font-size:12px; font-weight:600;
+          color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
         .sd-foot { font-size:12px; color:${T.muted}; margin-top:16px; line-height:1.6; } .sd-foot b { color:${T.tertiary}; }

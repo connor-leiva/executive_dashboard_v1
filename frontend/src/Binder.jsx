@@ -28,7 +28,7 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{children}</span>;
 }
 function StatusPill({ ready }) {
   return (

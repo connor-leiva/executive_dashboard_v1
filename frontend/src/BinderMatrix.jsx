@@ -41,7 +41,7 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{children}</span>;
 }
 function Dot({ s, size = 8 }) {
   return <span style={{ width: size, height: size, borderRadius: 99, background: (OSTATUS[s] || OSTATUS.none).dot, display: "inline-block", flexShrink: 0 }} />;
@@ -85,7 +85,7 @@ function Cell({ code, label }) {
 function ObligationsMatrix({ kinds, groups, onOpen }) {
   const GroupHeader = ({ label, count }) => (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: T.meadowBg, borderTop: `1px solid ${T.line}` }}>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{label}</span>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.meadow }}>· {count}</span>
     </div>
   );
@@ -102,9 +102,9 @@ function ObligationsMatrix({ kinds, groups, onOpen }) {
     <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 14, background: T.white }}>
       <div style={{ minWidth: 780 }}>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "12px 16px", background: T.evergreen, borderRadius: "13px 13px 0 0" }}>
-          <span style={{ width: 196, flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.onDark }}>Entity</span>
+          <span style={{ width: 196, flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.onDark }}>Entity</span>
           {kinds.map((k) => (
-            <span key={k.key} title={KIND_DEFS[k.key]} style={{ flex: 1, fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.onDarkMute, textAlign: "center", lineHeight: 1.25, cursor: KIND_DEFS[k.key] ? "help" : "default" }}>{k.label}</span>
+            <span key={k.key} title={KIND_DEFS[k.key]} style={{ flex: 1, fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.onDarkMute, textAlign: "center", lineHeight: 1.25, cursor: KIND_DEFS[k.key] ? "help" : "default" }}>{k.label}</span>
           ))}
         </div>
         {groups.map((g) => g.entities.length > 0 && (
@@ -454,7 +454,7 @@ function ObligationDetail({ o, usingSample, onPreview }) {
       <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, lineHeight: 1.5 }}>{o.status_reason}</div>
       {rel.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
           {rel.map((d) => (
             <button key={d.id} onClick={() => onPreview(d)} className="cc-nav" style={{
               width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", margin: "0 -6px",

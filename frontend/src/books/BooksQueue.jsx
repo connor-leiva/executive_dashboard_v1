@@ -123,7 +123,7 @@ function Evidence({ tx, compact = false }) {
   const text = `${BASIS_GLYPH[tx.basis] || ""} ${label}${detail ? ` · ${detail}` : ""}`.trim();
   const word = tx.strength === "weak" ? "WEAK" : tx.strength === "thin" ? "THIN" : null;
   const badge = word && (
-    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600, letterSpacing: 0,
+    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
       borderRadius: 4, padding: "1px 4px", background: T.white, whiteSpace: "nowrap",
       color: word === "WEAK" ? T.ink : T.secondary,
       border: `1px solid ${word === "WEAK" ? T.ink : T.muted}` }}>{word}</span>
@@ -287,8 +287,8 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
    select-all box lives here, at the same x as every row's box, instead of on a strip above where
    it lined up with nothing. */
 function QueueHeader({ allShown, onToggleAll }) {
-  const h = { fontFamily: font.head, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-    textTransform: "none", color: T.secondary, whiteSpace: "nowrap", overflow: "hidden",
+  const h = { fontFamily: font.head, fontSize: 12, fontWeight: 600,
+    color: T.secondary, whiteSpace: "nowrap", overflow: "hidden",
     textOverflow: "ellipsis", minWidth: 0 };
   return (
     <div style={{ ...ROW, padding: `9px ${PAD_X}px`, borderTop: `1px solid ${T.line}` }}>
@@ -350,8 +350,8 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
         <span style={{ width: 44, fontFamily: font.body, fontSize: 12, color: T.muted, flexShrink: 0 }}>{e.date}</span>
         <span style={{ width: 9, height: 9, borderRadius: 99, background: dot, flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{e.label}</span>
-        <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-          textTransform: "none", color: isTxn ? T.daffodilText : T.poppyText,
+        <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
+          color: isTxn ? T.daffodilText : T.poppyText,
           flexShrink: 0 }}>{meta.badge}</span>
         <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 14, fontWeight: 600,
           color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(e.amount)}</span>
@@ -462,7 +462,7 @@ function AxisRow({ label, children }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
       <span style={{ width: 78, flexShrink: 0, fontFamily: font.head, fontSize: 12,
-        fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.secondary }}>
+        fontWeight: 600, color: T.secondary }}>
         {label}</span>
       {children}
     </div>

@@ -43,9 +43,9 @@ function Seg({ seg }) {
   const f = seg === "F";
   return (
     <span style={{
-      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
-      borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0,
+      borderRadius: 4, padding: "2px 6px", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
   );
 }
@@ -193,16 +193,16 @@ function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
 function Stat({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-        textTransform: "none", color: T.muted, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+        color: T.muted, marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink,
         display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>{children}</div>
     </div>
   );
 }
 
-const TAG = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-  borderRadius: 4, padding: "1px 5px", textTransform: "none", flexShrink: 0 };
+const TAG = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+  borderRadius: 4, padding: "1px 5px", flexShrink: 0 };
 const td = { padding: "11px 14px", verticalAlign: "middle" };
 const dcell = { ...td, fontSize: 13, color: T.slate, whiteSpace: "nowrap" };
 
@@ -413,7 +413,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
                       return (
                         <th key={c.key} style={{ ...th, ...(i === 0 ? { paddingLeft: 24 } : {}) }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "13px 0", justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}>
-                            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
+                            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
                             <button onClick={(e) => openMenu(c, e)} title="Sort & filter" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, cursor: "pointer", background: on ? T.meadow : "transparent", border: `1px solid ${on ? T.meadow : T.line}` }}>
                               <DrIc name="funnel" size={12} color={on ? "#fff" : T.slate} sw={1.9} />
                             </button>

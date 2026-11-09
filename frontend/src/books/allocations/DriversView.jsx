@@ -20,8 +20,8 @@ import { useAllocDriverMonth } from "../useBooks.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 
 function Entity({ id, businesses }) {
@@ -140,8 +140,8 @@ function DriverCard({ driver, meta, businesses, isCFO, month }) {
               {commit.committed_by?.name ? ` by ${commit.committed_by.name}` : ""}
             </span>
             <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                             textTransform: "none", color: L.deep }}>
+              <span style={{ fontFamily: F.num, fontSize: 12,
+                             color: L.deep }}>
                 {commit.is_current ? "Current" : "Superseded"}
               </span>
               {/* Reopens the matrix seeded with what is committed, and saves a NEW commit

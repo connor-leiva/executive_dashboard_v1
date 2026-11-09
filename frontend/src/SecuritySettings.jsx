@@ -124,7 +124,7 @@ export default function SecuritySettings() {
                 <label style={label}>6-digit code</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input inputMode="numeric" placeholder="000000" value={code}
-                         onChange={(e) => setCode(e.target.value)} style={{ ...input, width: 120, letterSpacing: 0 }} />
+                         onChange={(e) => setCode(e.target.value)} style={{ ...input, width: 120 }} />
                   <button onClick={confirm} disabled={busy || !code.trim()} style={button("primary", busy || !code.trim())}>
                     {busy ? "Checking…" : "Turn on"}
                   </button>

@@ -148,7 +148,7 @@ function ManualWeeks({ drill, canEdit, onSaved }) {
 function Tag({ on, label }) {
   return (
     <span style={{
-      fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none",
+      fontFamily: FONT, fontSize: 12, fontWeight: 600,
       padding: "1px 6px", borderRadius: 10, whiteSpace: "nowrap", flexShrink: 0,
       color: on ? T.good : T.muted, background: "transparent",
       border: `1px solid ${on ? T.good : T.line}` }}>

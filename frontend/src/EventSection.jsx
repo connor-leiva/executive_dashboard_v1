@@ -253,7 +253,7 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
           margin-bottom:14px; }
         .evt .ev-stat { border:1px solid ${T.line}; border-radius:12px; background:${T.white};
           padding:12px 14px; min-width:0; }
-        .evt .ev-stat-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none;
+        .evt .ev-stat-l { font-size:12px; font-weight:600;
           color:${T.muted}; }
         .evt .ev-stat-v { font-family:var(--font-display); font-size:22px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; margin-top:3px; font-variant-numeric:tabular-nums; }
@@ -261,7 +261,7 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
 
         .evt .ev-card { border:1px solid ${T.line}; border-radius:14px; background:${T.white};
           padding:16px 18px; margin-bottom:14px; }
-        .evt .ev-card-h { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none;
+        .evt .ev-card-h { font-size:12px; font-weight:600;
           color:${T.muted}; margin-bottom:10px; }
         .evt .ev-step { display:flex; align-items:center; gap:10px; padding:7px 0; }
         .evt .ev-step-l { flex:0 0 132px; font-size:13px; color:${T.secondary}; }
@@ -274,8 +274,8 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
           padding:9px 12px; font-size:12px; color:${T.daffodilText}; margin-bottom:8px; }
 
         .evt .ev-field { display:block; margin-bottom:12px; }
-        .evt .ev-field-l { display:block; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.muted}; margin-bottom:4px; }
+        .evt .ev-field-l { display:block; font-size:12px; font-weight:600;
+          color:${T.muted}; margin-bottom:4px; }
         .evt .ev-field input, .evt .ev-field textarea { width:100%; box-sizing:border-box;
           font-family:var(--font-text); font-size:13px; padding:7px 10px; border:1px solid ${T.line};
           border-radius:8px; color:${T.ink}; background:${T.white}; }
@@ -304,8 +304,8 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
         .evt .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .evt .drx-tblwrap { overflow-x:auto; }
         .evt .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; }
-        .evt .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .evt .drx-tbl th { text-align:left; font-size:12px; font-weight:600;
+          color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .evt .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${T.parchment}; color:${T.secondary}; }
         `}</style>
 

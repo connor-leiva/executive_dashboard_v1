@@ -19,13 +19,13 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{children}</span>;
 }
 function MethodTag({ method }) {
   const rule = method === "rule";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)",
-      fontSize: 12, fontWeight: 600, textTransform: "none", letterSpacing: 0,
+      fontSize: 12, fontWeight: 600,
       color: rule ? T.meadowInk : T.teal, background: rule ? T.meadowBg : "rgba(34,113,117,0.10)",
       borderRadius: 5, padding: "2px 8px" }}>
       {rule && <Icon name="spark" size={11} color={T.meadowInk} />}

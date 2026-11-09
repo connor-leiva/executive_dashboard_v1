@@ -293,8 +293,8 @@ export default function BooksMapping({ isCFO = false }) {
                       if (!rows.length) return null;
                       return (
                         <div key={key}>
-                          <div style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                            textTransform: "none", color: T.tertiary, background: T.parchment,
+                          <div style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+                            color: T.tertiary, background: T.parchment,
                             padding: "7px 20px", position: "sticky", top: 0 }}>{label}</div>
                           {rows.map((a) => (
                             <button key={a.id} title={a.definition || undefined}

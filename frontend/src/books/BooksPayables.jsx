@@ -112,7 +112,7 @@ function Header({ cols }) {
       padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
       {cols.map((h, i) => (
         <span key={h} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-          letterSpacing: 0, textTransform: "none", color: T.muted,
+          color: T.muted,
           textAlign: i === 3 ? "right" : "left" }}>{h}</span>
       ))}
     </div>
@@ -188,7 +188,7 @@ function FieldRow({ label, hint, children, span }) {
   return (
     <label style={{ display: "grid", gap: 4, minWidth: 0, gridColumn: span ? "1 / -1" : "auto" }}>
       <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-        letterSpacing: 0, textTransform: "none", color: T.muted }}>{label}</span>
+        color: T.muted }}>{label}</span>
       {children}
       {hint && <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{hint}</span>}
     </label>
@@ -765,7 +765,7 @@ function BandEditor({ onClose }) {
                       columnGap: 10, padding: "0 0 7px" }}>
           {["Band", "From", "To", "Signatures", "Active", ""].map((h, i) => (
             <span key={h || i} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-              letterSpacing: 0, textTransform: "none", color: T.muted }}>{h}</span>
+              color: T.muted }}>{h}</span>
           ))}
         </div>
 
@@ -930,7 +930,7 @@ function RunHeader() {
       padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
       {["Vendor", "Invoice", "Terms", "Due", "Amount", ""].map((h, i) => (
         <span key={h || i} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-          letterSpacing: 0, textTransform: "none", color: T.muted,
+          color: T.muted,
           textAlign: i === 4 ? "right" : "left" }}>{h}</span>
       ))}
     </div>
@@ -1039,7 +1039,7 @@ function ReleaseButton({ run, onDone }) {
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="000000"
             inputMode="numeric" autoFocus
             style={{ width: 96, boxSizing: "border-box", fontFamily: font.body, fontSize: 13,
-              letterSpacing: 0, textAlign: "center", padding: "6px 8px",
+              textAlign: "center", padding: "6px 8px",
               border: `1px solid ${T.line}`, borderRadius: 8, color: T.ink, background: T.white }} />
         )}
         <button disabled={busy} style={btn(busy ? "disabled" : "primary")}
@@ -1138,7 +1138,7 @@ function RunsView() {
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                     marginBottom: 14 }}>
         <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-          letterSpacing: 0, textTransform: "none", color: T.muted }}>Entity</span>
+          color: T.muted }}>Entity</span>
         {list.map((e) => (
           <button key={e.id} onClick={() => { setBizId(e.id); setOpenId(null); }}
             style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, borderRadius: 99,
@@ -1363,7 +1363,7 @@ function VendorsView() {
           padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
           {["Vendor", "Type", "W-9", "Banking", "Terms", "Status"].map((h) => (
             <span key={h} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
-              letterSpacing: 0, textTransform: "none", color: T.muted }}>{h}</span>
+              color: T.muted }}>{h}</span>
           ))}
         </div>
         {rows.length === 0 && (

@@ -30,8 +30,8 @@ export const CHAR_BY_LABEL = Object.fromEntries(
 
 export function Eyebrow({ children, onDark }) {
   return (
-    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                   textTransform: "none", color: onDark ? T.onDarkMute : T.secondary }}>{children}</span>
+    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+                   color: onDark ? T.onDarkMute : T.secondary }}>{children}</span>
   );
 }
 

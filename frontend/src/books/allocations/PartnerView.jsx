@@ -19,8 +19,8 @@ import { fmtMonth } from "./words.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number arrived from the server and is not touched. */
@@ -160,8 +160,8 @@ export default function PartnerView({ data, businessId, period }) {
               to be a safeguard. What CAN be non-zero is `excluded`, money the statement left
               out while still tying, and that is the number worth a reader's attention. */}
           {tie && (
-            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                           textTransform: "none", alignSelf: "flex-start",
+            <span style={{ fontFamily: F.num, fontSize: 12,
+                           alignSelf: "flex-start",
                            borderRadius: 7, padding: "5px 9px",
                            color: Number(tie.excluded || 0) ? L.flagInk : L.accentInk,
                            background: Number(tie.excluded || 0) ? L.flagBg : L.accentBg }}>

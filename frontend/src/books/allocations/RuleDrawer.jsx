@@ -21,8 +21,8 @@ import { TierMarker, TierCode } from "./TierMarker.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 const FIELD = { fontFamily: F.body, fontSize: 13, color: L.body, background: L.paper,
                 border: `1px solid ${L.cardEdge}`, borderRadius: 9, padding: "7px 10px",
                 width: "100%", boxSizing: "border-box" };

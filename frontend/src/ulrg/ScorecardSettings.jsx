@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { patchJSON, putJSON, postJSON, getJSON, uploadFile, fileUrl } from "../api.js";
 import { C, FD, FB, FM } from "./scorecardMath.js";
 
-const _label = { fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.muted, marginBottom: 8 };
+const _label = { fontFamily: FM, fontSize: 12, color: C.muted, marginBottom: 8 };
 const _field = { fontFamily: FB, fontSize: 13, color: C.ink, background: C.parchment, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "6px 9px" };
 const _btn = { fontFamily: FM, fontSize: 12, borderRadius: 8, padding: "6px 12px", cursor: "pointer", border: `1px solid ${C.hair}`, color: C.slate, background: "none" };
-const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.muted };
+const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 12, color: C.muted };
 
 export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onChanged }) {
   const gs = groups || [];
@@ -145,7 +145,7 @@ function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
         {rows.map((r, i) => (
           <div key={r.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ flex: "0 0 92px", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.slate }}>{r.group}</span>
+            <span style={{ flex: "0 0 92px", fontFamily: FM, fontSize: 12, color: C.slate }}>{r.group}</span>
             <input value={r.name} aria-label="Measurable name"
                    onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, name: e.target.value, dirty: true } : x))}
                    style={{ ..._field, flex: "1 1 auto" }} />
@@ -182,7 +182,7 @@ function _blankSpec(ds) {
            filters: [], aggregate: { fn: "count" }, attribution: ds.attribution[0] };
 }
 const _specSummary = (s) => `${s.source}.${s.dataset} · by ${s.date_field} · ${s.filters?.length || 0} filter(s) · ${s.aggregate?.fn || "count"}${s.attribution === "office" ? " · per office" : ""}`;
-const _pill = (bg, fg) => ({ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", padding: "2px 7px", borderRadius: 99, background: bg, color: fg });
+const _pill = (bg, fg) => ({ fontFamily: FM, fontSize: 12, padding: "2px 7px", borderRadius: 99, background: bg, color: fg });
 
 function RoutingEditor({ scope = "ulrg", onChanged }) {
   const [catalog, setCatalog] = useState(null);

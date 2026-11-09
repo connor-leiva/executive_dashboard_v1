@@ -98,7 +98,7 @@ export function CleanupTodo({ rev, onSaved }) {
       {d && (
         <Panel>
           <div style={{ background: L.deep, padding: "14px 26px", display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0, textTransform: "none",
+            <span style={{ fontFamily: F.num, fontSize: 12,
                            color: L.onDeepEyebrow }}>What&rsquo;s left</span>
             <span style={{ fontFamily: F.body, fontSize: 14, color: L.onDeepPill }}>
               <strong style={{ color: L.paper, fontFamily: F.num }}>{done}</strong> of {d.checklist.length} steps done</span>

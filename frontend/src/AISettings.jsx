@@ -142,7 +142,7 @@ export default function AISettings() {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted }}>Settings · AI Employees</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.muted }}>Settings · AI Employees</div>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>AI Employees</div>
         <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>Configure agents, their skills and cadence, triggers, and governance. Every run drafts for approval.</div>
       </div>
@@ -168,7 +168,7 @@ export default function AISettings() {
 
       {sel && (
         <>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.tertiary, textTransform: "none", margin: "20px 0 10px" }}>Configuring · {sel.name}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary, margin: "20px 0 10px" }}>Configuring · {sel.name}</div>
 
           {/* 7.2 Skills & cadence */}
           <Card title="Skills & cadence" hint="Enable a skill, set its schedule, and override its prompt. The seed prompt is never mutated.">

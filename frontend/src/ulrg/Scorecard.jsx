@@ -291,7 +291,7 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
             marginLeft: 12, display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 9px 0 7px",
             border: `1px solid ${cumOpen ? T.forest : T.line}`, background: cumOpen ? T.forest : "transparent",
             color: cumOpen ? T.paper : T.inkSoft, borderRadius: 5, cursor: "pointer", font: "inherit",
-            fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none",
+            fontSize: 12, fontWeight: 600,
             transition: `background 220ms ${EASE}, border-color 220ms ${EASE}, color 220ms ${EASE}`,
           }}
         >
@@ -348,9 +348,9 @@ function GroupBar({ group, width, off }) {
         {o && (src
           ? <img src={src} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,253,249,0.25)", flexShrink: 0 }} />
           : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
         {o && o.name && <span style={{ fontSize: 12, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
-        <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
+        <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
           {off} off pace
         </span>
       </div>

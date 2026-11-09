@@ -15,8 +15,8 @@ import { TierMarker, TierCode, tierRowStyle, tierWeight } from "./TierMarker.jsx
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 
 
@@ -62,8 +62,8 @@ function SummaryCards({ meta, monthLabel, tiers, filter, setFilter }) {
                              color: L.deep }}>{t.label}</span>
             </span>
             <Money v={row.pool_amount} size={15} tone={L.deep} />
-            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                           textTransform: "none", color: L.ghost, display: "block",
+            <span style={{ fontFamily: F.num, fontSize: 12,
+                           color: L.ghost, display: "block",
                            marginTop: 2 }}>
               In the books, {monthLabel}
             </span>
@@ -152,8 +152,7 @@ function Expanded({ rule, meta, businesses, isCFO, onSupersede }) {
             <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
               {ver.approved_by?.name || "Unknown"}
             </span>
-            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                           textTransform: "none",
+            <span style={{ fontFamily: F.num, fontSize: 12,
                            color: ver.is_current ? L.deep : L.faint }}>
               {ver.is_current ? "Current" : "Superseded"}
             </span>

@@ -61,10 +61,10 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               {r.measurable}
             </span>
             {r.cumulative_goal != null && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
             )}
             {r.streak >= 3 && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
             )}
           </div>
 

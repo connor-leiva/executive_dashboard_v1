@@ -23,7 +23,7 @@ export function OwnerBadge({ owner, dark, size = 22 }) {
 }
 
 export function Eyebrow({ children, color = C.muted }) {
-  return <div style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color }}>{children}</div>;
+  return <div style={{ fontFamily: FM, fontSize: 12, color }}>{children}</div>;
 }
 
 export function Card({ children, style, pad = 20 }) {
@@ -32,7 +32,7 @@ export function Card({ children, style, pad = 20 }) {
 }
 
 export function Chip({ children, ink, bg, dash }) {
-  return <span style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, padding: "3px 6px", borderRadius: 4,
+  return <span style={{ fontFamily: FM, fontSize: 12, padding: "3px 6px", borderRadius: 4,
     background: bg || C.hairSoft, color: ink || C.muted, border: dash ? `1px dashed ${C.hair}` : "none", whiteSpace: "nowrap" }}>{children}</span>;
 }
 
@@ -60,9 +60,9 @@ export const tdC = { padding: "9px 5px", borderBottom: cellB, textAlign: "center
 export const cumCell = { padding: "9px 7px", borderBottom: cellB, verticalAlign: "middle" };
 export const thL = { padding: "9px 8px", textAlign: "left" };
 export const thC = { padding: "8px 4px", textAlign: "center", fontFamily: FM, fontSize: 12, fontWeight: 400 };
-export const thCum = { padding: "8px 7px", textAlign: "left", fontFamily: FM, fontSize: 12, letterSpacing: 0,
-  textTransform: "none", color: C.slate, fontWeight: 400 };
-export const groupTh = { padding: "8px", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+export const thCum = { padding: "8px 7px", textAlign: "left", fontFamily: FM, fontSize: 12,
+  color: C.slate, fontWeight: 400 };
+export const groupTh = { padding: "8px", fontFamily: FM, fontSize: 12,
   color: C.muted, fontWeight: 400, background: C.hairSoft, borderBottom: `1px solid ${C.hair}`, textAlign: "left" };
 
 export function Dir({ d, showLabel }) {

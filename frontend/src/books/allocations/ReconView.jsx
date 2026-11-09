@@ -21,8 +21,8 @@ const TARGET_VIEW = { drivers: "drivers", rule: "rules", rules: "rules" };
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number itself arrived from the server and is not touched. */

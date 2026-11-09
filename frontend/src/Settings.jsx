@@ -1332,7 +1332,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
             {entities.length > 0 && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9 }}>
-                  <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted }}>
+                  <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>
                     {s.multi_entity ? `${s.entity_plural || "Entities"} · ${entities.length} · one connection each` : "Connection"}</span>
                   <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
                 </div>
@@ -1353,7 +1353,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 {/* "Feeds" is what the mockup calls these, and it is the better word: it is what
                     this source puts INTO the dashboard. The payload still calls it `provides`. */}
-                <span style={{ fontFamily: "var(--font-data)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted }}>Feeds</span>
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 12, fontWeight: 600, color: T.muted }}>Feeds</span>
                 {(s.provides || []).map((c) => <Chip key={c}>{c}</Chip>)}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -1673,7 +1673,7 @@ function IntegrationsPage() {
       `}</style>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 28, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ maxWidth: 520 }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
             <Icon name="puzzle" size={13} color={T.poppyText} />Settings · Integrations
           </div>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, letterSpacing: "-.02em", marginTop: 6, color: T.ink }}>Data sources</div>
@@ -1704,7 +1704,7 @@ function IntegrationsPage() {
           </div>
         ))}
         <span style={{ flex: 1 }} />
-        <span style={{ padding: "0 20px", fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted, whiteSpace: "nowrap" }}>
+        <span style={{ padding: "0 20px", fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, whiteSpace: "nowrap" }}>
           {view.next_sync_in_min != null ? `Auto-sync in ${view.next_sync_in_min} min` : "Auto-sync every 30 min"}
         </span>
       </div>
@@ -1737,7 +1737,7 @@ function IntegrationsPage() {
       <div style={{ border: `1px solid ${T.line}`, borderRadius: 14, background: T.white, overflow: "hidden", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
           padding: "11px 18px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
-          <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.slate }}>
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.slate }}>
             Connected · {connected.length}</span>
           <span style={{ flex: 1 }} />
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1765,7 +1765,7 @@ function IntegrationsPage() {
       {available.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.slate }}>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.slate }}>
               Available · {available.length}</span>
             <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
           </div>
@@ -2094,7 +2094,7 @@ function TabDots({ user }) {
 }
 
 function Pill({ text, color, bg }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
 }
 
 function InviteModal({ tabs, me, onClose, onInvited }) {
@@ -2278,7 +2278,7 @@ function UsersPage() {
     <>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted }}>Settings · Users</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.muted }}>Settings · Users</div>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>Team</div>
           <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
         </div>
@@ -2847,7 +2847,7 @@ function RecruitingRoster({ data, live, onChanged }) {
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr)", gap: 12, alignItems: "start" }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ ...cell, fontWeight: 600, fontSize: 14 }}>{seat.display_name}</div>
-              <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
+              <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 2 }}>
                 {/* The title supersedes the role rather than joining it: a title is written as
                     the whole descriptor ("Team Leader · Draper"), so printing both gave
                     "TEAM LEADER · TEAM LEADER · DRAPER". */}

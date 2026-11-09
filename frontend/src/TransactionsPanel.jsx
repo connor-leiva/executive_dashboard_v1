@@ -60,7 +60,7 @@ function Label({ children, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.slate }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate }}>
         {children}
       </span>
     </div>
@@ -76,7 +76,7 @@ export function SampleBanner() {
       boxSizing: "border-box", display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px",
       background: T.daffodilBg, border: `1px solid ${T.daffodil}`, borderRadius: 12,
     }}>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.daffodilText, whiteSpace: "nowrap", paddingTop: 2 }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.daffodilText, whiteSpace: "nowrap", paddingTop: 2 }}>
         Sample data
       </span>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>

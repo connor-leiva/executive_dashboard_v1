@@ -59,8 +59,8 @@ function Derived({ tokens }) {
                  "poppyText", "daffodil", "line", "muted", "page"];
   return (
     <div>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                    textTransform: "none", color: T.muted, marginBottom: 8 }}>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: T.muted, marginBottom: 8 }}>
         Derived from those five
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -463,8 +463,8 @@ export default function Appearance() {
         </div>
         <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14,
                       padding: 20 }}>
-          <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                        textTransform: "none", color: T.muted, marginBottom: 12 }}>
+          <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                        color: T.muted, marginBottom: 12 }}>
             Contrast
           </div>
           {[["Body text", tokens.ink, tokens.page],

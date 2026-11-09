@@ -15,7 +15,7 @@ export default function MoveCard({ group, wkey }) {
   return (
     <Card style={{ flex: "1 1 300px", minWidth: 280, borderTop: `3px solid ${crC ? band(crC.attain).bar : C.meadow}` }} pad={18}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <div style={{ fontFamily: FD, fontSize: 13, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: C.ink }}>{group.name}</div>
+        <div style={{ fontFamily: FD, fontSize: 13, fontWeight: 600, color: C.ink }}>{group.name}</div>
         {group.owner ? <OwnerBadge owner={group.owner} size={24} />
                      : <span style={{ fontFamily: FB, fontSize: 12, color: C.amberInk }}>Unassigned</span>}
       </div>

@@ -43,8 +43,8 @@ const ratioOf = (n, revenue) => (revenue > 0 ? n / revenue : 0);
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -316,7 +316,7 @@ function SectionRow({ label, count, open, total, pct, onToggle }) {
           borderTop: `4.5px solid transparent`, borderBottom: `4.5px solid transparent`,
           borderLeft: `6px solid ${L.faint}`,
           transform: open ? "rotate(90deg)" : "none", transformOrigin: "35% 50%" }} />
-        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600, letterSpacing: 0,
+        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600,
                        color: L.deep }}>{label}</span>
         <span style={{ fontFamily: F.body, fontSize: 12, color: L.ghost,
                        whiteSpace: "nowrap" }}>{count}</span>

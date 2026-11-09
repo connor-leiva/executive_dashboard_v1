@@ -233,7 +233,7 @@ export default function PeriodNav({
                   background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 12,
                   boxShadow: `0 18px 40px ${alpha(T.evergreen, 0.16)}`,
                 }}>
-                  <div style={{ fontFamily: font, fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary, marginBottom: 7 }}>
+                  <div style={{ fontFamily: font, fontSize: 12, fontWeight: 600, color: T.tertiary, marginBottom: 7 }}>
                     Custom range
                   </div>
                   <label style={{ display: "block", fontFamily: font, fontSize: 12, color: T.muted, marginBottom: 2 }}>From</label>
@@ -277,7 +277,7 @@ export default function PeriodNav({
           <div className="pn-note" style={{ width: 1, height: 22, background: T.line }} aria-hidden />
           {/* what the SERVER actually computed — the honest label for the data on screen */}
           <div className="pn-note" style={{
-            fontFamily: font, fontSize: 12, letterSpacing: 0, textTransform: "none",
+            fontFamily: font, fontSize: 12,
             color: T.muted, whiteSpace: "nowrap",
           }}>{serverLabel || (loading ? "Loading…" : "")}</div>
         </div>
@@ -315,7 +315,7 @@ export default function PeriodNav({
           padding: "11px 24px", background: T.parchment, borderBottom: `1px solid ${T.line}`,
         }}>
           <span style={{
-            fontFamily: font, fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted, marginRight: 2,
+            fontFamily: font, fontSize: 12, color: T.muted, marginRight: 2,
           }}>Live from</span>
           {sources.map((s) => (
             <span key={s.name} style={{

@@ -76,8 +76,8 @@ function Stat({ label, children, tone, note }) {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12,
                   padding: "13px 15px" }}>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                    textTransform: "none", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: C.muted }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 600, marginTop: 5, color: tone || C.ink }}>
         {children}
       </div>
@@ -491,8 +491,8 @@ export default function AdsView() {
             <div style={{ display: "grid", gap: 14,
                           gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                              textTransform: "none", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600,
+                              color: C.muted }}>
                   Leads · Meta&rsquo;s count
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
@@ -503,8 +503,8 @@ export default function AdsView() {
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                              textTransform: "none", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600,
+                              color: C.muted }}>
                   Registrations matched
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
@@ -515,8 +515,8 @@ export default function AdsView() {
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                              textTransform: "none", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600,
+                              color: C.muted }}>
                   Campaign grade or better
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
@@ -588,8 +588,8 @@ export default function AdsView() {
         <Card pad={0}>
           <div className="ads-table-row ads-head"
                style={{ padding: "11px 16px", borderBottom: `1px solid ${C.line}`,
-                        fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                        textTransform: "none", color: C.muted, background: C.surface2 }}>
+                        fontSize: 12, fontWeight: 600,
+                        color: C.muted, background: C.surface2 }}>
             <span>Campaign</span><span>Spend</span><span>Link clicks</span>
             <span>CTR</span><span>CPC</span><span>Cost / lead</span>
           </div>

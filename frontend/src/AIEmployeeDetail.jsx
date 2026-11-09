@@ -50,7 +50,7 @@ function Card({ children, style }) {
 }
 function LaneChip({ lane }) {
   const l = LANE[lane] || { c: T.slate, bg: T.parchment };
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
     color: l.c, background: l.bg, borderRadius: 999, padding: "3px 9px" }}>{lane}</span>;
 }
 function StatusChip({ status }) {
@@ -136,9 +136,9 @@ function TriggerBanner({ ctx, trigger }) {
     <Card style={{ padding: 16, marginBottom: 14, borderLeft: `3px solid ${T.teal}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         {trigger === "condition" && (
-          <span className="ai-trigger" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+          <span className="ai-trigger" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
             color: T.teal, background: "#E6F0F1", borderRadius: 4, padding: "2px 6px" }}>TRIGGER</span>)}
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.tertiary, textTransform: "none" }}>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>
           {ctx.source}{ctx.label ? ` · ${ctx.label}` : ""}</span>
       </div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink, marginBottom: 10 }}>{ctx.title}</div>
@@ -210,7 +210,7 @@ function TrendPreview({ p }) {
           {p.timely.map((t, i) => <li key={i} style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginBottom: 3 }}>{t}</li>)}
         </ul>)}
       {p.change && <div style={{ background: T.meadowBg, borderRadius: 10, padding: "10px 12px", marginTop: 10 }}>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.meadowInk, letterSpacing: 0 }}>THE CHANGE  </span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.meadowInk }}>THE CHANGE  </span>
         <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary }}>{p.change}</span></div>}
       {p.note && <Note>{p.note}</Note>}
     </div>
@@ -382,7 +382,7 @@ function ArtifactRow({ a, open, onToggle, onDismiss, onShip, canManage, pending,
         <Icon name={KIND_ICON[a.kind] || "spark"} size={14} color={T.muted} />
         <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, flex: 1, minWidth: 0 }}>{a.title}</span>
         {a.payload && a.payload.voiced && (
-          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
+          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
         )}
         {a.dest_label && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, flexShrink: 0 }}>{a.dest_label}</span>}
         {pending ? <span className="ai-spin" style={{ width: 14, height: 14, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
@@ -793,7 +793,7 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 8px" }}>
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>{employee.name} built the response</span>
                 {status === "awaiting_approval" && (
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
                 )}
               </div>
               {artifacts.map((a) => (

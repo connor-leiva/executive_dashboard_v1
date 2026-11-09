@@ -179,7 +179,7 @@ function SectionRow({ sec, open, onToggle, revenue, one }) {
           borderTop: "4.5px solid transparent", borderBottom: "4.5px solid transparent",
           borderLeft: `6px solid ${L.faint}`, transform: open ? "rotate(90deg)" : "none",
           transformOrigin: "35% 50%" }} />
-        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600, letterSpacing: 0, color: L.deep }}>
+        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600, color: L.deep }}>
           {sec.label}</span>
         <span style={{ fontFamily: F.body, fontSize: 12, color: L.ghost, whiteSpace: "nowrap" }}>
           {n} {n === 1 ? "line" : "lines"}</span>

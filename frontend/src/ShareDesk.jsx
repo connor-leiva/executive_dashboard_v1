@@ -148,12 +148,12 @@ export default function ShareDesk() {
         .sh-sub { font-size:12px; color:${T.muted}; }
         .sh-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:10px; }
         .sh-stat { background:${T.white}; border:1px solid ${T.line}; border-radius:12px; padding:10px 12px; }
-        .sh-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.tertiary}; }
+        .sh-l { font-size:12px; font-weight:600; color:${T.tertiary}; }
         .sh-v { font-family:var(--font-display); font-size:20px; font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
         .sh-s { font-size:12px; color:${T.muted}; margin-top:1px; }
         .sh-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; padding:14px 16px; margin-top:12px; }
-        .sh-t { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; margin-bottom:8px; }
+        .sh-t { font-family:var(--font-display); font-size:12px; font-weight:600;
+          margin-bottom:8px; }
         .sh-t em { font-style:normal; color:${T.amber}; margin-left:6px; }
         .sh-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
         .sh-row:last-child { border-bottom:none; }
@@ -193,8 +193,8 @@ export default function ShareDesk() {
         .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .drx-tblwrap { overflow-x:auto; }
         .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .drx-tbl th { text-align:left; font-size:12px; font-weight:600;
+          color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
       `}</style>

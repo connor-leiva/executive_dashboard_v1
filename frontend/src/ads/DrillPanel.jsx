@@ -75,7 +75,7 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
         .adr-wrap { overflow-x: auto; }
         .adr-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
         .adr-tbl th { text-align: left; font-family: ${FONT}; font-size: 12px;
-                      font-weight: 600; letter-spacing: 0; text-transform:none;
+                      font-weight: 600;
                       color: ${C.muted}; padding: 6px 10px 6px 0; border-bottom: 1px solid ${C.line}; }
         .adr-tbl td { font-family: ${FONT}; color: ${C.ink}; padding: 7px 10px 7px 0;
                       border-bottom: 1px solid ${C.line}; vertical-align: top; }

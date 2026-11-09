@@ -71,8 +71,8 @@ export const share = (f) => `${(Number(f || 0) * 100).toFixed(1).replace(/\.0$/,
 
 export const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
                      whiteSpace: "nowrap" };
-export const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                         textTransform: "none", color: L.faint };
+export const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                         color: L.faint };
 export const BODY = { fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.5 };
 
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -166,7 +166,7 @@ export function Sheet({ children, style, title, right }) {
       {title ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", padding: "12px 18px",
                       background: L.colHead, borderBottom: `1px solid ${L.ruleHeader}` }}>
-          <span style={{ fontFamily: F.num, fontSize: 14, fontWeight: 600, color: L.deep, letterSpacing: 0 }}>
+          <span style={{ fontFamily: F.num, fontSize: 14, fontWeight: 600, color: L.deep }}>
             {title}</span>
           <div style={{ flex: 1 }} />
           {right}

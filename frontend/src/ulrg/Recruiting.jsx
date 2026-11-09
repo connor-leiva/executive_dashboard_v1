@@ -344,7 +344,7 @@ function DoNext({ data, onChanged }) {
 
       {cleared.length > 0 && (
         <div style={{ background: C.parchment, borderRadius: 9, marginTop: 14, padding: "10px 14px" }}>
-          <div style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+          <div style={{ fontFamily: FM, fontSize: 12,
                         color: C.muted, marginBottom: 6 }}>Cleared today</div>
           <Scroller max={220} count={cleared.length} noun="item">
             {cleared.map((row) => (
@@ -403,8 +403,8 @@ function QueueRow({ it, owner, busy, onAct }) {
         </span>
         <span style={{ display: "block", fontFamily: FB, fontSize: 13, color: C.body, marginTop: 3,
                        textWrap: "pretty" }}>{it.why}</span>
-        <span style={{ display: "block", fontFamily: FM, fontSize: 12, letterSpacing: 0,
-                       textTransform: "none", color: C.teal, marginTop: 4 }}>{it.rule_label}</span>
+        <span style={{ display: "block", fontFamily: FM, fontSize: 12,
+                       color: C.teal, marginTop: 4 }}>{it.rule_label}</span>
       </span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                      justifyContent: "flex-end" }}
@@ -483,7 +483,7 @@ function SdrCard({ data, onChanged }) {
         <div style={{ marginTop: 12 }}><NotYet>{unavailable.speed_to_lead}</NotYet></div>
       )}
       <div style={{ marginTop: 16 }}>
-        <div style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+        <div style={{ fontFamily: FM, fontSize: 12,
                       color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
           Booked this week, by calendar
         </div>
@@ -614,7 +614,7 @@ function Commitments({ data, onChanged }) {
         Team Leader commitments
       </SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 96px", gap: 10,
-                    fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+                    fontFamily: FM, fontSize: 12,
                     color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
         <span>Team Leader</span><span>Appts held</span><span>Offers sent</span>
       </div>
@@ -686,8 +686,8 @@ function Leaderboard({ data }) {
         <div style={{ overflowX: "auto" }}>
           <div style={{ minWidth: 560 }}>
             <div style={{ display: "grid", gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px 70px",
-                          gap: 8, fontFamily: FM, fontSize: 12, letterSpacing: 0,
-                          textTransform: "none", color: C.muted,
+                          gap: 8, fontFamily: FM, fontSize: 12,
+                          color: C.muted,
                           borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
               <span>#</span><span>Team Leader</span><span>Signed</span><span>Held</span><span>Close</span><span>Queue</span>
             </div>
@@ -781,8 +781,7 @@ function Pipeline({ data }) {
           <span style={{ minWidth: 0 }}>
             <span style={{ display: "block", fontFamily: FD, fontSize: 13, fontWeight: 600, color: C.ink,
                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.label}</span>
-            <span style={{ display: "block", fontFamily: FM, fontSize: 12, textTransform: "none",
-                           letterSpacing: 0,
+            <span style={{ display: "block", fontFamily: FM, fontSize: 12,
                            color: parked.includes(st) ? C.muted
                              : st.owner_role === "sdr" ? C.amberInk : C.teal }}>
               {parked.includes(st) ? "Parked"
@@ -836,7 +835,7 @@ function Sources({ data }) {
       <div style={{ overflowX: "auto" }}>
         <div style={{ minWidth: 560 }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(170px,1.6fr) repeat(4,minmax(70px,1fr))",
-                        gap: 8, fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+                        gap: 8, fontFamily: FM, fontSize: 12,
                         color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
             <span>Source</span><span>Candidates</span><span>Signed</span><span>Rate</span><span>GCI added</span>
           </div>
@@ -922,7 +921,7 @@ function Drawer({ candidateId, onClose }) {
                 Open contact in GHL →
               </a>
             )}
-            <div style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
+            <div style={{ fontFamily: FM, fontSize: 12,
                           color: C.muted, marginTop: 20, borderBottom: `1px solid ${C.hair}`,
                           paddingBottom: 6 }}>Activity</div>
             {(data.timeline || []).length === 0 && (
@@ -957,8 +956,8 @@ function Drawer({ candidateId, onClose }) {
 function Fact({ label, children }) {
   return (
     <span style={{ minWidth: 0 }}>
-      <span style={{ display: "block", fontFamily: FM, fontSize: 12, letterSpacing: 0,
-                     textTransform: "none", color: C.muted }}>{label}</span>
+      <span style={{ display: "block", fontFamily: FM, fontSize: 12,
+                     color: C.muted }}>{label}</span>
       <span style={{ display: "block", fontFamily: FB, fontSize: 13, color: C.ink, marginTop: 2 }}>{children}</span>
     </span>
   );

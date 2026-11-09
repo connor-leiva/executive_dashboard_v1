@@ -22,8 +22,8 @@ import { Button, Input, Select } from "./controls.jsx";
 import Money from "./Money.jsx";
 import { fmtMonth } from "./words.js";
 
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 /* A row is answered in ONE of two ways, chosen per subject:
      percent  - every cell is a percent and they come to 100

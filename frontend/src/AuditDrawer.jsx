@@ -7,27 +7,27 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 /* Forum segment chip — daffodil Forum / mist IC (never poppy). */
 function SegChip({ seg }) {
   if (seg === "BC") return (
-    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-      color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>BC</span>
+    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
+      color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>BC</span>
   );
   if (seg === "MTG") return (
-    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-      color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>Loan</span>
+    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
+      color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>Loan</span>
   );
   if (seg === "ULRG") return (
-    <span title="Sourced by ULRG — Utah Life referral or borrower matches a ULRG closing" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-      color: T.white, background: T.meadow, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>ULRG</span>
+    <span title="Sourced by ULRG — Utah Life referral or borrower matches a ULRG closing" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
+      color: T.white, background: T.meadow, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>ULRG</span>
   );
   if (seg === "OTHER") return (
-    <span title="Not attributable to ULRG" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-      color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 6px", textTransform: "none", flexShrink: 0 }}>Other</span>
+    <span title="Not attributable to ULRG" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
+      color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>Other</span>
   );
   const f = seg === "F" || seg === "Forum";
   return (
     <span style={{
-      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
-      borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0,
+      borderRadius: 4, padding: "2px 6px", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
   );
 }

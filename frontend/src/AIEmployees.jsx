@@ -69,7 +69,7 @@ function RunChip({ status }) {
   };
   const [c, bg, label] = map[status] || [T.slate, T.parchment, status];
   return (
-    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
       color: c, background: bg, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>{label}</span>
   );
 }

@@ -54,7 +54,7 @@ export default function StepUpGate({ scope, title, blurb, usingSample, children 
 
   const input = {
     width: "100%", boxSizing: "border-box",          // no global border-box reset in this app
-    fontFamily: "var(--font-text)", fontSize: 16, letterSpacing: 0,
+    fontFamily: "var(--font-text)", fontSize: 16,
     textAlign: "center", padding: "11px 12px", border: `1px solid ${T.line}`,
     borderRadius: 9, color: T.ink, background: T.white,
   };

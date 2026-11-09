@@ -64,8 +64,8 @@ function Thumb({ src, name }) {
 function Cell({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
-                    textTransform: "none", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: C.muted }}>{label}</div>
       <div style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 13,
                     color: C.ink, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden",
                     textOverflow: "ellipsis" }}>{children}</div>

@@ -571,7 +571,7 @@ export default function CleanupDecisions({ ov, rev, onSaved }) {
         <Panel>
           <div style={{ background: L.deep, padding: "14px 26px", display: "flex", gap: 18, flexWrap: "wrap",
                         alignItems: "baseline" }}>
-            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0, textTransform: "none",
+            <span style={{ fontFamily: F.num, fontSize: 12,
                            color: L.onDeepEyebrow }}>Net income, corrected, with these decisions</span>
             {ov.companies.map((c) => (
               <span key={c} style={{ fontFamily: F.body, fontSize: 13, color: L.onDeepPill }}>
