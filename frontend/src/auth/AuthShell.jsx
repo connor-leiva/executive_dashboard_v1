@@ -21,8 +21,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { T, alpha } from "../theme.js";
 import { getJSON, API_BASE } from "../api.js";
-import { applyBrand, heroPlateStyle } from "../palette.js";
-import { BrandSignature, setBrand } from "../Brand.jsx";
+import { applyBrand } from "../palette.js";
+import { BrandSignature, setBrand, ribbedHero } from "../Brand.jsx";
 import { PoweredByAxcion } from "../brand/PoweredBy.jsx";
 import { AXCION_SITE } from "../brand/axcion.jsx";
 
@@ -84,7 +84,7 @@ function Plate({ chrome }) {
           file. */}
       <div aria-hidden style={{
         position: "absolute", inset: 0, backgroundSize: "cover", backgroundPosition: "center",
-        ...(hero ? { backgroundImage: `url(${hero})` } : heroPlateStyle("evergreen")),
+        ...(hero ? { backgroundImage: `url(${hero})` } : ribbedHero("evergreen")),
       }} />
       {/* Always, over whatever is underneath. A photo nobody vetted sits behind white text, and
           this is what keeps the logo legible on a bright one. */}
