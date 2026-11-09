@@ -33,7 +33,7 @@ export default function PlanGates({ gates, canEdit, onChanged }) {
   return (
     <div style={{ marginTop: 18, background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, fontFamily: FONT, overflow: "hidden" }}>
       <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.ink }}>Plan gates</h3>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: T.ink }}>Plan gates</h3>
         <span style={{ fontSize: 12, color: T.muted }}>
           {gates.filter((g) => g.status === "done").length} of {gates.length} done
           {gates.some((g) => g.status === "missed") ? ` · ${gates.filter((g) => g.status === "missed").length} missed` : ""}
@@ -48,14 +48,14 @@ export default function PlanGates({ gates, canEdit, onChanged }) {
                 <span style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: t.fg }} />
                 <span style={{ flex: 1, height: 1, background: T.line }} />
               </div>
-              <div style={{ ...NUM, fontSize: 12.5, fontWeight: 600, color: T.ink }}>{shortDate(g.due)}</div>
-              <div style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.4, marginTop: 4 }}>{g.label}</div>
+              <div style={{ ...NUM, fontSize: 13, fontWeight: 600, color: T.ink }}>{shortDate(g.due)}</div>
+              <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.4, marginTop: 4 }}>{g.label}</div>
               <div style={{ ...LBL, marginTop: 7 }}>{g.owner || "Unassigned"}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: t.fg, background: t.bg, borderRadius: 4, padding: "2px 7px" }}>{t.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.fg, background: t.bg, borderRadius: 4, padding: "2px 7px" }}>{t.label}</span>
                 {canEdit && (
                   <button onClick={() => toggle(g)} disabled={busy === g.id} className="l10-btn"
-                    style={{ font: "inherit", fontSize: 11, color: err === g.id ? T.bad : T.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+                    style={{ font: "inherit", fontSize: 12, color: err === g.id ? T.bad : T.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
                     {busy === g.id ? "Saving…" : err === g.id ? "Try again" : g.status === "done" ? "Undo" : "Mark done"}
                   </button>
                 )}

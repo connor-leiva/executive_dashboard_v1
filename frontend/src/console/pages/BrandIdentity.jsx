@@ -136,9 +136,9 @@ function BrandPreview({ form, domain }) {
         </div>
         <nav>
           <strong>Home</strong>
-          <span>Tool Launchpad</span>
+          <span>Tool launchpad</span>
           <span>Win the Day</span>
-          <span>Team Calendar</span>
+          <span>Team calendar</span>
         </nav>
       </aside>
       <main>

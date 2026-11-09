@@ -115,11 +115,11 @@ export default function Cleanup({ role }) {
       </div>
       {d && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
             {d.label}{d.uploaded_at ? ` · loaded ${d.uploaded_at.slice(0, 10)}` : ""}</span>
           <OkPill ok={!failing.length} title={failing.map((c) => c.label).join("\n") || undefined}>
             {failing.length ? `${failing.length} ${failing.length === 1 ? "check fails" : "checks fail"}` : "Every check passes"}</OkPill>
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
             {d.checklist.done} of {d.checklist.total} steps done · {d.open_items} open {d.open_items === 1 ? "item" : "items"}</span>
           <div style={{ flex: 1 }} />
           {isOwner && d.can_decide && <DownloadSaved version={d.version} live={(d.forward_companies || [])

@@ -107,8 +107,8 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
     return (
       <div className="l10" style={{ fontFamily: FONT, color: T.ink }}>
         <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, padding: "44px 28px", textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>No measurables yet</div>
-          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 8 }}>This scorecard hasn't been configured. Seed the measurables to see the grid.</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>No measurables yet</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>This scorecard hasn't been configured. Seed the measurables to see the grid.</div>
         </div>
       </div>
     );
@@ -161,8 +161,8 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
           {/* --------------------------- title bar --------------------------- */}
           <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>L10 Scorecard</h2>
-              <span style={{ fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>L10 Scorecard</h2>
+              <span style={{ fontSize: 13, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 Week {liveN} is newest. Select any measurable to open its detail.
               </span>
             </div>
@@ -178,7 +178,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                       onClick={() => setRangeId(id)}
                       className="l10-btn"
                       style={{
-                        border: "none", font: "inherit", fontSize: 11.5, fontWeight: on ? 600 : 500,
+                        border: "none", font: "inherit", fontSize: 12, fontWeight: on ? 600 : 500,
                         padding: "4px 11px", borderRadius: 5, cursor: "pointer",
                         background: on ? T.paper : "transparent", color: on ? T.ink : T.muted,
                         boxShadow: on ? "0 1px 2px rgba(20,35,28,0.10)" : "none",
@@ -190,13 +190,13 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                   );
                 })}
               </div>
-              <span style={{ ...NUM, fontSize: 11.5, color: T.faint, whiteSpace: "nowrap" }}>
+              <span style={{ ...NUM, fontSize: 12, color: T.faint, whiteSpace: "nowrap" }}>
                 {countedN} week{countedN === 1 ? "" : "s"} counted{qtdThin ? " · quarter just turned" : ""}
               </span>
             </div>
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
                 <input type="checkbox" checked={onlyOff} onChange={(e) => setOnlyOff(e.target.checked)} style={{ width: 14, height: 14, accentColor: T.forest, cursor: "pointer" }} />
                 Only what is off
               </label>
@@ -204,7 +204,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                 <button
                   onClick={() => setSettingsOpen((v) => !v)}
                   className="l10-btn"
-                  style={{ font: "inherit", fontSize: 12.5, fontWeight: 500, padding: "6px 13px", borderRadius: 6, border: `1px solid ${settingsOpen ? T.forest : T.line}`, background: "transparent", color: settingsOpen ? T.forest : T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}
+                  style={{ font: "inherit", fontSize: 13, fontWeight: 500, padding: "6px 13px", borderRadius: 6, border: `1px solid ${settingsOpen ? T.forest : T.line}`, background: "transparent", color: settingsOpen ? T.forest : T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}
                 >
                   Settings
                 </button>
@@ -259,10 +259,10 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
             {[["At or above goal", T.good], ["Within 20%", T.warn], ["Off pace", T.bad]].map(([label, c]) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: c, opacity: 0.85 }} />
-                <span style={{ fontSize: 11.5, color: T.muted }}>{label}</span>
+                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
               </div>
             ))}
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: T.faint }}>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: T.faint }}>
               {(data.sources || []).map((x) => `${SOURCE_NAME[x.provider] || x.provider} synced ${ago(x.synced_at)}`).join(" · ")}
               {(data.sources || []).length ? " · " : ""}Cumulative totals count only weeks with data.
             </span>
@@ -291,7 +291,7 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
             marginLeft: 12, display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 9px 0 7px",
             border: `1px solid ${cumOpen ? T.forest : T.line}`, background: cumOpen ? T.forest : "transparent",
             color: cumOpen ? T.paper : T.inkSoft, borderRadius: 5, cursor: "pointer", font: "inherit",
-            fontSize: 10, fontWeight: 600, letterSpacing: "0.075em", textTransform: "uppercase",
+            fontSize: 12, fontWeight: 600,
             transition: `background 220ms ${EASE}, border-color 220ms ${EASE}, color 220ms ${EASE}`,
           }}
         >
@@ -329,7 +329,7 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
               {live && <span style={{ width: 4, height: 4, borderRadius: "50%", background: T.good }} />}
               <span style={{ ...NUM, ...LBL, color: live ? T.inkSoft : T.faint }}>W{w.n}</span>
             </div>
-            <span style={{ ...NUM, fontSize: 9.5, color: T.faint }}>{w.label}</span>
+            <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{w.label}</span>
           </div>
         );
       })}
@@ -347,10 +347,10 @@ function GroupBar({ group, width, off }) {
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: RAIL, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", gap: 9, padding: "0 12px 0 14px", background: T.forest }}>
         {o && (src
           ? <img src={src} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,253,249,0.25)", flexShrink: 0 }} />
-          : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.11em", textTransform: "uppercase", color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
-        {o && o.name && <span style={{ fontSize: 11.5, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
-        <span style={{ ...NUM, marginLeft: "auto", fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
+          : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
+        {o && o.name && <span style={{ fontSize: 12, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
+        <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
           {off} off pace
         </span>
       </div>

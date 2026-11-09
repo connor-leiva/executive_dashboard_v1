@@ -47,7 +47,7 @@ export function PoweredByAxcion({ tone = "dark", align = "center", style }) {
       gap: 7, padding: "18px 0 22px", ...style,
     }}>
       <span style={{
-        fontFamily: TYPE.text, fontSize: 11, fontWeight: 500, letterSpacing: ".04em",
+        fontFamily: TYPE.text, fontSize: 12, fontWeight: 500,
         color: labelColor,
       }}>Powered by</span>
       <a href={AXCION_SITE} target="_blank" rel="noopener noreferrer"

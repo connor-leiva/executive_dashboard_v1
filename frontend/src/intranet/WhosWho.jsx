@@ -148,7 +148,7 @@ export default function WhosWho({ config, canConfigure }) {
         <Head intro="" />
         <p className="ut-who-lede">
           {canConfigure
-            ? "Nobody is on Who's Who yet. Add the team in the console under People & Roster; everyone not hidden appears here."
+            ? "Nobody is on Who's Who yet. Add the team in the console under People & roster; everyone not hidden appears here."
             : "Your team has not been added yet."}
         </p>
       </div>

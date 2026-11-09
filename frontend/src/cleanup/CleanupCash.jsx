@@ -51,7 +51,7 @@ export default function CleanupCash({ ov, rev, onSaved }) {
               </div>) : null}
             <Sheet>
               <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900, fontFamily: F.body, fontSize: 12.5 }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900, fontFamily: F.body, fontSize: 13 }}>
                   <thead><tr>{["Month", "Starts with", `+ ${f.labels?.in || "Installments in"}`, `− ${f.partner || "Partner"}`, "− Monthly costs",
                                "− Commissions", "− Retreats", "− Repayment", "Ends with"].map((h, i) => (
                     <th key={h} style={{ ...EYEBROW, textAlign: i ? "right" : "left", padding: "9px 12px", background: L.colHead }}>{h}</th>))}

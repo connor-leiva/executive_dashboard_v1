@@ -25,7 +25,7 @@ function Posted({ company, k, value, onSaved }) {
   };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim }}>Posted in QuickBooks as entry no.</span>
+      <span style={{ fontFamily: F.body, fontSize: 13, color: L.bodyDim }}>Posted in QuickBooks as entry no.</span>
       <input value={text} onChange={(e) => setText(e.target.value)} maxLength={64} aria-label="QuickBooks entry number"
              onKeyDown={(e) => { if (e.key === "Enter" && dirty) save(); }}
              placeholder="not posted yet" style={{ ...inputStyle, width: 150, fontFamily: F.body }} />
@@ -45,7 +45,7 @@ function Entry({ c, k, onSaved, ov }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontFamily: F.num, fontSize: 18, fontWeight: 700, color: L.deep }}>
+        <span style={{ fontFamily: F.num, fontSize: 18, fontWeight: 600, color: L.deep }}>
           {shortOf(ov, c.company)} · {mon.label}</span>
         <span style={{ fontFamily: F.num, fontSize: 12, color: L.muted }}>{mon.journal_no} · dated {mon.date}</span>
         <div style={{ flex: 1 }} />
@@ -79,7 +79,7 @@ function Entry({ c, k, onSaved, ov }) {
                     <span style={{ fontFamily: F.body, fontSize: 13, color: L.deep, overflowWrap: "anywhere" }}>
                       {r.account}
                       {r.new && <span style={{ color: L.flagInk, fontWeight: 600 }}> · New: create it first</span>}
-                      <span style={{ display: "block", fontSize: 11.5, color: L.muted }}>
+                      <span style={{ display: "block", fontSize: 12, color: L.muted }}>
                         {r.line ? `P&L · ${r.line}` : "Balance sheet"}</span>
                     </span>
                     <span style={{ fontFamily: F.body, fontSize: 12, color: L.bodyDim, lineHeight: 1.5 }}>
@@ -95,18 +95,18 @@ function Entry({ c, k, onSaved, ov }) {
                 );
               })}
               <div style={{ ...grid, padding: "11px 18px", background: L.totalBand, borderTop: `1.5px solid ${L.deep}` }}>
-                <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 700, color: L.deep }}>
+                <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
                   {rows.length} {rows.length === 1 ? "line" : "lines"}</span>
                 <span />
-                <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: L.deep }}>{cents(debits)}</span>
-                <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: L.deep }}>{cents(credits)}</span>
+                <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: L.deep }}>{cents(debits)}</span>
+                <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: L.deep }}>{cents(credits)}</span>
               </div>
             </div>
           </div>
         </Sheet>
       )}
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ ...BODY, fontSize: 12.5 }}>
+        <span style={{ ...BODY, fontSize: 13 }}>
           Net income for {mon.label}: QuickBooks {money(c.qbo_net_income[k])}
           {" "}<span style={{ color: L.flagInk }}>{c.net_income_change[k] >= 0 ? "+" : "−"}{money(Math.abs(c.net_income_change[k]))}</span>
           {" "}= corrected <strong>{money(c.corrected_net_income[k])}</strong></span>
@@ -181,7 +181,7 @@ export default function CleanupCorrections({ ov, rev, onSaved }) {
                             borderBottom: `1px solid ${L.ruleLine}`, background: L.paper,
                             cursor: rows.length ? "pointer" : "default", alignItems: "baseline" }}>
                           <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600, color: L.deep }}>
-                            {m.label} <span style={{ fontWeight: 400, color: L.muted, fontFamily: F.num, fontSize: 11 }}>
+                            {m.label} <span style={{ fontWeight: 400, color: L.muted, fontFamily: F.num, fontSize: 12 }}>
                               {m.journal_no}</span></span>
                           <span style={{ ...NUM, fontSize: 13, color: L.body }}>{rows.length || "–"}</span>
                           <span style={{ ...NUM, fontSize: 13, color: L.body }}>{rows.length ? cents(deb) : "–"}</span>
@@ -189,7 +189,7 @@ export default function CleanupCorrections({ ov, rev, onSaved }) {
                           <span style={{ ...NUM, fontSize: 13, color: Math.abs(c.net_income_change[m.k]) >= 1 ? L.flagInk : L.ghost }}>
                             {Math.abs(c.net_income_change[m.k]) < 0.5 ? "–" : money(c.net_income_change[m.k])}</span>
                           <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: L.deep }}>{money(c.corrected_net_income[m.k])}</span>
-                          <span style={{ fontFamily: F.body, fontSize: 12.5, color: done ? L.accentInk : L.ghost }}>
+                          <span style={{ fontFamily: F.body, fontSize: 13, color: done ? L.accentInk : L.ghost }}>
                             {rows.length ? (done || "not yet") : ""}</span>
                         </button>
                       );

@@ -29,7 +29,7 @@ export default function ShareButton({ scope = "ulrg" }) {
   }
 
   const btn = {
-    fontFamily: FM, fontSize: 11.5, color: C.slate, background: "none",
+    fontFamily: FM, fontSize: 12, color: C.slate, background: "none",
     border: `1px solid ${C.hair}`, borderRadius: 8, padding: "5px 11px", cursor: "pointer",
   };
 
@@ -44,7 +44,7 @@ export default function ShareButton({ scope = "ulrg" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 460 }}>
       <input readOnly value={url} onFocus={(e) => e.target.select()}
-             style={{ fontFamily: FB, fontSize: 11.5, color: C.body, background: C.parchment,
+             style={{ fontFamily: FB, fontSize: 12, color: C.body, background: C.parchment,
                       border: `1px solid ${C.hair}`, borderRadius: 8, padding: "5px 9px", flex: "1 1 240px", minWidth: 180 }} />
       <button onClick={copy} style={{ ...btn, color: copied ? C.meadowInk : C.slate, borderColor: copied ? C.meadow : C.hair }}>
         {copied ? "Copied ✓" : "Copy"}

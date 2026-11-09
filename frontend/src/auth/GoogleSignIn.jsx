@@ -79,14 +79,14 @@ export function GoogleSignIn({ onError, get, app = "app" }) {
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "22px 0 18px" }}>
         <span style={{ flex: 1, height: 1, background: T.line }} />
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>or</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>or</span>
         <span style={{ flex: 1, height: 1, background: T.line }} />
       </div>
       <button type="button" className="acu-quiet" onClick={go} disabled={busy} style={{
         height: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
         width: "100%", borderRadius: "var(--acu-btn-r, 999px)", background: T.white,
         border: `1px solid ${T.line}`, fontFamily: "var(--font-text)", fontWeight: 600,
-        fontSize: 14.5, color: T.ink, cursor: busy ? "default" : "pointer",
+        fontSize: 14, color: T.ink, cursor: busy ? "default" : "pointer",
       }}>
         <GoogleMark />
         {busy ? "Opening Google…" : "Continue with Google"}

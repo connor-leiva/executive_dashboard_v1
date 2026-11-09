@@ -26,10 +26,10 @@ function Swatch({ name, value, onChange, disabled }) {
   const meta = SEED_META[name];
   return (
     <label style={{ display: "block", marginBottom: 16, opacity: disabled ? 0.5 : 1 }}>
-      <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+      <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.ink }}>
         {meta.label}
       </div>
-      <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 7px" }}>
+      <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted, margin: "2px 0 7px" }}>
         {meta.hint}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
@@ -45,7 +45,7 @@ function Swatch({ name, value, onChange, disabled }) {
                }}
                aria-label={`${meta.label} hex`}
                style={{ width: 104, padding: "6px 9px", borderRadius: 7, fontFamily: "var(--font-data)",
-                        fontSize: 12.5, border: `1px solid ${T.line}`, color: T.ink,
+                        fontSize: 13, border: `1px solid ${T.line}`, color: T.ink,
                         background: T.white }} />
       </div>
     </label>
@@ -59,8 +59,8 @@ function Derived({ tokens }) {
                  "poppyText", "daffodil", "line", "muted", "page"];
   return (
     <div>
-      <div style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, letterSpacing: ".07em",
-                    textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: T.muted, marginBottom: 8 }}>
         Derived from those five
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -109,13 +109,13 @@ function MarkSlot({ kind, label, hint, url, busy, onPick, onClear }) {
             WebkitMaskPosition: "center", maskPosition: "center",
           }} />
         ) : (
-          <span style={{ fontFamily: FONT, fontSize: 10.5, color: T.muted }}>none</span>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: T.muted }}>none</span>
         )}
       </div>
 
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>{label}</div>
-        <div style={{ fontFamily: FONT, fontSize: 11, color: T.muted }}>{hint}</div>
+        <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.ink }}>{label}</div>
+        <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted }}>{hint}</div>
       </div>
 
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}
@@ -133,7 +133,7 @@ function MarkSlot({ kind, label, hint, url, busy, onPick, onClear }) {
         {/* Only when there IS one. A Remove button next to nothing is a button that lies. */}
         {url && !busy && (
           <button type="button" onClick={onClear}
-                  style={{ background: "none", border: "none", fontFamily: FONT, fontSize: 11.5,
+                  style={{ background: "none", border: "none", fontFamily: FONT, fontSize: 12,
                            color: T.muted, cursor: "pointer", padding: "6px 2px" }}>
             Remove
           </button>
@@ -275,8 +275,8 @@ export default function Appearance() {
     return (
       <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14,
                     padding: 22, maxWidth: 620 }}>
-        <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 700, color: T.ink }}>Appearance</div>
-        <p style={{ fontFamily: FONT, fontSize: 13.5, color: T.secondary, lineHeight: 1.6 }}>
+        <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 600, color: T.ink }}>Appearance</div>
+        <p style={{ fontFamily: FONT, fontSize: 14, color: T.secondary, lineHeight: 1.6 }}>
           Your workspace uses Axcion's colours. Choosing your own is included from the Business
           plan{plan ? ` — you're on ${plan.name}` : ""}.
         </p>
@@ -288,10 +288,10 @@ export default function Appearance() {
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,320px) minmax(0,1fr)", gap: 26,
                   alignItems: "start" }}>
       <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22 }}>
-        <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 700, color: T.ink, marginBottom: 4 }}>
+        <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 600, color: T.ink, marginBottom: 4 }}>
           Appearance
         </div>
-        <p style={{ fontFamily: FONT, fontSize: 12.5, color: T.muted, lineHeight: 1.55,
+        <p style={{ fontFamily: FONT, fontSize: 13, color: T.muted, lineHeight: 1.55,
                     margin: "0 0 18px" }}>
           Pick five colours. Everything else on screen is worked out from them, so the whole
           dashboard stays consistent — including screens you haven't opened.
@@ -302,10 +302,10 @@ export default function Appearance() {
         ))}
 
         <div style={{ margin: "6px 0 18px" }}>
-          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+          <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.ink }}>
             Typeface
           </div>
-          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 8px" }}>
+          <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted, margin: "2px 0 8px" }}>
             Figures always stay in Archivo — it has the tabular numbers that keep a column
             aligned.
           </div>
@@ -318,9 +318,9 @@ export default function Appearance() {
               <input type="radio" name="typeface" checked={typeface === key}
                      onChange={() => setTypeface(key)} style={{ marginTop: 3 }} />
               <span>
-                <span style={{ fontFamily: p.display, fontSize: 14.5, fontWeight: 700,
+                <span style={{ fontFamily: p.display, fontSize: 14, fontWeight: 600,
                                color: T.ink }}>{p.label}</span>
-                <span style={{ display: "block", fontFamily: FONT, fontSize: 11.5,
+                <span style={{ display: "block", fontFamily: FONT, fontSize: 12,
                                color: T.muted }}>{p.note}</span>
               </span>
             </label>
@@ -328,10 +328,10 @@ export default function Appearance() {
         </div>
 
         <div style={{ margin: "0 0 18px" }}>
-          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+          <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.ink }}>
             Sign-in screen
           </div>
-          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 10px",
+          <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted, margin: "2px 0 10px",
                         lineHeight: 1.5 }}>
             The first thing anyone sees. Your mark and hero image already fill the dark plate;
             these are the rest of it.
@@ -341,7 +341,7 @@ export default function Appearance() {
             <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: T.slate }}>
               Tagline <span style={{ fontWeight: 400, color: T.muted }}>· optional</span>
             </div>
-            <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 6px" }}>
+            <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted, margin: "2px 0 6px" }}>
               One line on the plate. Left empty, no line is shown — better than a claim we
               invented for you.
             </div>
@@ -376,12 +376,12 @@ export default function Appearance() {
             ))}
 
           <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer",
-                          fontFamily: FONT, fontSize: 12.5, color: T.ink, marginTop: 4 }}>
+                          fontFamily: FONT, fontSize: 13, color: T.ink, marginTop: 4 }}>
             <input type="checkbox" checked={signIn.remember_me} style={{ marginTop: 2 }}
                    onChange={(e) => setSign("remember_me", e.target.checked)} />
             <span>
               Offer &ldquo;Remember me&rdquo;
-              <span style={{ display: "block", fontFamily: FONT, fontSize: 11.5, color: T.muted }}>
+              <span style={{ display: "block", fontFamily: FONT, fontSize: 12, color: T.muted }}>
                 Ticked, a session lasts a month; left unticked by the user, it ends when the
                 browser closes. Hide this and every session is remembered.
               </span>
@@ -390,10 +390,10 @@ export default function Appearance() {
         </div>
 
         <div style={{ margin: "0 0 18px" }}>
-          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+          <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.ink }}>
             Your mark
           </div>
-          <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted, margin: "2px 0 10px",
+          <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted, margin: "2px 0 10px",
                         lineHeight: 1.5 }}>
             A transparent PNG or SVG, under 512KB. It is tinted to your palette, so one file
             works on every background. Without one, your workspace name is used.
@@ -413,7 +413,7 @@ export default function Appearance() {
         {problems.length > 0 && (
           <div role="alert" style={{ background: T.daffodilBg, border: `1px solid ${T.daffodil}`,
                                      borderRadius: 10, padding: "11px 13px", marginBottom: 14 }}>
-            <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: T.daffodilText }}>
+            <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: T.daffodilText }}>
               {problems.length === 1 ? "One thing" : `${problems.length} things`} would be hard to read
               {hadExplicit && !seedsTouched ? " if you switched to these five" : ""}
             </div>
@@ -449,12 +449,12 @@ export default function Appearance() {
             Use Axcion's
           </button>
           {blocking && (
-            <span style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted }}>
+            <span style={{ fontFamily: FONT, fontSize: 12, color: T.muted }}>
               Fix the contrast to save
             </span>
           )}
         </div>
-        {err && <div style={{ marginTop: 10, fontFamily: FONT, fontSize: 12.5, color: T.poppyText }}>{err}</div>}
+        {err && <div style={{ marginTop: 10, fontFamily: FONT, fontSize: 13, color: T.poppyText }}>{err}</div>}
       </div>
 
       <div style={{ display: "grid", gap: 18 }}>
@@ -463,8 +463,8 @@ export default function Appearance() {
         </div>
         <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14,
                       padding: 20 }}>
-          <div style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, letterSpacing: ".07em",
-                        textTransform: "uppercase", color: T.muted, marginBottom: 12 }}>
+          <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                        color: T.muted, marginBottom: 12 }}>
             Contrast
           </div>
           {[["Body text", tokens.ink, tokens.page],
@@ -476,7 +476,7 @@ export default function Appearance() {
             return (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 10,
                                         marginBottom: 7 }}>
-                <span style={{ background: bg, color: fg, fontFamily: FONT, fontSize: 12.5,
+                <span style={{ background: bg, color: fg, fontFamily: FONT, fontSize: 13,
                                padding: "5px 10px", borderRadius: 7, minWidth: 128,
                                border: `1px solid ${alpha(T.ink, 0.1)}` }}>{label}</span>
                 <span style={{ fontFamily: "var(--font-data)", fontSize: 12,

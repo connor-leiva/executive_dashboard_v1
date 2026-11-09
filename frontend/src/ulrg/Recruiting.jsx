@@ -41,7 +41,7 @@ function SectionTitle({ children, meta, right }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
       <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{children}</div>
-      {meta && <div style={{ fontFamily: FM, fontSize: 11, color: C.muted }}>{meta}</div>}
+      {meta && <div style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>{meta}</div>}
       <span style={{ flex: 1 }} />
       {right}
     </div>
@@ -64,7 +64,7 @@ function Scroller({ children, max = 360, count, noun, style }) {
   return (
     <>
       {count > 0 && (
-        <div style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, textAlign: "right",
+        <div style={{ fontFamily: FM, fontSize: 12, color: C.muted, textAlign: "right",
                       marginBottom: 4 }}>
           {count} {noun}{count === 1 ? "" : "s"}
         </div>
@@ -82,7 +82,7 @@ function Scroller({ children, max = 360, count, noun, style }) {
    be replaced by content, not an error the reader has to act on. */
 function NotYet({ children }) {
   return (
-    <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted, lineHeight: 1.5,
+    <div style={{ fontFamily: FB, fontSize: 13, color: C.muted, lineHeight: 1.5,
                   background: C.hairSoft, border: `1px solid ${C.hair}`, borderRadius: 9,
                   padding: "11px 13px" }}>{children}</div>
   );
@@ -112,11 +112,11 @@ function GoalTiles({ goal }) {
         {goal.signings.map((sg) => (
           <span key={sg.candidate_id} title={`${sg.name || ""} · ${sg.occurred_on}`}
                 style={{ width: 38, height: 44, borderRadius: 6, background: C.ink, color: C.onDark,
-                         fontFamily: FM, fontSize: 11, display: "inline-flex", alignItems: "center",
+                         fontFamily: FM, fontSize: 12, display: "inline-flex", alignItems: "center",
                          justifyContent: "center" }}>{sg.initials}</span>
         ))}
         {goal.signings.length === 0 && (
-          <span style={{ fontFamily: FB, fontSize: 12.5, color: C.muted }}>No signings recorded this month yet.</span>
+          <span style={{ fontFamily: FB, fontSize: 13, color: C.muted }}>No signings recorded this month yet.</span>
         )}
       </div>
     );
@@ -127,7 +127,7 @@ function GoalTiles({ goal }) {
     tiles.push(sg
       ? <span key={i} title={`${sg.name || ""} · ${sg.occurred_on}`}
               style={{ width: 38, height: 44, borderRadius: 6, background: C.ink, color: C.onDark,
-                       fontFamily: FM, fontSize: 11, display: "inline-flex", alignItems: "center",
+                       fontFamily: FM, fontSize: 12, display: "inline-flex", alignItems: "center",
                        justifyContent: "center" }}>{sg.initials}</span>
       : <span key={i} style={{ width: 38, height: 44, borderRadius: 6, background: C.hairSoft,
                                border: `1px dashed ${DASHED}` }} />);
@@ -154,7 +154,7 @@ function Hero({ data }) {
             {v && <Chip ink={v.ink} bg={v.bg}>{v.t.toUpperCase()}</Chip>}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: FD, fontSize: 60, fontWeight: 700, lineHeight: 1,
+            <span style={{ fontFamily: FD, fontSize: 60, fontWeight: 600, lineHeight: 1,
                            letterSpacing: "-.02em", color: C.ink }}>{goal?.signed ?? 0}</span>
             <span style={{ fontFamily: FD, fontSize: 20, fontWeight: 500, color: C.slate, whiteSpace: "nowrap" }}>
               {goal?.goal ? `of ${goal.goal} signed` : "signed"}
@@ -186,7 +186,7 @@ function Hero({ data }) {
               {(path?.rows || []).map((r) => <PathRow key={r.candidate_id} r={r} />)}
             </Scroller>
             {(path?.rows || []).length === 0 && (
-              <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted, marginTop: 6 }}>
+              <div style={{ fontFamily: FB, fontSize: 13, color: C.muted, marginTop: 6 }}>
                 Nobody is past the first meeting yet.
               </div>
             )}
@@ -208,14 +208,14 @@ function PathRow({ r }) {
       <span style={{ minWidth: 0 }}>
         <span style={{ display: "block", fontFamily: FD, fontSize: 13, fontWeight: 600, color: C.ink,
                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-        <span style={{ display: "block", fontFamily: FM, fontSize: 10.5, color: C.muted,
+        <span style={{ display: "block", fontFamily: FM, fontSize: 12, color: C.muted,
                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {[r.stage, r.days !== null && r.days !== undefined ? `${r.days} days` : null, r.brokerage]
             .filter(Boolean).join(" · ")}
         </span>
       </span>
       {r.status?.label
-        ? <span style={{ fontFamily: FM, fontSize: 10, padding: "3px 7px", borderRadius: 4,
+        ? <span style={{ fontFamily: FM, fontSize: 12, padding: "3px 7px", borderRadius: 4,
                          background: tone.bg, color: tone.ink, whiteSpace: "nowrap" }}>{r.status.label}</span>
         : <span />}
       <Initials t={r.owner_initials} />
@@ -243,7 +243,7 @@ function HeroSdr({ data }) {
             {v && <Chip ink={v.ink} bg={v.bg}>{v.t.toUpperCase()}</Chip>}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: FD, fontSize: 60, fontWeight: 700, lineHeight: 1,
+            <span style={{ fontFamily: FD, fontSize: 60, fontWeight: 600, lineHeight: 1,
                            letterSpacing: "-.02em", color: C.ink }}>{m.booked}</span>
             <span style={{ fontFamily: FD, fontSize: 20, fontWeight: 500, color: C.slate, whiteSpace: "nowrap" }}>
               {m.goal ? `of ${m.goal} booked` : "booked"}
@@ -312,7 +312,7 @@ function DoNext({ data, onChanged }) {
         </span>) : null}>
         {owner ? "Do next" : "Your list today"}
       </SectionTitle>
-      <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
         Built each morning from the rules in Settings. Sending from here is logged to GHL from
         Phase 4; today Done clears it on this list only.
       </div>
@@ -332,7 +332,7 @@ function DoNext({ data, onChanged }) {
       {items.length === 0 ? (
         all.length === 0
           ? <NotYet>{unavailable?.queue}</NotYet>
-          : <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted }}>Nothing on that person&rsquo;s list.</div>
+          : <div style={{ fontFamily: FB, fontSize: 13, color: C.muted }}>Nothing on that person&rsquo;s list.</div>
       ) : (
         <Scroller max={520} count={items.length} noun="item">
           {items.map((it) => (
@@ -344,15 +344,15 @@ function DoNext({ data, onChanged }) {
 
       {cleared.length > 0 && (
         <div style={{ background: C.parchment, borderRadius: 9, marginTop: 14, padding: "10px 14px" }}>
-          <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+          <div style={{ fontFamily: FM, fontSize: 12,
                         color: C.muted, marginBottom: 6 }}>Cleared today</div>
           <Scroller max={220} count={cleared.length} noun="item">
             {cleared.map((row) => (
             <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <span style={{ color: C.meadowInk, fontFamily: FM, fontSize: 12 }}>✓</span>
-              <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, overflow: "hidden",
+              <span style={{ fontFamily: FB, fontSize: 13, color: C.body, minWidth: 0, overflow: "hidden",
                              textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</span>
-              <span style={{ fontFamily: FM, fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>· {row.how}</span>
+              <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>· {row.how}</span>
               <span style={{ flex: 1 }} />
               {/* Only a person's Done can be undone. Putting back something the RULES cleared
                   would re-assert a claim the data says is false -- and it would come straight
@@ -389,22 +389,22 @@ function QueueRow({ it, owner, busy, onAct }) {
          style={{ display: "grid", gridTemplateColumns: "92px minmax(0,1fr) auto", gap: 14,
                   alignItems: "center", padding: "13px 20px", margin: "0 -20px",
                   borderTop: `1px solid ${C.hairSoft}`, cursor: "pointer" }}>
-      <span style={{ fontFamily: FM, fontSize: 10, padding: "3px 7px", borderRadius: 4,
+      <span style={{ fontFamily: FM, fontSize: 12, padding: "3px 7px", borderRadius: 4,
                      background: tone.bg, color: tone.ink, justifySelf: "start", whiteSpace: "nowrap" }}>
         {it.due?.label}
       </span>
       <span style={{ minWidth: 0 }}>
         <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontFamily: FD, fontSize: 14, fontWeight: 600, color: C.ink }}>{it.candidate.name}</span>
-          <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+          <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>
             {[it.candidate.stage, money(it.candidate.gci) ? `${money(it.candidate.gci)} GCI` : null]
               .filter(Boolean).join(" · ")}
           </span>
         </span>
-        <span style={{ display: "block", fontFamily: FB, fontSize: 12.5, color: C.body, marginTop: 3,
+        <span style={{ display: "block", fontFamily: FB, fontSize: 13, color: C.body, marginTop: 3,
                        textWrap: "pretty" }}>{it.why}</span>
-        <span style={{ display: "block", fontFamily: FM, fontSize: 9.5, letterSpacing: ".06em",
-                       textTransform: "uppercase", color: C.teal, marginTop: 4 }}>{it.rule_label}</span>
+        <span style={{ display: "block", fontFamily: FM, fontSize: 12,
+                       color: C.teal, marginTop: 4 }}>{it.rule_label}</span>
       </span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                      justifyContent: "flex-end" }}
@@ -419,13 +419,13 @@ function QueueRow({ it, owner, busy, onAct }) {
             outbox is Phase 4 -- so the drawer offers the draft and a link into GHL. A button
             that looked like it sent and did not would be worse than no button. */}
         <button type="button" onClick={() => openDrawer(it.candidate.id)}
-                style={{ fontFamily: FB, fontSize: 12.5, fontWeight: 600, padding: "7px 13px",
+                style={{ fontFamily: FB, fontSize: 13, fontWeight: 600, padding: "7px 13px",
                          borderRadius: 7, border: "none", cursor: "pointer",
                          background: C.ink, color: C.onDark }}>
           {ACTION_LABEL[it.primary_action] || "Open"}
         </button>
         <button type="button" disabled={busy} onClick={() => onAct("snooze")}
-                style={{ fontFamily: FB, fontSize: 12.5, padding: "7px 13px", borderRadius: 7,
+                style={{ fontFamily: FB, fontSize: 13, padding: "7px 13px", borderRadius: 7,
                          border: `1px solid ${C.hair}`, background: C.surface, color: C.slate,
                          cursor: busy ? "default" : "pointer" }}>Tomorrow</button>
         <button type="button" disabled={busy} aria-label="Done" onClick={() => onAct("done")}
@@ -458,7 +458,7 @@ function SdrCard({ data, onChanged }) {
         <Initials t={sdr.initials} tone="sdr" size={30} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontFamily: FD, fontSize: 15, fontWeight: 600, color: C.ink }}>{sdr.name}</div>
-          <div style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>SDR · books for Team Leaders</div>
+          <div style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>SDR · books for Team Leaders</div>
         </div>
       </div>
       <MetricLine label="Appointments booked" when="this month" actual={m.booked} commit={m.goal} />
@@ -470,8 +470,8 @@ function SdrCard({ data, onChanged }) {
       ))}
       {sdr.speed_to_lead && (
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingTop: 10 }}>
-          <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, flex: 1 }}>Speed to lead</span>
-          <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>median, this month</span>
+          <span style={{ fontFamily: FB, fontSize: 13, color: C.body, flex: 1 }}>Speed to lead</span>
+          <span style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>median, this month</span>
           <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600,
                          color: sdr.speed_to_lead.median_minutes > (sdr.speed_to_lead.goal_minutes || 15)
                            ? C.poppyInk : C.meadowInk }}>
@@ -483,7 +483,7 @@ function SdrCard({ data, onChanged }) {
         <div style={{ marginTop: 12 }}><NotYet>{unavailable.speed_to_lead}</NotYet></div>
       )}
       <div style={{ marginTop: 16 }}>
-        <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+        <div style={{ fontFamily: FM, fontSize: 12,
                       color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
           Booked this week, by calendar
         </div>
@@ -496,7 +496,7 @@ function SdrCard({ data, onChanged }) {
             <span style={{ display: "flex", gap: 3, minWidth: 0 }}>
               {row.cells.map((cell, i) => <SlotCell key={i} kind={cell} />)}
             </span>
-            <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+            <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>
               {row.held} held · {row.booked} booked
             </span>
           </div>
@@ -525,7 +525,7 @@ function SlotCell({ kind }) {
 function Stepper({ value, onSet, disabled, step = 1 }) {
   const btn = {
     width: 16, height: 16, lineHeight: "14px", borderRadius: 4, border: `1px solid ${C.hair}`,
-    background: C.surface, color: C.slate, fontFamily: FM, fontSize: 11, padding: 0,
+    background: C.surface, color: C.slate, fontFamily: FM, fontSize: 12, padding: 0,
     cursor: disabled ? "default" : "pointer",
   };
   return (
@@ -545,8 +545,8 @@ function MetricLine({ label, when, actual, commit }) {
   return (
     <div style={{ padding: "9px 0", borderBottom: `1px solid ${C.hairSoft}` }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, flex: 1 }}>{label}</span>
-        <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{when}</span>
+        <span style={{ fontFamily: FB, fontSize: 13, color: C.body, minWidth: 0, flex: 1 }}>{label}</span>
+        <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>{when}</span>
         <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600,
                        color: pct === null ? C.ink : (band(pct) || {}).ink, whiteSpace: "nowrap" }}>
           {actual}{commit ? ` / ${commit}` : ""}
@@ -577,8 +577,8 @@ function WeekLine({ row, seatId, editable, onChanged }) {
   return (
     <div style={{ padding: "9px 0", borderBottom: `1px solid ${C.hairSoft}` }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontFamily: FB, fontSize: 12.5, color: C.body, minWidth: 0, flex: 1 }}>{row.label}</span>
-        <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{row.when}</span>
+        <span style={{ fontFamily: FB, fontSize: 13, color: C.body, minWidth: 0, flex: 1 }}>{row.label}</span>
+        <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>{row.when}</span>
         <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
                        color: row.band_pct === null || row.band_pct === undefined
                          ? C.ink : (band(row.band_pct) || {}).ink }}>
@@ -614,7 +614,7 @@ function Commitments({ data, onChanged }) {
         Team Leader commitments
       </SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 96px", gap: 10,
-                    fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+                    fontFamily: FM, fontSize: 12,
                     color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
         <span>Team Leader</span><span>Appts held</span><span>Offers sent</span>
       </div>
@@ -622,7 +622,7 @@ function Commitments({ data, onChanged }) {
         <div key={row.seat_id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 96px",
                                         gap: 10, alignItems: "center", padding: "10px 0",
                                         borderBottom: `1px solid ${C.hairSoft}` }}>
-          <span style={{ minWidth: 0, fontFamily: FB, fontSize: 12.5, color: C.ink, overflow: "hidden",
+          <span style={{ minWidth: 0, fontFamily: FB, fontSize: 13, color: C.ink, overflow: "hidden",
                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {row.first}{data.viewer.seat_id === row.seat_id
               ? <b style={{ fontWeight: 600, color: C.slate }}> (you)</b> : ""}
@@ -656,7 +656,7 @@ function CommitCell({ cell, metric, seatId, editable, onChanged }) {
   return (
     <span style={{ minWidth: 0 }}>
       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ fontFamily: FM, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
+        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
                        color: cell.band_pct === null || cell.band_pct === undefined
                          ? C.ink : (band(cell.band_pct) || {}).ink }}>
           {cell.actual}{cell.commit ? ` / ${cell.commit}` : ""}
@@ -686,8 +686,8 @@ function Leaderboard({ data }) {
         <div style={{ overflowX: "auto" }}>
           <div style={{ minWidth: 560 }}>
             <div style={{ display: "grid", gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px 70px",
-                          gap: 8, fontFamily: FM, fontSize: 9, letterSpacing: ".07em",
-                          textTransform: "uppercase", color: C.muted,
+                          gap: 8, fontFamily: FM, fontSize: 12,
+                          color: C.muted,
                           borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
               <span>#</span><span>Team Leader</span><span>Signed</span><span>Held</span><span>Close</span><span>Queue</span>
             </div>
@@ -696,7 +696,7 @@ function Leaderboard({ data }) {
                      gridTemplateColumns: "22px minmax(150px,1fr) 128px 48px 64px 70px", gap: 8,
                      alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.hairSoft}`,
                      background: r.seat_id === mine ? C.daffodilBg : "transparent" }}>
-                <span style={{ fontFamily: FD, fontSize: 14, fontWeight: 700,
+                <span style={{ fontFamily: FD, fontSize: 14, fontWeight: 600,
                                color: r.rank === 1 ? C.ink : C.muted }}>{r.rank}</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                   <Initials t={r.initials} size={26} />
@@ -704,7 +704,7 @@ function Leaderboard({ data }) {
                     <span style={{ display: "block", fontFamily: FD, fontSize: 13, fontWeight: 600,
                                    color: C.ink, overflow: "hidden", textOverflow: "ellipsis",
                                    whiteSpace: "nowrap" }}>{r.name}</span>
-                    <span style={{ display: "block", fontFamily: FB, fontSize: 11, color: C.muted,
+                    <span style={{ display: "block", fontFamily: FB, fontSize: 12, color: C.muted,
                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.title || "Team Leader"}</span>
                   </span>
@@ -719,13 +719,13 @@ function Leaderboard({ data }) {
                       : <Bar pct={r.pace_pct} w={110} />}
                   </span>
                 </span>
-                <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{r.held_mtd}</span>
-                <span style={{ fontFamily: FM, fontSize: 12.5,
+                <span style={{ fontFamily: FM, fontSize: 13, color: C.body }}>{r.held_mtd}</span>
+                <span style={{ fontFamily: FM, fontSize: 13,
                                color: r.close_rate_90d === null || r.close_rate_90d === undefined ? C.muted
                                  : r.close_rate_90d < 25 ? C.poppyInk : C.body }}>
                   {r.close_rate_90d === null || r.close_rate_90d === undefined ? "–" : `${r.close_rate_90d}%`}
                 </span>
-                <span style={{ fontFamily: FM, fontSize: 12.5, whiteSpace: "nowrap",
+                <span style={{ fontFamily: FM, fontSize: 13, whiteSpace: "nowrap",
                                color: r.queue && r.queue.done >= r.queue.total ? C.meadowInk : C.body }}>
                   {r.queue ? `${r.queue.done} of ${r.queue.total}` : "–"}
                 </span>
@@ -734,7 +734,7 @@ function Leaderboard({ data }) {
           </div>
         </div>
       )}
-      <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
         Close is signed ÷ held, last 90 days. It needs 90 days of stage history before it can say anything.
       </div>
     </Card>
@@ -781,8 +781,7 @@ function Pipeline({ data }) {
           <span style={{ minWidth: 0 }}>
             <span style={{ display: "block", fontFamily: FD, fontSize: 13, fontWeight: 600, color: C.ink,
                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.label}</span>
-            <span style={{ display: "block", fontFamily: FM, fontSize: 9.5, textTransform: "uppercase",
-                           letterSpacing: ".06em",
+            <span style={{ display: "block", fontFamily: FM, fontSize: 12,
                            color: parked.includes(st) ? C.muted
                              : st.owner_role === "sdr" ? C.amberInk : C.teal }}>
               {parked.includes(st) ? "Parked"
@@ -801,19 +800,19 @@ function Pipeline({ data }) {
                            boxSizing: "border-box" }} />
           </span>
           <span style={{ textAlign: "right" }}>
-            <span style={{ display: "block", fontFamily: FM, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{st.n}</span>
-            {money(st.gci) && <span style={{ display: "block", fontFamily: FM, fontSize: 10.5, color: C.muted }}>{money(st.gci)}</span>}
-            {st.stuck > 0 && <span style={{ display: "block", fontFamily: FM, fontSize: 10, color: C.amberInk }}>{st.stuck} stuck</span>}
+            <span style={{ display: "block", fontFamily: FM, fontSize: 13, fontWeight: 600, color: C.ink }}>{st.n}</span>
+            {money(st.gci) && <span style={{ display: "block", fontFamily: FM, fontSize: 12, color: C.muted }}>{money(st.gci)}</span>}
+            {st.stuck > 0 && <span style={{ display: "block", fontFamily: FM, fontSize: 12, color: C.amberInk }}>{st.stuck} stuck</span>}
           </span>
         </div>
       ))}
       {p.unmapped > 0 && (
-        <div style={{ fontFamily: FB, fontSize: 11.5, color: C.amberInk, marginTop: 10 }}>
+        <div style={{ fontFamily: FB, fontSize: 12, color: C.amberInk, marginTop: 10 }}>
           {p.unmapped} candidate{p.unmapped === 1 ? "" : "s"} sit in a stage that is not mapped to a group,
           so they are not counted anywhere. Map it in Settings › Recruiting.
         </div>
       )}
-      <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
         The SDR owns candidates through Appointment set. Team Leaders own them from the meeting on.
         {parked.length > 0 && " Nurture is parked: counted here, but not in flight and not on anybody's daily list."}
       </div>
@@ -830,13 +829,13 @@ function Sources({ data }) {
     <Card>
       <SectionTitle meta={`${data.period.label} to date`}
                     right={rows.length > 1 && (
-                      <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>
+                      <span style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>
                         {rows.length} sources
                       </span>)}>Where signings come from</SectionTitle>
       <div style={{ overflowX: "auto" }}>
         <div style={{ minWidth: 560 }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(170px,1.6fr) repeat(4,minmax(70px,1fr))",
-                        gap: 8, fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+                        gap: 8, fontFamily: FM, fontSize: 12,
                         color: C.muted, borderBottom: `1px solid ${C.hair}`, paddingBottom: 6 }}>
             <span>Source</span><span>Candidates</span><span>Signed</span><span>Rate</span><span>GCI added</span>
           </div>
@@ -845,18 +844,18 @@ function Sources({ data }) {
             <div key={r.name} style={{ display: "grid",
                    gridTemplateColumns: "minmax(170px,1.6fr) repeat(4,minmax(70px,1fr))", gap: 8,
                    alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.hairSoft}` }}>
-              <span style={{ fontFamily: FB, fontSize: 12.5, color: C.ink, minWidth: 0, overflow: "hidden",
+              <span style={{ fontFamily: FB, fontSize: 13, color: C.ink, minWidth: 0, overflow: "hidden",
                              textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-              <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{r.candidates}</span>
-              <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{r.signed}</span>
-              <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{r.rate}%</span>
-              <span style={{ fontFamily: FM, fontSize: 12.5, color: C.body }}>{money(r.gci) || "–"}</span>
+              <span style={{ fontFamily: FM, fontSize: 13, color: C.body }}>{r.candidates}</span>
+              <span style={{ fontFamily: FM, fontSize: 13, color: C.body }}>{r.signed}</span>
+              <span style={{ fontFamily: FM, fontSize: 13, color: C.body }}>{r.rate}%</span>
+              <span style={{ fontFamily: FM, fontSize: 13, color: C.body }}>{money(r.gci) || "–"}</span>
             </div>
           ))}
           </Scroller>
         </div>
       </div>
-      <div style={{ fontFamily: FB, fontSize: 11.5, color: C.muted, marginTop: 10 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginTop: 10 }}>
         No ad spend is joined to recruiting, so cost per signing is time rather than money.
       </div>
     </Card>
@@ -880,10 +879,10 @@ function Drawer({ candidateId, onClose }) {
         <div style={{ background: C.surface, borderBottom: `1px solid ${C.hair}`, padding: "18px 20px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontFamily: FD, fontSize: 19, fontWeight: 700, color: C.ink }}>
+              <div style={{ fontFamily: FD, fontSize: 19, fontWeight: 600, color: C.ink }}>
                 {data?.name || (error ? "Not available" : "…")}
               </div>
-              <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+              <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, marginTop: 2 }}>
                 {[data?.brokerage, data?.city].filter(Boolean).join(", ") || " "}
               </div>
             </div>
@@ -892,7 +891,7 @@ function Drawer({ candidateId, onClose }) {
                              fontFamily: FD, fontSize: 18, color: C.muted, lineHeight: 1 }}>×</button>
           </div>
           {error && (
-            <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: 10 }}>
+            <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, marginTop: 10 }}>
               This candidate is not on your list. Ask an owner if you need their detail.
             </div>
           )}
@@ -909,7 +908,7 @@ function Drawer({ candidateId, onClose }) {
 
         {data && (
           <div style={{ padding: "16px 20px 28px" }}>
-            <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, background: C.daffodilBg,
+            <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, background: C.daffodilBg,
                           border: `1px solid ${BANNER_EDGE}`, borderRadius: 10, padding: "11px 13px",
                           lineHeight: 1.5 }}>
               Texting, calling, booking and stage moves from here arrive in Phase 4. Until then this
@@ -917,16 +916,16 @@ function Drawer({ candidateId, onClose }) {
             </div>
             {data.source_url && (
               <a href={data.source_url} target="_blank" rel="noopener noreferrer"
-                 style={{ display: "inline-block", marginTop: 14, fontFamily: FB, fontSize: 12.5,
+                 style={{ display: "inline-block", marginTop: 14, fontFamily: FB, fontSize: 13,
                           color: C.teal, textDecoration: "none", fontWeight: 600 }}>
                 Open contact in GHL →
               </a>
             )}
-            <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: ".07em", textTransform: "uppercase",
+            <div style={{ fontFamily: FM, fontSize: 12,
                           color: C.muted, marginTop: 20, borderBottom: `1px solid ${C.hair}`,
                           paddingBottom: 6 }}>Activity</div>
             {(data.timeline || []).length === 0 && (
-              <div style={{ fontFamily: FB, fontSize: 12.5, color: C.muted, marginTop: 10 }}>
+              <div style={{ fontFamily: FB, fontSize: 13, color: C.muted, marginTop: 10 }}>
                 Nothing recorded yet. Messages and calls start landing here with the conversation poll.
               </div>
             )}
@@ -938,11 +937,11 @@ function Drawer({ candidateId, onClose }) {
                                background: t.kind === "stage_move" ? C.teal
                                  : t.source === "axcion" ? C.meadow : DASHED }} />
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: "block", fontFamily: FB, fontSize: 12.5, fontWeight: 500, color: C.ink }}>
+                  <span style={{ display: "block", fontFamily: FB, fontSize: 13, fontWeight: 500, color: C.ink }}>
                     {t.summary || t.kind}
                   </span>
                 </span>
-                <span style={{ fontFamily: FM, fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: FM, fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>
                   {new Date(t.at).toLocaleDateString()}
                 </span>
               </div>
@@ -957,9 +956,9 @@ function Drawer({ candidateId, onClose }) {
 function Fact({ label, children }) {
   return (
     <span style={{ minWidth: 0 }}>
-      <span style={{ display: "block", fontFamily: FM, fontSize: 9, letterSpacing: ".07em",
-                     textTransform: "uppercase", color: C.muted }}>{label}</span>
-      <span style={{ display: "block", fontFamily: FB, fontSize: 12.5, color: C.ink, marginTop: 2 }}>{children}</span>
+      <span style={{ display: "block", fontFamily: FM, fontSize: 12,
+                     color: C.muted }}>{label}</span>
+      <span style={{ display: "block", fontFamily: FB, fontSize: 13, color: C.ink, marginTop: 2 }}>{children}</span>
     </span>
   );
 }
@@ -981,8 +980,8 @@ export default function Recruiting() {
   if (error) {
     return (
       <Card>
-        <div style={{ fontFamily: FD, fontSize: 15.5, fontWeight: 600, color: C.ink }}>Recruiting is unavailable</div>
-        <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: 6 }}>
+        <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>Recruiting is unavailable</div>
+        <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, marginTop: 6 }}>
           {error.status === 403
             ? "This workspace has the tab but not the access behind it."
             : "The recruiting payload did not load. A refresh usually settles it."}
@@ -995,7 +994,7 @@ export default function Recruiting() {
   if (conn.state && conn.state !== "ready") {
     return (
       <Card>
-        <div style={{ fontFamily: FD, fontSize: 15.5, fontWeight: 600, color: C.ink }}>
+        <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>
           {conn.state === "not_connected" ? "No recruiting location connected"
             : conn.state === "not_configured" ? "Almost there"
             : "First sync hasn’t finished"}
@@ -1004,7 +1003,7 @@ export default function Recruiting() {
           {conn.reason}
         </div>
         {conn.error && (
-          <div style={{ fontFamily: FM, fontSize: 11.5, color: C.poppyInk, marginTop: 10 }}>{conn.error}</div>
+          <div style={{ fontFamily: FM, fontSize: 12, color: C.poppyInk, marginTop: 10 }}>{conn.error}</div>
         )}
       </Card>
     );

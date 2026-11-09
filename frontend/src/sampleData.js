@@ -4,10 +4,10 @@
 
 // Brand accents (mirrors theme.js T, kept literal here so this stays a pure
 // data module with no rendering dependency).
-const MEADOW = "#61835E";
+const MEADOW = "#618E88";      // Cadet 400 — the brokerage
 const POPPY = "#FA8069";
 const POPPY_TEXT = "#D92B08";
-const TEAL = "#227175";
+const TEAL = "#7E9BB0";        // a steel blue from the info family — the mortgage JV
 
 const PORTFOLIO_REVENUE = 420000 + 68000 + 82000; // 570000
 const PORTFOLIO_NOI = 72000 + 15000 + 22000; // 109000
@@ -17,9 +17,9 @@ const round1 = (n) => Math.round(n * 10) / 10;
 const sampleData = {
   period: {
     label: "Month to date",
-    as_of: "2026-03-31",
-    start: "2026-03-01",
-    end: "2026-03-31",
+    as_of: "2026-11-09",
+    start: "2026-11-01",
+    end: "2026-11-30",
   },
 
   portfolio: {
@@ -48,20 +48,21 @@ const sampleData = {
         name: "Spring B",
         revenue: 68000,
         pct: round1((68000 / PORTFOLIO_REVENUE) * 100), // 11.9
-        accent: "#FFDD1F",
+        accent: "#B4975F",
       },
     ],
   },
 
   scorecards: [
-    { label: "Combined Profit", value: "$109K", sub: "19% margin", business_key: "portfolio", key: "combined_profit" },
-    { label: "Total GCI", value: "$420K", sub: "month to date", business_key: "ulrg", key: "gci" },
-    { label: "Closed Units", value: "38", sub: "this month", business_key: "ulrg", key: "units_closed" },
-    { label: "Under Contract", value: "22", sub: "$8.1M pipeline", business_key: "ulrg", key: "pending" },
-    { label: "Agents Producing", value: "24", sub: "of 31", business_key: "ulrg", key: "agents_producing" },
-    { label: "Loans Funded", value: "19", sub: "$7.3M volume", business_key: "sympli", key: "funded_loans" },
-    { label: "Attach Rate", value: "31%", sub: "ULRG → Sympli", business_key: "sympli" },
-    { label: "Active Members", value: "70", sub: "The Forum", business_key: "forum", key: "active_members" },
+    { label: "Combined Profit", value: "$109K", sub: "19% margin", business_key: "portfolio", key: "combined_profit", source: "QuickBooks" },
+    { label: "Total GCI", value: "$420K", sub: "month to date", business_key: "ulrg", key: "gci", source: "Sisu" },
+    { label: "Closed Units", value: "38", sub: "this month", business_key: "ulrg", key: "units_closed", source: "Sisu" },
+    { label: "Under Contract", value: "22", sub: "$8.1M pipeline", business_key: "ulrg", key: "pending", source: "Sisu" },
+    { label: "Agents Producing", value: "24", sub: "of 31", business_key: "ulrg", key: "agents_producing", source: "Sisu" },
+    { label: "Loans Funded", value: "19", sub: "$7.3M volume", business_key: "sympli", key: "funded_loans", source: "Arive" },
+    // The API sets this to the flywheel's capture rate, so the sample does too (flywheel.capture_pct).
+    { label: "Attach Rate", value: "20%", sub: "ULRG → Sympli", business_key: "sympli", source: "Arive" },
+    { label: "Active Members", value: "70", sub: "The Forum", business_key: "forum", key: "active_members", source: "Go High Level" },
   ],
 
   areas: {
@@ -71,7 +72,7 @@ const sampleData = {
       tag: "Real estate",
       status: "healthy",
       accent: MEADOW,
-      ink: "#4D6A4D",
+      ink: "#335954",
       sources: ["QuickBooks", "Sisu", "Follow Up Boss"],
       revenue: 420000,
       noi: 72000,
@@ -106,7 +107,7 @@ const sampleData = {
       name: "The Forum",
       tag: "Mastermind · 70 members · $1.2M ARR",
       status: "watch",
-      accent: "#FFDD1F",
+      accent: "#B4975F",
       ink: "#FFDD1F",
       sources: ["QuickBooks"],
       revenue: 68000,
@@ -136,7 +137,7 @@ const sampleData = {
       name: "beCollective",
       tag: "Community · GHL segment",
       status: "opportunity",
-      accent: "#FFBA9F",
+      accent: "#B98A7C",
       ink: "#6D5336",
       sources: ["Go High Level"],
       revenue: null,
@@ -154,7 +155,7 @@ const sampleData = {
       tag: "Joint venture · 50% owned",
       status: "opportunity",
       accent: TEAL,
-      ink: TEAL,
+      ink: "#3D6178",
       sources: ["QuickBooks", "Arive"],
       revenue: 82000,
       noi: 22000,

@@ -43,7 +43,7 @@ export default function BooksPL({ period = "mtd" }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {tabs.map(([k, l]) => (
-          <button key={k} onClick={() => setBusiness(k)} style={{ fontFamily: font.head, fontSize: 12.5,
+          <button key={k} onClick={() => setBusiness(k)} style={{ fontFamily: font.head, fontSize: 13,
             fontWeight: 600, color: business === k ? T.onDark : T.slate,
             background: business === k ? T.evergreen : T.white,
             border: `1px solid ${business === k ? T.evergreen : T.line}`, borderRadius: 99,
@@ -67,9 +67,9 @@ export default function BooksPL({ period = "mtd" }) {
                 ["Operating expenses", t.opex, prior.opex, true], ["Net operating income", t.noi, prior.noi, false]
               ].map(([l, v, pv, inv], i) => (
                 <Card key={i} style={{ padding: "15px 17px" }}>
-                  <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary, marginBottom: 7 }}>{l}</div>
+                  <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, marginBottom: 7 }}>{l}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
-                    <span style={{ fontFamily: font.head, fontSize: 23, fontWeight: 700, color: T.ink,
+                    <span style={{ fontFamily: font.head, fontSize: 23, fontWeight: 600, color: T.ink,
                       fontVariantNumeric: "tabular-nums" }}>{usd(v || 0)}</span>
                     <Delta v={v} pv={pv} inverse={inv} />
                   </div>
@@ -80,7 +80,7 @@ export default function BooksPL({ period = "mtd" }) {
             <Card style={{ maxWidth: 800 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                 <Eyebrow>{tabs.find(([k]) => k === business)?.[1]} · profit & loss</Eyebrow>
-                <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>Δ vs prior month · click a category</span>
+                <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>Δ vs prior month · click a category</span>
               </div>
 
               <PLRow label="Revenue" kind="head" />
@@ -99,13 +99,13 @@ export default function BooksPL({ period = "mtd" }) {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0" }}>
                       <span style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink,
                         display: "inline-flex", alignItems: "center", gap: 7 }}>
-                        {c.lines?.length > 0 && <span style={{ fontSize: 10, color: T.muted,
+                        {c.lines?.length > 0 && <span style={{ fontSize: 12, color: T.muted,
                           transform: openCats[c.cat] ? "rotate(90deg)" : "none", transition: "transform .15s", display: "inline-block" }}>▶</span>}
                         {c.cat}
                       </span>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
                         <Delta v={c.v} pv={c.pv} inverse />
-                        <span style={{ fontFamily: font.head, fontSize: 13.5, fontWeight: 600, color: T.tertiary,
+                        <span style={{ fontFamily: font.head, fontSize: 14, fontWeight: 600, color: T.tertiary,
                           fontVariantNumeric: "tabular-nums", minWidth: 88, textAlign: "right" }}>{signed(-c.v)}</span>
                       </span>
                     </div>
@@ -134,7 +134,7 @@ export default function BooksPL({ period = "mtd" }) {
                   <Pill tone="muted">Intercompany eliminations applied · {usd(data.eliminations.amount)}</Pill>
                 </div>
               )}
-              <div style={{ fontFamily: font.body, fontSize: 11, color: T.muted, marginTop: 16, lineHeight: 1.5,
+              <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 16, lineHeight: 1.5,
                 borderTop: `1px solid ${T.line}`, paddingTop: 12 }}>
                 Every figure traces to QuickBooks — the system of record.</div>
             </Card>

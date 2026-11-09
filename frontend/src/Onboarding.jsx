@@ -48,7 +48,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, title, style }) {
   }[kind];
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={title} className="cc-nav" style={{
-      fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+      fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, borderRadius: 8,
       padding: "8px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
       ...tone, ...style,
     }}>{children}</button>
@@ -57,8 +57,8 @@ function Btn({ kind = "ghost", children, onClick, disabled, title, style }) {
 
 function Label({ children, style }) {
   return (
-    <div style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600,
-                  letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, ...style }}>
+    <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+                  color: T.muted, ...style }}>
       {children}
     </div>
   );
@@ -85,7 +85,7 @@ function OutcomeToggle({ state, disabled, onPick }) {
           <button key={key} type="button" disabled={disabled}
                   onClick={() => onPick(on ? "" : key)}
                   className="cc-nav"
-                  style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600,
+                  style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
                            borderRadius: 999, padding: "3px 10px",
                            cursor: disabled ? "default" : "pointer",
                            color: on ? T.onDark : colour, background: on ? colour : "transparent",
@@ -139,11 +139,11 @@ function DayView({ plan, day, onBlock, onDebrief, index, count, onStep }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Card style={{ padding: "16px 18px" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: T.ink }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink }}>
             {day.title}
           </div>
           {day.tag && (
-            <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600,
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
                            color: T.daffodilText, background: T.daffodilBg,
                            borderRadius: 999, padding: "2px 9px" }}>{day.tag}</span>
           )}
@@ -151,12 +151,12 @@ function DayView({ plan, day, onBlock, onDebrief, index, count, onStep }) {
           <Btn kind="quiet" disabled={index === 0} onClick={() => onStep(-1)}>‹ Previous</Btn>
           <Btn kind="quiet" disabled={index >= count - 1} onClick={() => onStep(1)}>Next ›</Btn>
         </div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>
           {day.location}
           {day.offsite ? " · off site" : ""}
         </div>
         <div style={{ marginTop: 12 }}><Bar pct={pct} /></div>
-        <div style={{ fontFamily: "var(--font-data)", fontSize: 11.5, color: T.muted, marginTop: 6,
+        <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 6,
                       fontVariantNumeric: "tabular-nums" }}>
           {day.done} of {day.total} blocks done · {day.hits} hit · {day.misses} missed
         </div>
@@ -185,7 +185,7 @@ function DayView({ plan, day, onBlock, onDebrief, index, count, onStep }) {
                 <span style={{ fontFamily: "var(--font-data)", fontSize: 12, fontWeight: 600,
                                color: T.tertiary, fontVariantNumeric: "tabular-nums",
                                minWidth: 78 }}>{b.time}</span>
-                <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, flex: 1,
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 14, flex: 1,
                                color: b.done ? T.muted : T.ink }}>{b.task}</span>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 7,
@@ -231,19 +231,19 @@ function WeekView({ plan, week, days, onOpenDay }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Card style={{ padding: "16px 18px" }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: T.ink }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink }}>
           {week.label}
           <span style={{ fontWeight: 400, color: T.muted }}> · {week.date_range}</span>
           {week.subtitle && <span style={{ fontWeight: 400, color: T.muted }}> · {week.subtitle}</span>}
         </div>
         {week.intro.map((p, i) => (
-          <p key={i} style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.6,
+          <p key={i} style={{ fontFamily: "var(--font-text)", fontSize: 14, lineHeight: 1.6,
                               color: T.slate, margin: "9px 0 0" }}>{p}</p>
         ))}
         <div style={{ marginTop: 13 }}>
           <Bar pct={week.total ? (week.done / week.total) * 100 : 0} />
         </div>
-        <div style={{ fontFamily: "var(--font-data)", fontSize: 11.5, color: T.muted, marginTop: 6,
+        <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 6,
                       fontVariantNumeric: "tabular-nums" }}>
           {week.done} of {week.total} blocks done · {week.hits} hit · {week.misses} missed
         </div>
@@ -252,15 +252,15 @@ function WeekView({ plan, week, days, onOpenDay }) {
       {days.map((d) => (
         <Card key={d.id} style={{ padding: "14px 18px", cursor: "pointer" }} onClick={() => onOpenDay(d.id)}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.ink }}>
               {d.title}
             </span>
             {d.tag && (
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
                              color: T.daffodilText }}>{d.tag}</span>
             )}
             <span style={{ flex: 1 }} />
-            <span style={{ fontFamily: "var(--font-data)", fontSize: 11.5, color: T.muted,
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted,
                            fontVariantNumeric: "tabular-nums" }}>
               {d.done}/{d.total}
               {d.misses ? ` · ${d.misses} missed` : ""}
@@ -302,10 +302,10 @@ function ScoreView({ plan, onTarget }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Card style={{ padding: "16px 18px" }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: T.ink }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink }}>
           {plan.totals.targets_met} of {plan.totals.targets} met
         </div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>
           {plan.totals.targets_missed > 0
             ? `${plan.totals.targets_missed} missed — bring them to the review rather than leaving them to be found`
             : "Nothing missed so far."}
@@ -318,7 +318,7 @@ function ScoreView({ plan, onTarget }) {
           {g.items.map((t) => (
             <Card key={t.id} style={{ padding: "13px 18px" }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ fontFamily: "var(--font-text)", fontSize: 13.5, color: T.ink, flex: 1, minWidth: 180 }}>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 14, color: T.ink, flex: 1, minWidth: 180 }}>
                   {t.label}
                 </span>
                 {t.is_count ? (
@@ -326,7 +326,7 @@ function ScoreView({ plan, onTarget }) {
                     <Btn kind="ghost" disabled={!plan.can_write || t.actual === 0}
                          onClick={() => onTarget(t.id, { actual: Math.max(0, t.actual - 1) })}
                          style={{ padding: "4px 10px" }}>−</Btn>
-                    <span style={{ fontFamily: "var(--font-data)", fontSize: 14, fontWeight: 700,
+                    <span style={{ fontFamily: "var(--font-data)", fontSize: 14, fontWeight: 600,
                                    color: t.met ? T.meadow : t.missed ? T.poppyText : T.ink,
                                    fontVariantNumeric: "tabular-nums", minWidth: 52, textAlign: "center" }}>
                       {t.actual} / {t.target}
@@ -408,7 +408,7 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
               <Card key={m} style={{ padding: "13px 15px", minWidth: 0 }}>
                 <Label>{m} · {items.length}</Label>
                 {items.length === 0 && (
-                  <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 8 }}>
+                  <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 8 }}>
                     Nothing saved yet.
                   </div>
                 )}
@@ -418,7 +418,7 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
                     <div style={{ fontFamily: "var(--font-text)", fontSize: 13, lineHeight: 1.6,
                                   color: T.ink, whiteSpace: "pre-wrap" }}>{x.text}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                      <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>
+                      <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>
                         {fmtDate(x.created_at)}
                       </span>
                       <span style={{ flex: 1 }} />
@@ -474,10 +474,10 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
                   {c.name || "Unnamed"}
                 </span>
                 {c.team && (
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{c.team}</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>{c.team}</span>
                 )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>
                   {fmtDate(c.created_at)}
                 </span>
               </div>
@@ -486,7 +486,7 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
                   {c.context}
                 </div>
               )}
-              <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.tertiary, marginTop: 4 }}>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, marginTop: 4 }}>
                 Next: {c.next_step || "—"}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
@@ -496,7 +496,7 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
                   return (
                     <button key={key} type="button" disabled={!plan.can_write} className="cc-nav"
                             onClick={() => onPatchConvo(c.id, { heat: on ? "" : key })}
-                            style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600,
+                            style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
                                      borderRadius: 999, padding: "3px 11px",
                                      cursor: plan.can_write ? "pointer" : "default",
                                      color: on ? T.onDark : colour,
@@ -508,7 +508,7 @@ function LibraryView({ plan, onAddScript, onDeleteScript, onAddConvo, onPatchCon
                 })}
                 <Btn kind={c.appointment_set ? "primary" : "ghost"} disabled={!plan.can_write}
                      onClick={() => onPatchConvo(c.id, { appointment_set: !c.appointment_set })}
-                     style={{ padding: "4px 11px", fontSize: 11 }}>
+                     style={{ padding: "4px 11px", fontSize: 12 }}>
                   {c.appointment_set ? "✓ Appointment set" : "Appointment set?"}
                 </Btn>
                 <span style={{ flex: 1 }} />
@@ -553,12 +553,12 @@ function RulesView({ plan }) {
         <Label>The four motions</Label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
           {plan.motions.map((m) => (
-            <span key={m} style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600,
+            <span key={m} style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600,
                                    color: T.tertiary, background: T.page, borderRadius: 999,
                                    padding: "5px 13px" }}>{m}</span>
           ))}
         </div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 11 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 11 }}>
           Every script you save is filed under one of these.
         </div>
       </Card>
@@ -619,22 +619,14 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
         <Card style={{ padding: 26 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <ProductIcon name={iconFor("onboarding")} size={24} tone={T.teal} />
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 700, color: T.ink }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600, color: T.ink }}>
               No onboarding plan yet
             </div>
           </div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.65,
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 14, lineHeight: 1.65,
                         color: T.slate, marginTop: 10, maxWidth: 620 }}>
-            A plan is a dated programme for one person — the days, the blocks within each day, the
-            outcome each block is meant to produce, and the scoreboard it is measured by. Once one
-            exists, whoever it belongs to works through it here and the numbers are the same ones
-            you see.
-          </div>
-          <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 14 }}>
-            Seed one with{" "}
-            <code style={{ background: T.page, borderRadius: 5, padding: "2px 6px" }}>
-              python -m scripts.seed_onboarding --tenant &lt;slug&gt; --spec &lt;plan.json&gt;
-            </code>
+            A plan sets out one person's first weeks, day by day, with what each block should
+            produce. An admin creates one in Settings, and it appears here for the person it belongs to.
           </div>
         </Card>
       </div>
@@ -679,7 +671,7 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
       <div style={{ ...ribbedHero("evergreen"), borderRadius: 16, padding: "22px 26px", color: T.onDark }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <ProductIcon name={iconFor("onboarding")} size={22} tone={T.onDark} />
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600 }}>
             {plan.subject_name}
           </div>
           <span style={{ fontFamily: "var(--font-text)", fontSize: 13, opacity: 0.78 }}>
@@ -688,7 +680,7 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
           <span style={{ flex: 1 }} />
           {data.plans.length > 1 && (
             <select value={plan.id} onChange={(e) => onPickPlan(e.target.value)}
-                    style={{ fontFamily: "var(--font-text)", fontSize: 12.5, borderRadius: 8,
+                    style={{ fontFamily: "var(--font-text)", fontSize: 13, borderRadius: 8,
                              padding: "6px 10px", color: T.ink, background: T.white,
                              border: `1px solid ${T.line}` }}>
               {data.plans.map((p) => (
@@ -704,9 +696,9 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
             ["Targets met", `${plan.totals.targets_met} / ${plan.totals.targets}`],
             ["Appointments", plan.totals.appointments]].map(([k, v]) => (
               <div key={k}>
-                <div style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600,
-                              letterSpacing: ".08em", textTransform: "uppercase", opacity: 0.68 }}>{k}</div>
-                <div style={{ fontFamily: "var(--font-data)", fontSize: 19, fontWeight: 700,
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+                              opacity: 0.68 }}>{k}</div>
+                <div style={{ fontFamily: "var(--font-data)", fontSize: 19, fontWeight: 600,
                               fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{v}</div>
               </div>
             ))}
@@ -754,7 +746,7 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
             return (
               <button key={d.id} type="button" onClick={() => setDayId(d.id)} className="cc-nav"
                       style={{ flexShrink: 0, borderRadius: 9, padding: "7px 12px", cursor: "pointer",
-                               fontFamily: "var(--font-data)", fontSize: 11.5, fontWeight: on ? 700 : 500,
+                               fontFamily: "var(--font-data)", fontSize: 12, fontWeight: on ? 700 : 500,
                                color: on ? T.onDark : T.slate,
                                background: on ? T.evergreen : T.white,
                                border: `1px solid ${on ? T.evergreen : T.line}` }}>

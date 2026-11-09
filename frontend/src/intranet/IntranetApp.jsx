@@ -64,30 +64,30 @@ const DEFAULT_PROGRESS = { done: {} };
  * Morning" is the one whose morning it is.
  */
 function localDateLine(now) {
-  // Locale-formatted so it reads correctly outside en-US; the CSS does the uppercasing.
+  // Locale-formatted so it reads correctly outside en-US.
   return now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
-function greetingFor(now) {
-  const h = now.getHours();
-  if (h < 12) return "Good Morning";
-  if (h < 17) return "Good Afternoon";
-  return "Good Evening";
+/* A plain speech-bubble line icon for the Ask controls. Replaces a filled grey dot that read as a
+   missing avatar. 16px, 1.5 stroke, takes the text colour. */
+function AskIcon() {
+  return (
+    <svg className="ut-ask-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden
+         stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
+    </svg>
+  );
 }
 
-/* A tab left open overnight would otherwise still say Thursday, and still say Good Evening at
-   nine the next morning -- this product is one people leave open all day. The tick is a minute,
-   and it only re-renders when one of the two strings actually changes. */
+/* A tab left open overnight would otherwise still say Thursday at nine the next morning -- this
+   product is one people leave open all day. The tick is a minute, and it only re-renders when the
+   date actually changes. */
 function useLocalNow() {
-  const [stamp, setStamp] = useState(() => {
-    const now = new Date();
-    return { date: localDateLine(now), greeting: greetingFor(now) };
-  });
+  const [stamp, setStamp] = useState(() => ({ date: localDateLine(new Date()) }));
   useEffect(() => {
     const id = setInterval(() => {
-      const now = new Date();
-      const next = { date: localDateLine(now), greeting: greetingFor(now) };
-      setStamp((prev) => (prev.date === next.date && prev.greeting === next.greeting ? prev : next));
+      const next = { date: localDateLine(new Date()) };
+      setStamp((prev) => (prev.date === next.date ? prev : next));
     }, 60000);
     return () => clearInterval(id);
   }, []);
@@ -141,12 +141,6 @@ function displayName(me) {
   return email ? email.split("@")[0] : "";
 }
 
-function firstName(me) {
-  // Empty rather than a stand-in. "Good morning." is a fine greeting; "Good morning, Jordan."
-  // to somebody who is not Jordan is not.
-  return displayName(me).split(/\s+/)[0] || "";
-}
-
 function initials(name) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
   // One initial is correct for a one-word name, and an empty avatar is better than somebody
@@ -180,7 +174,7 @@ function useBootstrap() {
         name: "Preview User",
         email: "",
         role: "admin",
-        tenant_name: "Your Workspace",
+        tenant_name: "Your workspace",
         apps: [
           { id: "dashboard", name: "Dashboard", href: "/" },
           { id: "intranet", name: "Intranet", href: "/intranet/" },
@@ -341,7 +335,8 @@ function Shell({ me, config, children }) {
   // appears in the rail, the tab title and the assistant button, and it belongs to whoever
   // bought the product rather than to the customer it was first built for.
   const workspaceName = config?.workspace?.name || me?.tenant_name || "Intranet";
-  const askLabel = `Ask ${workspaceName}`;
+  // The offline preview's placeholder name is a description, not a proper noun.
+  const askLabel = workspaceName === "Your workspace" ? "Ask your workspace" : `Ask ${workspaceName}`;
   const ws = config?.workspace || {};
   // fileUrl prefixes the API base; the payload sends a path so there is one place that knows
   // where the API lives. Empty string rather than undefined so the fallback below is a clean
@@ -429,7 +424,7 @@ function Shell({ me, config, children }) {
             ? <img className="ut-logo-img" src={logoUrl} alt=""
                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
             : <div className="ut-logo-text">{workspaceName}</div>}
-          <div className="ut-logo-kicker">Team Intranet</div>
+          <div className="ut-logo-kicker">Team intranet</div>
         </div>
         <nav className="ut-nav">
           {/* The nav STRUCTURE is the product's -- every workspace gets Home, Training,
@@ -460,7 +455,7 @@ function Shell({ me, config, children }) {
             on margin-top:auto, so it stays pinned to the bottom of a short rail and scrolls
             naturally on a tall one. */}
         <div className="ut-rail-footer">
-          <div className="ut-rail-footer-label">Need A Hand?</div>
+          <div className="ut-rail-footer-label">Need a hand?</div>
           <p>
             {/* `#help` is emphasised text, not an anchor. The mockup links it, but no help
                 channel is configured for this workspace and an <a href="#"> that goes nowhere is
@@ -503,7 +498,7 @@ function Shell({ me, config, children }) {
             ) : null}
           </label>
           <NavLink className="ut-ask-top" to="/ask" title={askLabel}>
-            <span aria-hidden />
+            <AskIcon />
             {/* Truncated in CSS rather than shortened here. The mockup's "Ask Utah Life" fits
                 because that name is short; a product cannot assume every customer's is, and
                 guessing at an abbreviation would mangle somebody's name. A configurable
@@ -515,7 +510,7 @@ function Shell({ me, config, children }) {
               label with nothing after it reads as broken rather than as unconfigured. */}
           {roleOptions.length > 0 && (
           <div className="ut-role-control" role="group" aria-label="Viewing as">
-            <span>Viewing As</span>
+            <span>Viewing as</span>
             <div>
               {roleOptions.map((role) => (
                 <button
@@ -540,7 +535,7 @@ function Shell({ me, config, children }) {
           {children}
         </div>
         <NavLink className="ut-floating-ask" to="/ask">
-          <span aria-hidden />
+          <AskIcon />
           {`Ask about ${ASK_ABOUT[current?.id] || "anything"}`}
         </NavLink>
       </main>
@@ -604,8 +599,8 @@ function RosterNotice({ config, canConfigure }) {
           ? `Your account can sign in, but it is not on the roster this portal reads. ${hidden} `
           : `You are on the roster, but no role has been set. ${hidden} `}
         {canConfigure
-          ? "Fix it under People & Roster in the console -- the same place an admin adds anybody else who needs the portal."
-          : "Ask an admin to add you under People & Roster."}
+          ? "Fix it under People & roster in the console -- the same place an admin adds anybody else who needs the portal."
+          : "Ask an admin to add you under People & roster."}
       </p>
     </Panel>
   );
@@ -668,13 +663,12 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
     <div className="ut-home">
       <section className="ut-hero">
         <div>
-          <div className="ut-date">{now.date}</div>
-          <h1>{firstName(me) ? `${now.greeting}, ${firstName(me)}.` : `${now.greeting}.`}</h1>
-          <p>Who is waiting on you today, and how the year is going.</p>
+          <h1>{now.date}</h1>
+          <p>Who is waiting on you today, and how the year is going</p>
         </div>
         <div className="ut-hero-actions">
-          <NavLink className="ut-button light" to="/tools">Open My Tools</NavLink>
-          <NavLink className="ut-button primary" to="/numbers">My Numbers</NavLink>
+          <NavLink className="ut-button light" to="/tools">Open my tools</NavLink>
+          <NavLink className="ut-button primary" to="/numbers">My numbers</NavLink>
         </div>
       </section>
 
@@ -694,8 +688,8 @@ function Home({ config, wtd, training, onboarding, me, canConfigure }) {
       </section>
 
       <section className="ut-lower-grid">
-        <ProgressPanel label="Training Library" done={lessonsDone} total={lessons.length} />
-        <ProgressPanel label="Your First 30 Days" done={onboardDone} total={ONBOARDING.length}
+        <ProgressPanel label="Training library" done={lessonsDone} total={lessons.length} />
+        <ProgressPanel label="Your first 30 days" done={onboardDone} total={ONBOARDING.length}
                        secondary={totalTasks ? `${doneToday}/${totalTasks} Win the Day blocks` : undefined} />
       </section>
     </div>
@@ -731,7 +725,7 @@ function numbersGap(numbers, me, canConfigure) {
     return {
       kind: "not_on_roster",
       title: "You are not on the roster",
-      body: "Your own numbers come from the Sisu agent matched to your roster entry, and this account does not have one. Add yourself under People & Roster in the console.",
+      body: "Your own numbers come from the Sisu agent matched to your roster entry, and this account does not have one. Add yourself under People & roster in the console.",
       short: "this account is not on the workspace roster yet.",
     };
   }
@@ -881,18 +875,18 @@ function SunburstBanner({ config, me, canConfigure }) {
         {/* Lockup and eyebrow share a row -- the eyebrow sits BESIDE the mark, not under it. */}
         <div className="ut-sunburst-lockup">
           <img className="ut-sb-logo" src={sunburstLogo} alt="Sunburst" />
-          <span className="ut-sunburst-kicker">Your AI Business Partner, Inside Sisu</span>
+          <span className="ut-sunburst-kicker">Your AI business partner, inside Sisu</span>
         </div>
-        <h2>Your Weekly Check-in is Ready.</h2>
+        <h2>Your weekly check-in is ready</h2>
         <p>{line}</p>
         <div className="ut-sunburst-actions">
           {/* Opens the conversation, not the tab that has a button that opens it. Where there is
               no conversation -- somebody who is not on the roster -- the tab is where the reason
               is written, so it stays a link to there. */}
           {url
-            ? <button type="button" className="sun-solid" onClick={() => open("")}>Start My Check-in</button>
-            : <NavLink className="sun-solid" to="/sunburst">Start My Check-in</NavLink>}
-          <NavLink className="sun-outline" to="/sunburst">All Prompts</NavLink>
+            ? <button type="button" className="sun-solid" onClick={() => open("")}>Start my check-in</button>
+            : <NavLink className="sun-solid" to="/sunburst">Start my check-in</NavLink>}
+          <NavLink className="sun-outline" to="/sunburst">All prompts</NavLink>
         </div>
       </div>
       <div className="ut-sunburst-prompts">
@@ -1092,12 +1086,12 @@ function followUpReason(data, me, canConfigure) {
   }
   if (data?.own_reason === "not_on_roster") {
     return canConfigure
-      ? "Your follow-ups come from the Follow Up Boss user linked to your roster entry, and this account does not have one. Add yourself under People & Roster in the console."
+      ? "Your follow-ups come from the Follow Up Boss user linked to your roster entry, and this account does not have one. Add yourself under People & roster in the console."
       : "Your follow-ups come from the Follow Up Boss user linked to your roster entry, and this account does not have one yet. An admin can add you.";
   }
   if (data?.own_reason === "unmatched") {
     return canConfigure
-      ? `We could not match ${me?.email || "your account"} to a Follow Up Boss user. Link one in the console under People & Roster.`
+      ? `We could not match ${me?.email || "your account"} to a Follow Up Boss user. Link one in the console under People & roster.`
       : `We could not match ${me?.email || "your account"} to a Follow Up Boss user. An admin can link yours in the console.`;
   }
   if (data?.own_reason === "denied") {
@@ -1201,7 +1195,7 @@ function NeedsYouToday({ me, canConfigure }) {
     body = <p className="ut-empty">{followUpReason(data, me, canConfigure)}</p>;
   }
   return (
-    <Panel title="Needs You Today" kicker={followUpKicker(fu)}
+    <Panel title="Needs you today" kicker={followUpKicker(fu)}
            action={ready && (queue || data?.team) ? <NavLink to="/follow-ups">Open {"->"}</NavLink> : null}>
       {body}
     </Panel>
@@ -1371,10 +1365,10 @@ function QuickLaunch({ config }) {
   // a second list to curate is a second thing to forget, and the console has one ordering.
   const tools = tilesFrom(config).flatMap((g) => g.tools).slice(0, 6);
   return (
-    <Panel title="Quick Launch" action={<NavLink to="/tools">All Tools {"->"}</NavLink>}>
+    <Panel title="Quick launch" action={<NavLink to="/tools">All tools →</NavLink>}>
       {tools.length === 0 ? (
         <Empty title="No tools yet">
-          Tools added in the admin console under Tool Launchpad will appear here.
+          Tools added in the admin console under Tool launchpad will appear here.
         </Empty>
       ) : (
         <div className="ut-quick-grid">
@@ -1403,7 +1397,7 @@ function Tools({ config, canConfigure }) {
   const groups = tilesFrom(config);
   const gap = rosterGap(config);
   return (
-    <Page title="Tool Launchpad" subtitle="The tools this workspace runs on.">
+    <Page title="Tool launchpad" subtitle="The tools this workspace runs on">
       {groups.length === 0 ? (
         <>
           <RosterNotice config={config} canConfigure={canConfigure} />
@@ -1411,7 +1405,7 @@ function Tools({ config, canConfigure }) {
             <Empty title={gap ? "No tools you can open" : "No tools configured"}>
               {gap
                 ? "A tile limited to a role is hidden until you have one, so this workspace may have tools you cannot see yet."
-                : "An admin can add tools in the console under Tool Launchpad. They appear here once published."}
+                : "An admin can add tools in the console under Tool launchpad. They appear here once published."}
             </Empty>
           </Panel>
         </>
@@ -1503,7 +1497,7 @@ function Training({ state, config, canConfigure }) {
     const denied = deniedBy(config, "training_library");
     const gap = rosterGap(config);
     return (
-      <Page title="Training Library" subtitle={TRAINING_BLURB}>
+      <Page title="Training library" subtitle={TRAINING_BLURB}>
         {gap ? <RosterNotice config={config} canConfigure={canConfigure} /> : null}
         <Panel title={denied ? "Not available to your role"
                              : gap ? "Nothing you can see yet" : "Nothing published yet"}>
@@ -1520,7 +1514,7 @@ function Training({ state, config, canConfigure }) {
   }
 
   return (
-    <Page title="Training Library" subtitle={TRAINING_BLURB}>
+    <Page title="Training library" subtitle={TRAINING_BLURB}>
       {resume && (
         <NavLink className="ut-resume"
                  to={`/training/${resume.course.id}/${resume.p.next.id}`}>
@@ -1585,8 +1579,8 @@ function Training({ state, config, canConfigure }) {
 function Onboarding({ state, setState }) {
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
   return (
-    <Page title="Your First 30 Days" subtitle="Onboarding shell with per-user saved progress.">
-      <Panel title="First 30 Days">
+    <Page title="Your first 30 days" subtitle="Your first weeks, one step at a time">
+      <Panel title="First 30 days">
         <div className="ut-steps">
           {ONBOARDING.map((item, idx) => (
             <label key={item.key} className={`ut-step ${state.done?.[item.key] ? "done" : ""}`}>
@@ -1909,7 +1903,7 @@ function CourseDetail({ state, setState, config }) {
 
   if (!course) {
     return (
-      <Page title="Training" subtitle="Courses this workspace has published.">
+      <Page title="Training" subtitle="Courses this workspace has published">
         <Panel title="Course not found">
           <p className="ut-empty">
             That course is not in your library. It may have been unpublished, or it may not be
@@ -2005,7 +1999,7 @@ function LessonPlayer({ state, setState, config }) {
 
   if (!course || !lesson) {
     return (
-      <Page title="Training" subtitle="Courses this workspace has published.">
+      <Page title="Training" subtitle="Courses this workspace has published">
         <Panel title="Lesson not found">
           <p className="ut-empty">
             That lesson is not in your library. It may have been unpublished, or it may not be
@@ -2334,7 +2328,7 @@ function Numbers({ config, me, canConfigure }) {
   const team = numbers.team;
   const gap = numbers.own ? null : numbersGap(numbers, me, canConfigure);
   return (
-    <Page title="My Numbers" subtitle={numbersSubtitle(numbers)}>
+    <Page title="My numbers" subtitle={numbersSubtitle(numbers)}>
       {numbers.own ? (
         <>
           <FigureCards figures={numbers.own} numbers={numbers} />
@@ -2428,7 +2422,7 @@ function ConfigUrlForm({ canConfigure, label, value, placeholder, onSave }) {
 function Calendar({ config, canConfigure, saveConfig }) {
   const url = config.calendar?.google_calendar_url || "";
   return (
-    <Page title="Team Calendar" subtitle="Google Calendar remains empty until an admin supplies the tenant calendar URL.">
+    <Page title="Team calendar" subtitle="The team's Google Calendar, once an admin adds its address">
       <Panel title="Google Calendar">
         {url
           ? <iframe className="ut-calendar" title="Team calendar" src={url} />
@@ -2577,7 +2571,7 @@ function Marketing({ config, canConfigure }) {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <Page title="Requests" subtitle="Marketing requests for listings, events and collateral.">
+    <Page title="Requests" subtitle="Marketing requests for listings, events and collateral">
       <Panel title="Requests and Turnaround">
         {marketing.available ? (
           <>
@@ -2597,7 +2591,7 @@ function Marketing({ config, canConfigure }) {
         ) : (
           <Empty title="Requests are not set up">
             No destination has been configured for this workspace yet.
-            {canConfigure && " Set one in the admin console under Marketing Requests."}
+            {canConfigure && " Set one in the admin console under Marketing requests."}
           </Empty>
         )}
       </Panel>
@@ -2629,21 +2623,37 @@ function Marketing({ config, canConfigure }) {
   );
 }
 
+/* The first family of a font stack variable, as the browser resolved it: the name of what this
+   workspace actually loads, rather than a note about which face it stands in for. */
+function familyOf(variable) {
+  if (typeof window === "undefined") return "";
+  const stack = getComputedStyle(document.documentElement).getPropertyValue(variable) || "";
+  return stack.split(",")[0].replace(/["']/g, "").trim();
+}
+
 function BrandKit({ config }) {
   const brand = config.brand || DEFAULT_CONFIG.brand;
+  const faces = [
+    ["--font-display", "Headings"],
+    ["--font-text", "Text"],
+    ["--font-ui", "Figures and labels"],
+  ];
   return (
-    <Page title="Brand Kit" subtitle="Marks, colours and type for this workspace.">
+    <Page title="Brand kit" subtitle="Marks, colours and type for this workspace">
       <div className="ut-two-grid">
-        <Panel title="Brand Mark">
+        <Panel title="Brand mark">
           {brand.mark_url
             ? <img className="ut-brand-preview" src={brand.mark_url} alt="Brand mark" />
-            : <Empty title="No mark connected">The logo lockup is a UI placeholder until the final mark is available.</Empty>}
+            : <Empty title="No mark uploaded">An admin adds the workspace mark in the console under Brand &amp; identity</Empty>}
         </Panel>
         <Panel title="Type">
           <div className="ut-type-samples">
-            <div style={{ fontFamily: "var(--font-display)" }}>TT Drugs proxy</div>
-            <div style={{ fontFamily: "var(--font-text)" }}>TT Norms Pro proxy</div>
-            <div style={{ fontFamily: "var(--font-ui)" }}>Utility proxy</div>
+            {faces.map(([variable, role]) => (
+              <div key={variable} style={{ fontFamily: `var(${variable})`, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, padding: "12px 0" }}>
+                {familyOf(variable) || role}
+                <small style={{ fontFamily: "var(--font-text)", fontSize: 12, color: "var(--muted)" }}>{role}</small>
+              </div>
+            ))}
           </div>
         </Panel>
       </div>
@@ -2712,7 +2722,7 @@ function Ask({ config, me }) {
           : "The assistant is not available right now.");
 
   return (
-    <Page title={askLabel} subtitle="Answers drawn from this workspace’s own documents.">
+    <Page title={askLabel} subtitle="Answers drawn from this workspace’s own documents">
       <Panel title={askLabel}>
         <form className="ut-ask-shell" onSubmit={submit}>
           <input
@@ -2861,7 +2871,7 @@ function SunburstPage({ config, me, canConfigure }) {
   // conversation inside Sisu, so the server withholds it rather than hand it to a viewer.
   if (!url && config?.sunburst?.view_as) {
     return (
-      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
+      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu">
         <Panel title="Not opened from a support view">
           <p className="ut-empty">
             Sunburst opens this person{"\u2019"}s own coaching conversation inside Sisu, so only
@@ -2876,7 +2886,7 @@ function SunburstPage({ config, me, canConfigure }) {
   // to derive one for. An owner who never added themselves is the real case.
   if (!url) {
     return (
-      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu.">
+      <Page title="Sunburst" subtitle="Your AI business partner, built into Sisu">
         <RosterNotice config={config} canConfigure={canConfigure} />
         <Panel title="No conversation to open">
           <p className="ut-empty">

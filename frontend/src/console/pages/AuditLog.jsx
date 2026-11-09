@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AUDIT_FILTERS, COPY } from "../constants.js";
 import { useAudit, useLoadAudit } from "../queries.js";
 import { Button, EmptyState, ErrorState, LoadingState, Panel } from "../ui.jsx";
+import { actorName, describeEvent } from "../events.js";
 
 const PAGE_LIMIT = 25;
 
@@ -47,8 +48,8 @@ function AuditTable({ items }) {
           {items.map((item) => (
             <tr key={item.id}>
               <td><time>{formatDate(item.created_at)}</time></td>
-              <td>{item.actor_label || "System"}</td>
-              <td>{item.summary || item.action}</td>
+              <td>{actorName(item.actor_label)}</td>
+              <td>{describeEvent(item)}</td>
               <td>
                 <span className={`audit-chip ${categoryClass(item.category)}`}>{item.category}</span>
               </td>

@@ -43,9 +43,9 @@ function Seg({ seg }) {
   const f = seg === "F";
   return (
     <span style={{
-      fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
-      borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0,
+      borderRadius: 4, padding: "2px 6px", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
   );
 }
@@ -54,7 +54,7 @@ function Plan({ payment }) {
   const p = PLAN[payment];
   if (!p) return <span style={{ color: T.muted, fontSize: 12 }}>—</span>;
   return (
-    <span style={{ fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: p.fg,
+    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: p.fg,
       background: p.bg, borderRadius: 5, padding: "3px 8px", whiteSpace: "nowrap" }}>{p.label}</span>
   );
 }
@@ -64,14 +64,14 @@ function Plan({ payment }) {
 function PayCell({ p }) {
   if (!p || (!p.amount && !p.date)) return <span style={{ color: T.muted }}>—</span>;
   const amt = p.amount ? usd(p.amount) : "—";
-  const amtStyle = { fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums" };
+  const amtStyle = { fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums" };
   return (
     <div style={{ whiteSpace: "nowrap" }}>
       {p.url
         ? <a href={p.url} target="_blank" rel="noreferrer" title="Open in the source system"
             style={{ ...amtStyle, color: T.teal, textDecoration: "none" }}>{amt} ↗</a>
         : <span style={{ ...amtStyle, color: T.ink }}>{amt}</span>}
-      <div style={{ fontSize: 10.5, color: T.muted }}>{fmtDate(p.date)}</div>
+      <div style={{ fontSize: 12, color: T.muted }}>{fmtDate(p.date)}</div>
     </div>
   );
 }
@@ -118,7 +118,7 @@ function passDate(iso, f, dir) {
   if (dir === "future") return f === "30" ? (d >= t && d <= shiftISO(30)) : (d >= t && d <= shiftISO(90));
   return f === "30" ? (d <= t && d >= shiftISO(-30)) : (d <= t && d >= shiftISO(-90));
 }
-const linkBtn = { fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" };
+const linkBtn = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.meadow, background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" };
 
 function DrIc({ name, size = 13, color = "currentColor", sw = 1.8 }) {
   const p = {
@@ -154,7 +154,7 @@ function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["asc", loLbl], ["desc", hiLbl]].map(([dd, lbl]) => {
         const on = sort && sort.col === col.key && sort.dir === dd;
-        return <button key={dd} onClick={() => setSort(on ? null : { col: col.key, dir: dd })} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "6px 8px", border: `1px solid ${on ? T.meadow : T.line}`, background: on ? "rgba(97,131,94,.08)" : T.white, color: on ? T.ink : T.slate }}>{lbl}</button>;
+        return <button key={dd} onClick={() => setSort(on ? null : { col: col.key, dir: dd })} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, cursor: "pointer", borderRadius: 7, padding: "6px 8px", border: `1px solid ${on ? T.meadow : T.line}`, background: on ? "rgba(97,131,94,.08)" : T.white, color: on ? T.ink : T.slate }}>{lbl}</button>;
       })}
     </div>
   );
@@ -193,18 +193,18 @@ function FunnelMenu({ col, pos, filters, setFilters, sort, setSort, onClose }) {
 function Stat({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
-        textTransform: "uppercase", color: T.muted, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+        color: T.muted, marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink,
         display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>{children}</div>
     </div>
   );
 }
 
-const TAG = { fontFamily: "var(--font-text)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em",
-  borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", flexShrink: 0 };
+const TAG = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
+  borderRadius: 4, padding: "1px 5px", flexShrink: 0 };
 const td = { padding: "11px 14px", verticalAlign: "middle" };
-const dcell = { ...td, fontSize: 12.5, color: T.slate, whiteSpace: "nowrap" };
+const dcell = { ...td, fontSize: 13, color: T.slate, whiteSpace: "nowrap" };
 
 /* one member row — shared by the grouped and the sorted (flat) views. Staff (admins)
    drop the Forum/IC program chip; they carry the Admin tag instead. */
@@ -214,16 +214,16 @@ function MemberRow({ r }) {
       <td style={{ ...td, padding: "11px 14px 11px 24px", minWidth: 210 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <span style={{ width: 32, height: 32, borderRadius: 99, flexShrink: 0, background: T.meadowBg,
-            color: T.meadowInk, fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700,
+            color: T.meadowInk, fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
             display: "flex", alignItems: "center", justifyContent: "center" }}>{initials(r.name)}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
               {r.kind !== "admin" && <Seg seg={r.seg} />}
               {r.kind === "add_on" && <span style={{ ...TAG, color: T.slate, background: T.parchment, border: `1px solid ${T.line}` }}>Add-on</span>}
               {r.kind === "admin" && <span style={{ ...TAG, color: T.teal, background: T.mist }}>Admin</span>}
             </div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {r.stripe_account || "—"}
             </div>
           </div>
@@ -343,7 +343,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
         <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.line}`, background: T.white }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div>
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate,
                 background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>Go High Level</span>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink, marginTop: 8 }}>{isBc ? "beCollective · Roster" : "The Forum · Roster"}</div>
             </div>
@@ -374,14 +374,14 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
               style={{ width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink,
                 background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px 8px 32px", outline: "none" }} />
           </div>
-          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
             {inScope.length} shown{subset ? ` · sample of ${sm.total}` : ""}
           </span>
         </div>
         {activeCols.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 24px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap", background: T.parchment }}>
             {activeCols.map((c) => (
-              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, color: T.ink, background: "rgba(97,131,94,.10)", border: `1px solid ${T.meadow}`, borderRadius: 7, padding: "4px 6px 4px 9px" }}>
+              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.ink, background: "rgba(97,131,94,.10)", border: `1px solid ${T.meadow}`, borderRadius: 7, padding: "4px 6px 4px 9px" }}>
                 {chipText(c)}
                 <button onClick={() => clearCol(c.key)} aria-label="Remove filter" style={{ background: "transparent", border: "none", cursor: "pointer", opacity: .6, display: "inline-flex" }}><DrIc name="close" size={11} color={T.slate} sw={2.2} /></button>
               </span>
@@ -413,7 +413,7 @@ export default function RosterDrawer({ business, period, metricKey = "forum_rost
                       return (
                         <th key={c.key} style={{ ...th, ...(i === 0 ? { paddingLeft: 24 } : {}) }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "13px 0", justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}>
-                            <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
+                            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: on || isSorted ? T.ink : T.muted, whiteSpace: "nowrap" }}>{c.label}{isSorted ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</span>
                             <button onClick={(e) => openMenu(c, e)} title="Sort & filter" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, cursor: "pointer", background: on ? T.meadow : "transparent", border: `1px solid ${on ? T.meadow : T.line}` }}>
                               <DrIc name="funnel" size={12} color={on ? "#fff" : T.slate} sw={1.9} />
                             </button>

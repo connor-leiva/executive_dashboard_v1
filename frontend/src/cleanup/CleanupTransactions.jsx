@@ -53,13 +53,13 @@ export default function CleanupTransactions({ ov, rev }) {
           <Chip key={k} on={only === k} onClick={() => setOnly(k)}>{k === "needs" ? `${label} (${nNeeds})` : label}</Chip>
         ))}
         <div style={{ flex: 1 }} />
-        {d && <span style={{ fontFamily: F.num, fontSize: 11, color: L.ghost, whiteSpace: "nowrap" }}>
+        {d && <span style={{ fontFamily: F.num, fontSize: 12, color: L.ghost, whiteSpace: "nowrap" }}>
           {list.length} of {rows.length} shown</span>}
       </Controls>
       <StatePanel loading={tx.loading} error={tx.error} retry={tx.retry}>
         {d && (
           <div className="cx-page" style={{ padding: "18px 26px 26px", display: "grid", gap: 14 }}>
-            <Sheet right={<Legend />} title={<>Transactions <span style={{ fontFamily: F.body, fontSize: 12.5,
+            <Sheet right={<Legend />} title={<>Transactions <span style={{ fontFamily: F.body, fontSize: 13,
               fontWeight: 400, color: L.muted }}>· by month, oldest first</span></>}>
               {list.length ? <TxList rows={list} signed year={year} /> : (
                 <div style={{ padding: 16, fontFamily: F.body, fontSize: 13, color: L.muted }}>Nothing matches.</div>
@@ -70,7 +70,7 @@ export default function CleanupTransactions({ ov, rev }) {
                 <button onClick={() => setTidy(!tidy)} aria-expanded={tidy} style={{ width: "100%", display: "flex",
                   gap: 10, alignItems: "baseline", flexWrap: "wrap", padding: "11px 18px", border: 0, cursor: "pointer",
                   background: L.colHead, textAlign: "left" }}>
-                  <span style={{ fontFamily: F.num, fontSize: 14, fontWeight: 700, color: L.deep }}>
+                  <span style={{ fontFamily: F.num, fontSize: 14, fontWeight: 600, color: L.deep }}>
                     Vendors QuickBooks spells more than one way <span style={{ color: L.code }}>{tidy ? "▾" : "▸"}</span></span>
                   <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                     {d.vendor_names.length} vendors · the list above already shows one name each</span>
@@ -79,7 +79,7 @@ export default function CleanupTransactions({ ov, rev }) {
                   <div style={{ padding: "8px 18px 12px", display: "grid", gap: 6, borderTop: `1px solid ${L.ruleHeader}` }}>
                     {d.vendor_names.map((v) => (
                       <div key={v.names.join("|")} style={{ display: "flex", gap: 10, alignItems: "baseline",
-                        flexWrap: "wrap", fontFamily: F.body, fontSize: 12.5 }}>
+                        flexWrap: "wrap", fontFamily: F.body, fontSize: 13 }}>
                         <span style={{ flex: 1, minWidth: 220, color: L.body }}>{v.names.map((n) => `“${n}”`).join(" · ")}</span>
                         <span style={{ ...NUM, color: L.muted }}>{money(v.spend)} spent</span>
                       </div>

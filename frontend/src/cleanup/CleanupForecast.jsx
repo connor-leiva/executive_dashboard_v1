@@ -53,7 +53,7 @@ export function Tile({ label, value, sub, loss }) {
       <div style={{ ...EYEBROW, color: L.ghost }}>{label}</div>
       <div style={{ fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 21, color: L.deep, letterSpacing: "-.02em" }}>
         {money(value)}{loss ? <Loss v={value} size={12} /> : null}</div>
-      {sub ? <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>{sub}</div> : null}
+      {sub ? <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>{sub}</div> : null}
     </div>
   );
 }
@@ -145,7 +145,7 @@ function MonthDrill({ f, k, onClose }) {
           the next file loaded will.</Note></div>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480, fontFamily: F.body, fontSize: 12.5 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480, fontFamily: F.body, fontSize: 13 }}>
             <thead><tr>{[live ? "Member" : "Contract", "Already paid", "Still to come", "This month"].map((h, j) => (
               <th key={h} style={{ ...EYEBROW, textAlign: j ? "right" : "left", padding: "8px 10px", background: L.colHead }}>{h}</th>))}</tr></thead>
             <tbody>
@@ -161,14 +161,14 @@ function MonthDrill({ f, k, onClose }) {
                   <Button onClick={() => setAll((x) => !x)}>{all ? `Show the largest ${FIRST}` : `Show all ${rows.length}`}</Button>
                 </td></tr>) : null}
               <tr>
-                <td style={{ ...cell, fontWeight: 700, color: L.deep }}>{rows.length} {who}{rows.length === 1 ? "" : "s"}</td>
+                <td style={{ ...cell, fontWeight: 600, color: L.deep }}>{rows.length} {who}{rows.length === 1 ? "" : "s"}</td>
                 {[rows.reduce((a, x) => a + x.p, 0), rows.reduce((a, x) => a + x.fu, 0), sum].map((v, n) => (
-                  <td key={n} style={{ ...cell, ...NUM, fontWeight: 700, color: L.deep }}>{money(v)}</td>))}
+                  <td key={n} style={{ ...cell, ...NUM, fontWeight: 600, color: L.deep }}>{money(v)}</td>))}
               </tr>
             </tbody>
           </table>
           {Math.abs(sum - total) >= 0.5 ? (
-            <div style={{ padding: "6px 14px 10px", fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+            <div style={{ padding: "6px 14px 10px", fontFamily: F.body, fontSize: 12, color: L.muted }}>
               The {who}s add to {money(sum)}; the bar&rsquo;s {money(total)} is the same figures rounded once rather than each.</div>) : null}
         </div>
       )}
@@ -202,10 +202,10 @@ function Assumptions({ f, can, onSaved }) {
             <div style={row}><span>Members who renew, of those due</span>
               <NumberField value={a.renew_pct} suffix="%" width={64} disabled={!can} label="Renewal rate"
                            onSave={(v) => save([{ path: at("renew_pct"), value: v }])} /></div>
-            {ret && ret.lost12 ? <span style={{ fontSize: 11.5, color: L.ghost }}>
+            {ret && ret.lost12 ? <span style={{ fontSize: 12, color: L.ghost }}>
               Started from the last twelve months: {ret.lost12} of {ret.members + ret.lost12} members left.</span> : null}
             {/* the records' silence, not a forecast: flagged while it still stands at 100%, said plainly once it's set */}
-            {ret && !ret.lost12 ? <span style={{ fontSize: 11.5, color: a.renew_pct === 100 ? L.flagInk : L.ghost }}>
+            {ret && !ret.lost12 ? <span style={{ fontSize: 12, color: a.renew_pct === 100 ? L.flagInk : L.ghost }}>
               No lost memberships are on record for the last twelve months, so this {a.renew_pct === 100
                 ? "starts at 100%. Set it to the share you expect to renew." : "started at 100%."}</span> : null}
           </div>) : null}
@@ -244,10 +244,10 @@ function Assumptions({ f, can, onSaved }) {
                       onChange={(e) => save([{ path: at("partner_end"), value: e.target.value }])}>
                 {months.map((m) => <option key={m.key} value={m.key}>{keyLabel(m.key)}</option>)}</select>
             </span></div>) : null}
-        <div style={{ ...row, color: L.ghost, fontSize: 11.5 }}>
+        <div style={{ ...row, color: L.ghost, fontSize: 12 }}>
           <span>{live ? "Each renewal is paid the way that member pays today; new members pay the way today's do."
                       : "No new members are assumed. Everyone on a plan keeps paying."}</span><SaveLine state={state} /></div>
-        {!can ? <div style={{ fontSize: 11.5, color: L.ghost }}>Only an owner or admin changes these.</div> : null}
+        {!can ? <div style={{ fontSize: 12, color: L.ghost }}>Only an owner or admin changes these.</div> : null}
       </div>
     </Sheet>
   );
@@ -280,7 +280,7 @@ function Deferred({ f }) {
         </Note>
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620, fontFamily: F.body, fontSize: 12.5 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620, fontFamily: F.body, fontSize: 13 }}>
           <thead><tr>{["Month", "Starts with", `+ ${f.labels?.in || "Paid in"}`, "− Earned", "Ends with"].map((h, i) => (
             <th key={h} style={{ ...EYEBROW, textAlign: i ? "right" : "left", padding: "8px 12px", background: L.colHead }}>{h}</th>))}
           </tr></thead>
@@ -322,7 +322,7 @@ function Members({ f }) {
       {n.nothing ? ` · ${n.nothing} with nothing paid or scheduled` : ""}
       {n.owed ? ` · ${n.owed} owing with nothing scheduled` : ""}
       {n.from_billing ? ` · ${n.from_billing} with no contract value in the CRM` : ""}</span>}>
-      <div style={{ padding: "10px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+      <div style={{ padding: "10px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 13, color: L.body }}>
         <span>From the members&rsquo; records (GHL and Stripe) as they stand today. {n.joined ? `${n.joined} joined since the books end
           (${money(n.joined_value)} a year), counted in full. ` : ""}{n.renewed ? `${n.renewed} already renewed (${money(n.renewed_value)}). ` : ""}
           {n.due ? `${n.due} renewals are due in the year ahead (${money(n.due_value)} a year), counted at the renewal rate.` : ""}</span>
@@ -337,7 +337,7 @@ function Members({ f }) {
       </div>
       {hidden ? null : (
       <details>
-        <summary style={{ cursor: "pointer", padding: "4px 18px 12px", fontFamily: F.body, fontSize: 12.5, color: L.accentInk,
+        <summary style={{ cursor: "pointer", padding: "4px 18px 12px", fontFamily: F.body, fontSize: 13, color: L.accentInk,
                           fontWeight: 600 }}>Show every member</summary>
         <div style={{ overflowX: "auto" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 960, fontFamily: F.body, fontSize: 12 }}>
@@ -420,7 +420,7 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
             <div className="cf-two">
               <Assumptions f={f} can={can} onSaved={onSaved} />
               <Sheet title={`By ${through}`}>
-                <div style={{ padding: "12px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 13.5, color: L.deep }}>
+                <div style={{ padding: "12px 18px", display: "grid", gap: 8, fontFamily: F.body, fontSize: 14, color: L.deep }}>
                   {/* each row is coloured by what its number means, not by where it sits: the profit when it's a loss,
                       what the partner was paid beyond the share when there is some */}
                   {[[`${short(f.company)}'s operating profit, ${keyLabel(f.rows[0]?.key)} – ${through}`, s.profit,
@@ -441,11 +441,11 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
                         ? `At these assumptions ${f.partner} would be paid ${money(s.ahead)} more than the share earned by ${through}: an advance to be paid back.`
                         : `At these assumptions ${f.partner}'s share covers what's been paid.`}</Note>) : null}
                   {f.renewals ? (
-                    <div style={{ ...row, fontSize: 12.5, color: L.bodyDim, borderTop: `1px solid ${L.ruleLine}`, paddingTop: 8 }}>
+                    <div style={{ ...row, fontSize: 13, color: L.bodyDim, borderTop: `1px solid ${L.ruleLine}`, paddingTop: 8 }}>
                       <span>{f.renewals.count} renewals due ({money(f.renewals.value)} a year), at {f.assumptions.renew_pct}%: earned in these months</span>
                       <span style={NUM}>{money(f.renewals.earned)}</span></div>) : null}
                   {f.joins && f.joins.members ? (
-                    <div style={{ ...row, fontSize: 12.5, color: L.bodyDim }}>
+                    <div style={{ ...row, fontSize: 13, color: L.bodyDim }}>
                       <span>{Math.round(f.joins.members)} new members: earned in these months</span>
                       <span style={NUM}>{money(f.joins.earned)}</span></div>) : null}
                 </div>
@@ -454,7 +454,7 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
             <Sheet title="Month by month" right={<span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
               shaded rows are projected</span>}>
               <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 880, fontFamily: F.body, fontSize: 12.5 }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 880, fontFamily: F.body, fontSize: 13 }}>
                   <thead><tr>{["Month", "Revenue", "Costs", "Profit", "Year so far",
                                ...(f.partner ? [`${f.partner}'s ${Math.round(f.rate * 100)}%`, "Earned so far", "Paid so far", "Paid beyond earned"] : [])]
                     .map((h, i) => <th key={h} style={{ ...EYEBROW, textAlign: i ? "right" : "left", padding: "8px 12px",
@@ -478,14 +478,14 @@ export default function CleanupForecast({ ov, rev, onSaved }) {
                   {f.launches.map((l) => (
                     <div key={l.name} style={{ border: `1px solid ${L.ruleInner}`, borderRadius: 12, padding: "12px 14px",
                                                fontFamily: F.body, fontSize: 13, color: L.body }}>
-                      <div style={{ fontFamily: F.num, fontWeight: 700, color: L.deep }}>{l.name}</div>
+                      <div style={{ fontFamily: F.num, fontWeight: 600, color: L.deep }}>{l.name}</div>
                       <div style={{ fontSize: 12, color: L.muted }}>{l.window} · {l.members} members</div>
                       <div style={{ ...row, marginTop: 8 }}><span>Contracted</span><strong style={NUM}>{money(l.contracted)}</strong></div>
                       {Object.entries(l.costs).map(([k, v]) => (
-                        <div key={k} style={{ ...row, fontSize: 12.5, color: L.bodyDim }}><span>{k}</span><span style={NUM}>{money(v)}</span></div>))}
+                        <div key={k} style={{ ...row, fontSize: 13, color: L.bodyDim }}><span>{k}</span><span style={NUM}>{money(v)}</span></div>))}
                       <div style={{ ...row, borderTop: `1px solid ${L.ruleInner}`, marginTop: 6, paddingTop: 6 }}>
                         <span>Launch costs</span><strong style={NUM}>{money(l.cost_total)}</strong></div>
-                      {l.per_dollar ? <div style={{ fontSize: 12.5, color: L.accentInk, marginTop: 6 }}>
+                      {l.per_dollar ? <div style={{ fontSize: 13, color: L.accentInk, marginTop: 6 }}>
                         ${l.per_dollar.toFixed(2)} contracted for every $1 of launch cost</div> : null}
                     </div>))}
                 </div>

@@ -34,7 +34,7 @@ function Chip({ state, sample }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
       <span style={{ width: 6, height: 6, borderRadius: 99, background: sample ? T.daffodil : c.dot }} />
-      <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: sample ? T.daffodilText : c.text }}>
+      <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: sample ? T.daffodilText : c.text }}>
         {sample && state === "live" ? "Sample" : c.label}
       </span>
     </span>
@@ -45,12 +45,12 @@ function Stat({ label, value, sub, state, sample, hint }) {
   return (
     <div style={{ minWidth: 0, boxSizing: "border-box", background: T.parchment, borderRadius: 10, padding: "12px 13px" }} title={hint}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.slate, fontWeight: 500, minWidth: 0 }}>{label}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, fontWeight: 500, minWidth: 0 }}>{label}</span>
         <span style={{ marginLeft: "auto" }}><Chip state={state} sample={sample} /></span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{value}</span>
-        {sub && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{sub}</span>}
+        {sub && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{sub}</span>}
       </div>
     </div>
   );
@@ -60,7 +60,7 @@ function Label({ children, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.slate }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate }}>
         {children}
       </span>
     </div>
@@ -76,7 +76,7 @@ export function SampleBanner() {
       boxSizing: "border-box", display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 16px",
       background: T.daffodilBg, border: `1px solid ${T.daffodil}`, borderRadius: 12,
     }}>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.daffodilText, whiteSpace: "nowrap", paddingTop: 2 }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.daffodilText, whiteSpace: "nowrap", paddingTop: 2 }}>
         Sample data
       </span>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>
@@ -138,12 +138,12 @@ export default function TransactionsPanel({ businessKey, period, accent }) {
 
       {d.past_due.length > 0 && (
         <div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 700, color: T.poppyText, marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.poppyText, marginBottom: 8 }}>
             Past their closing date ({d.past_due.length})
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {d.past_due.map((p, i) => (
-              <div key={i} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink }}>
+              <div key={i} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink }}>
                 <span style={{ fontWeight: 600, minWidth: 0 }}>{p.name || "Unknown agent"}</span>
                 <span style={{ color: T.muted }}>{p.city || ""}</span>
                 <span style={{ color: T.muted }}>was due {shortDate(p.expected_close)}</span>
@@ -155,14 +155,14 @@ export default function TransactionsPanel({ businessKey, period, accent }) {
       )}
 
       <div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 700, color: T.ink, marginBottom: 8 }}>By agent</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink, marginBottom: 8 }}>By agent</div>
         {/* Scrolls inside the card on a phone rather than widening the page. */}
         <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-          <table style={{ width: "100%", minWidth: 620, borderCollapse: "collapse", fontFamily: "var(--font-text)", fontSize: 12.5 }}>
+          <table style={{ width: "100%", minWidth: 620, borderCollapse: "collapse", fontFamily: "var(--font-text)", fontSize: 13 }}>
             <thead>
               <tr style={{ color: T.muted, textAlign: "right" }}>
                 {["Agent", "Active", "Under contract", "New contracts", "Closed", "Volume", "Co-agent", "Last new file"].map((h, i) => (
-                  <th key={h} style={{ fontWeight: 600, fontSize: 11, padding: "6px 8px", borderBottom: `1px solid ${T.line}`, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                  <th key={h} style={{ fontWeight: 600, fontSize: 12, padding: "6px 8px", borderBottom: `1px solid ${T.line}`, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -172,7 +172,7 @@ export default function TransactionsPanel({ businessKey, period, accent }) {
                   <td style={{ padding: "7px 8px", color: T.ink, fontWeight: 600, whiteSpace: "nowrap" }}>
                     {a.name}
                     {a.not_producing && (
-                      <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: T.daffodilText, background: T.daffodilBg, borderRadius: 5, padding: "1px 6px" }}>Not producing</span>
+                      <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: T.daffodilText, background: T.daffodilBg, borderRadius: 5, padding: "1px 6px" }}>Not producing</span>
                     )}
                   </td>
                   {[a.active_listings, a.under_contract + (a.past_due ? ` (${a.past_due} late)` : ""), a.new_contracts, a.closed, compact(a.closed_volume), a.co_agent_files, shortDate(a.last_activity)].map((v, i) => (

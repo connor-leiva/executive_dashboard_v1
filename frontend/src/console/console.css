@@ -1,7 +1,7 @@
 :root {
   color: var(--console-ink);
   background: var(--console-surface);
-  font-family: "DM Sans", Arial, sans-serif;
+  font-family: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -25,15 +25,16 @@ textarea {
 
 .console-app {
   min-height: 100vh;
+  font-size: 14px;
   display: grid;
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   background: var(--console-surface);
   color: var(--console-ink);
 }
 
 .console-rail {
   min-height: 100vh;
-  padding: 24px 28px;
+  padding: 24px 16px;
   background: var(--console-sidebar);
   color: white;
   position: sticky;
@@ -43,70 +44,78 @@ textarea {
 
 .console-brand-lockup {
   display: grid;
-  gap: 3px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 2px;
+  padding: 0 12px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .console-brand-lockup strong {
-  font-size: 31px;
-  line-height: 1;
+  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: 500;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .console-brand-lockup span,
 .console-brand-lockup small {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
-  text-transform: uppercase;
+  color: var(--console-accent);
+  font-size: 12px;
+  line-height: 16px;
+  text-transform: none;
 }
 
+/* "Admin console" sits with the workspace name; "Powered by Axcion" is the quieter line. */
 .console-brand-lockup small {
-  margin-top: 22px;
+  order: 1;
   color: var(--console-tealSoft);
+}
+
+.console-brand-lockup span {
+  order: 2;
+  margin-top: 8px;
 }
 
 .nav-section {
-  margin-top: 27px;
+  margin-top: 24px;
 }
 
 .nav-section p {
-  margin: 0 0 9px;
-  color: rgba(184, 213, 222, 0.72);
-  font-size: 11px;
-  text-transform: uppercase;
+  margin: 0 0 8px;
+  padding-left: 12px;
+  color: var(--console-accent);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
 }
 
 .nav-item {
-  min-height: 44px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 0;
+  margin-top: 2px;
   color: var(--console-tealSoft);
   text-decoration: none;
   border-radius: 8px;
-  padding: 9px 12px;
-  margin-left: -12px;
+  padding: 0 12px;
+  font-size: 14px;
+  transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), color 150ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .nav-item span {
-  width: 3px;
-  height: 22px;
-  border-radius: 2px;
-  color: transparent;
-  background: transparent;
-  flex: none;
+  display: none;
 }
 
 .nav-item.active {
   background: var(--console-sidebarSoft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   color: white;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .nav-item.active span {
-  background: var(--console-gold);
+  display: none;
 }
 
 .console-main {
@@ -114,28 +123,27 @@ textarea {
 }
 
 .console-topbar {
-  min-height: 66px;
+  min-height: 64px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 6px 48px;
+  gap: 12px;
+  padding: 8px 32px;
   border-bottom: 1px solid var(--console-line);
-  background: rgba(244, 241, 237, 0.88);
+  background: rgba(245, 246, 243, 0.92);
   position: sticky;
   top: 0;
   z-index: 3;
-  backdrop-filter: blur(12px);
 }
 
 .console-search {
-  width: min(462px, 28vw);
+  width: min(400px, 28vw);
   min-width: 220px;
-  height: 44px;
+  height: 40px;
   border: 1px solid var(--console-line);
   border-radius: 8px;
   background: white;
   color: var(--console-ink);
-  padding: 0 15px;
+  padding: 0 12px;
   outline: none;
 }
 
@@ -147,54 +155,57 @@ textarea {
 .roster-table select:focus,
 .tenant-switch input:focus {
   border-color: var(--console-teal);
-  box-shadow: 0 0 0 3px rgba(56, 86, 103, 0.15);
+  box-shadow: 0 0 0 3px rgba(63, 107, 102, 0.18);
 }
 
 .ask-link {
-  height: 44px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 18px;
+  padding: 0 16px;
   border-radius: 8px;
-  background: var(--console-sidebar);
+  background: var(--console-teal);
   color: white;
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .role-switch {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   margin-left: auto;
 }
 
 .role-switch span {
-  color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  color: var(--console-muted);
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: none;
   white-space: nowrap;
 }
 
 .role-switch button {
-  height: 36px;
-  border: 0;
+  display: none;
+}
+
+.role-switch select {
+  height: 40px;
+  border: 1px solid var(--console-line);
   border-radius: 8px;
-  background: transparent;
-  color: var(--console-muted);
-  padding: 0 11px;
-  cursor: pointer;
-  white-space: nowrap;
+  background: white;
+  color: var(--console-ink);
+  padding: 0 32px 0 12px;
+  font-weight: 500;
 }
 
 .role-switch button.active {
   background: var(--console-teal);
   color: white;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tenant-switch {
@@ -210,9 +221,9 @@ textarea {
 
 .tenant-switch span {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .tenant-switch input {
@@ -226,15 +237,16 @@ textarea {
 }
 
 .console-button {
-  min-height: 38px;
+  min-height: 40px;
   border: 1px solid var(--console-line);
   border-radius: 8px;
-  padding: 0 14px;
+  padding: 0 16px;
   background: white;
   color: var(--console-ink);
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
+  transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .console-button-primary {
@@ -252,47 +264,47 @@ textarea {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  padding: 42px 48px 26px;
+  padding: 40px 32px 24px;
 }
 
 .console-page-head p {
   margin: 0 0 8px;
-  color: var(--console-faint);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  color: var(--console-muted);
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: none;
 }
 
 .console-page-head h1 {
   margin: 0;
-  font-size: clamp(34px, 4vw, 46px);
-  line-height: 1.05;
+  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  font-size: 32px;
+  line-height: 1.15;
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .preview-status {
-  min-width: 138px;
   display: grid;
   justify-items: end;
-  gap: 3px;
-  padding: 12px 14px;
-  border: 1px solid var(--console-line);
-  border-radius: 8px;
-  background: white;
+  gap: 2px;
 }
 
 .preview-status span {
-  font-size: 19px;
-  font-weight: 700;
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .preview-status small {
   color: var(--console-muted);
-  text-transform: capitalize;
+  font-size: 12px;
+  text-transform: none;
 }
 
 .publish-strip {
-  margin: 0 48px 20px;
+  margin: 0 32px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -311,8 +323,8 @@ textarea {
 .publish-strip span {
   color: var(--console-muted);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .publish-strip strong {
@@ -326,7 +338,7 @@ textarea {
 }
 
 .console-content {
-  padding: 0 48px 56px;
+  padding: 0 32px 56px;
 }
 
 .overview-grid {
@@ -361,8 +373,8 @@ textarea {
 .console-metric span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .console-metric strong {
@@ -468,7 +480,7 @@ textarea {
 }
 
 .activity-row strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .activity-row span,
@@ -546,14 +558,14 @@ textarea {
 .console-wordmark strong {
   font-size: 28px;
   font-weight: 500;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .console-wordmark span {
   color: var(--console-muted);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .console-login h1 {
@@ -571,7 +583,7 @@ textarea {
   gap: 7px;
   color: var(--console-muted);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .console-field input,
@@ -594,7 +606,7 @@ textarea {
 .console-form-error {
   margin: 0;
   color: var(--console-bad);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Explanatory copy inside a panel. A bare <p> in .console-panel inherits browser defaults and
@@ -604,7 +616,7 @@ textarea {
   margin: 0 0 14px;
   max-width: 62ch;
   color: var(--console-muted);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -616,7 +628,7 @@ textarea {
   border-radius: 4px;
   background: var(--console-surface);
   color: var(--console-ink);
-  font-size: 12.5px;
+  font-size: 13px;
   word-break: break-all;
 }
 
@@ -631,7 +643,7 @@ textarea {
   background: var(--console-surface);
   color: var(--console-ink);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 /* THESE THREE WERE ALREADY IN USE AND STYLED NOWHERE. MarketingRequests.jsx has rendered
@@ -657,7 +669,7 @@ textarea {
   align-items: center;
   gap: 7px;
   color: var(--console-ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -711,8 +723,8 @@ textarea {
 .roster-count {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .roster-stat strong {
@@ -749,7 +761,7 @@ textarea {
   background: var(--console-teal);
   border-color: var(--console-teal);
   color: white;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .roster-search {
@@ -789,9 +801,9 @@ textarea {
 
 .roster-table th {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .roster-table td {
@@ -823,7 +835,7 @@ textarea {
   background: var(--console-lineSoft);
   color: var(--console-muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .status-active {
@@ -849,7 +861,7 @@ textarea {
 .roster-form-message {
   margin: 0;
   color: var(--console-teal);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .brand-grid {
@@ -898,9 +910,9 @@ textarea {
 .brand-logo-slot span,
 .brand-logo-slot small {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .brand-domain-status strong {
@@ -917,7 +929,7 @@ textarea {
 
 .brand-form-actions > span {
   color: var(--console-teal);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .brand-error {
@@ -1025,7 +1037,7 @@ textarea {
   border-radius: 8px;
   background: var(--preview-accent);
   color: var(--preview-ink);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand-preview-logo div {
@@ -1043,7 +1055,7 @@ textarea {
 
 .brand-preview-logo strong {
   font-size: 13px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .brand-preview-logo small,
@@ -1051,9 +1063,9 @@ textarea {
 .brand-preview-top span,
 .brand-preview section small {
   color: color-mix(in srgb, white 68%, var(--preview-accent));
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .brand-preview nav {
@@ -1097,7 +1109,7 @@ textarea {
 .brand-preview-top strong {
   color: var(--preview-brand);
   font-size: 12px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .brand-preview section {
@@ -1143,7 +1155,7 @@ textarea {
   background: white;
   color: var(--preview-ink);
   padding: 0 14px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand-preview button + button {
@@ -1184,7 +1196,7 @@ textarea {
 
 .calendar-actions > span {
   color: var(--console-teal);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .calendar-row {
@@ -1224,7 +1236,7 @@ textarea {
   margin: 0;
   color: var(--console-faint);
   font-size: 12px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .calendar-role-list {
@@ -1244,7 +1256,7 @@ textarea {
   padding: 0 10px;
   color: var(--console-muted);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .calendar-role-list input {
@@ -1269,9 +1281,9 @@ textarea {
   background: var(--console-surface);
   color: var(--console-muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   text-align: center;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .calendar-preview-meta strong {
@@ -1359,9 +1371,9 @@ textarea {
 
 .integration-row span {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .integration-row strong {
@@ -1386,7 +1398,7 @@ textarea {
   padding: 0 10px;
   font-size: 12px;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .integration-status.connected {
@@ -1441,9 +1453,9 @@ textarea {
 .integration-sync span,
 .integration-config h3 {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .integration-sync strong {
@@ -1459,7 +1471,7 @@ textarea {
   background: rgba(183, 123, 50, 0.08);
   color: var(--console-warn);
   padding: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .integration-config {
@@ -1486,7 +1498,7 @@ textarea {
   background: white;
   color: var(--console-muted);
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .integration-actions {
@@ -1498,7 +1510,7 @@ textarea {
 
 .integration-actions > span {
   color: var(--console-muted);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .ai-grid {
@@ -1530,7 +1542,7 @@ textarea {
   color: var(--console-muted);
   padding: 0 12px;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .ai-toggle input {
@@ -1571,9 +1583,9 @@ textarea {
 .ai-source-index span,
 .ai-gap-question span {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .ai-source-name strong,
@@ -1612,7 +1624,7 @@ textarea {
 
 .ai-actions > span {
   color: var(--console-teal);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .ai-gap-row {
@@ -1645,8 +1657,8 @@ textarea {
   background: white;
   color: var(--console-muted);
   cursor: pointer;
-  padding: 0 13px;
-  font-weight: 800;
+  padding: 0 12px;
+  font-weight: 500;
 }
 
 .audit-filterbar button.active {
@@ -1677,9 +1689,9 @@ textarea {
 
 .audit-table th {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .audit-table td {
@@ -1707,7 +1719,7 @@ textarea {
   color: var(--console-muted);
   padding: 0 10px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .audit-chip.publish {
@@ -1756,7 +1768,7 @@ textarea {
 .permissions-savebar span {
   color: var(--console-teal);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .permissions-savebar.dirty {
@@ -1785,10 +1797,10 @@ textarea {
 
 .permissions-table thead th {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   text-align: center;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .permissions-table thead th:first-child {
@@ -1835,11 +1847,11 @@ textarea {
   color: var(--console-muted);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .permission-cell.dirty {
-  box-shadow: inset 0 0 0 2px var(--console-gold);
+  box-shadow: inset 0 0 0 2px var(--console-accent);
 }
 
 .level-full {
@@ -1896,9 +1908,9 @@ textarea {
 
 .training-course-row span {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .training-course-row strong {
@@ -1947,7 +1959,7 @@ textarea {
 .training-lessons h3 {
   margin: 0;
   font-size: 14px;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--console-faint);
 }
 
@@ -1956,7 +1968,7 @@ textarea {
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .training-role-list input {
@@ -2038,8 +2050,8 @@ textarea {
   background: color-mix(in srgb, var(--lesson-source) 12%, white);
   color: var(--lesson-source);
   font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .lesson-actions {
@@ -2093,9 +2105,9 @@ textarea {
 
 .sop-row span {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .sop-row strong {
@@ -2131,7 +2143,7 @@ textarea {
   display: grid;
   place-items: center;
   color: var(--console-muted);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .sop-detail-form {
@@ -2171,7 +2183,7 @@ textarea {
   margin: 0;
   color: var(--console-faint);
   font-size: 14px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .sop-upload {
@@ -2204,8 +2216,8 @@ textarea {
 .sop-version-row > span {
   color: var(--console-teal);
   font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .wtd-grid {
@@ -2233,8 +2245,8 @@ textarea {
 .wtd-provider span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .wtd-stat strong {
@@ -2296,7 +2308,7 @@ textarea {
 .wtd-external small {
   color: var(--console-teal);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -2332,8 +2344,8 @@ textarea {
   margin: -7px 0 14px;
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .launchpad-list {
@@ -2393,7 +2405,7 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tile-row-main small,
@@ -2413,8 +2425,8 @@ textarea {
   background: rgba(184, 213, 222, 0.34);
   color: var(--console-teal);
   font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .tile-actions {
@@ -2431,7 +2443,7 @@ textarea {
   color: var(--console-muted);
   cursor: pointer;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tile-actions button:disabled {
@@ -2456,7 +2468,7 @@ textarea {
   gap: 10px;
   color: var(--console-ink);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tile-active input,
@@ -2479,7 +2491,7 @@ textarea {
 .tile-role-panel h3 {
   margin: 0;
   font-size: 14px;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--console-faint);
 }
 
@@ -2745,7 +2757,7 @@ textarea {
 .setup-row.is-blocked { opacity: .72; }
 .setup-hint {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   color: var(--muted, #6E767B);
   white-space: nowrap;
@@ -2810,9 +2822,9 @@ textarea {
   flex: none;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
   border: 1px solid var(--line);
 }
 
@@ -2837,9 +2849,9 @@ textarea {
 }
 
 .lesson-attachments-title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--console-muted, #6e767b);
 }
 
@@ -2879,9 +2891,9 @@ textarea {
   padding: 1px 6px;
   border-radius: 3px;
   border: 1px solid var(--console-line);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--console-muted, #6e767b);
 }
 
@@ -2916,10 +2928,10 @@ textarea {
 .cb-head > div:first-child { flex: 1 1 420px; min-width: 280px; }
 
 .cb-eyebrow {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-faint);
 }
 
@@ -2960,9 +2972,9 @@ textarea {
 .cb-stats span {
   display: block;
   margin-top: 3px;
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-faint);
 }
 
@@ -3003,14 +3015,14 @@ textarea {
 .cb-label {
   flex: 1;
   display: block;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-faint);
 }
 
-.cb-count { font-size: 10px; color: var(--console-faint); }
+.cb-count { font-size: 12px; color: var(--console-faint); }
 
 .cb-search {
   width: 100%;
@@ -3018,7 +3030,7 @@ textarea {
   background: #FBFAFA;
   color: var(--console-ink);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   padding: 9px 11px;
   border-radius: 9px;
 }
@@ -3030,10 +3042,10 @@ textarea {
   background: #FFFFFF;
   color: #6E767B;
   font: inherit;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   padding: 5px 10px;
   border-radius: 99px;
   cursor: pointer;
@@ -3074,9 +3086,9 @@ textarea {
 
 .cb-railcat {
   display: block;
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-faint);
 }
 
@@ -3085,7 +3097,7 @@ textarea {
 .cb-railtitle {
   display: block;
   margin-top: 4px;
-  font-size: 14.5px;
+  font-size: 14px;
   color: #41484B;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3096,7 +3108,7 @@ textarea {
 .cb-railmeta {
   display: block;
   margin-top: 4px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--console-faint);
 }
 
@@ -3107,10 +3119,10 @@ textarea {
 
 .cb-tag {
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   border-radius: 99px;
   padding: 3px 8px;
   white-space: nowrap;
@@ -3145,7 +3157,7 @@ textarea {
   font-weight: 500;
 }
 
-.cb-meta { margin-top: 7px; font-size: 13.5px; color: #6E767B; }
+.cb-meta { margin-top: 7px; font-size: 14px; color: #6E767B; }
 .cb-detailactions { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 
 /* Preview in portal is an <a>, and .console-button was written for a <button>: without this it
@@ -3191,7 +3203,7 @@ textarea {
   border-bottom: 2px solid transparent;
   color: #6E767B;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -3201,13 +3213,13 @@ textarea {
 
 .cb-tab:hover { color: var(--console-ink); }
 .cb-tab.on { border-bottom-color: #171E22; color: var(--console-ink); font-weight: 500; }
-.cb-tab span { font-size: 10px; color: var(--console-faint); }
+.cb-tab span { font-size: 12px; color: var(--console-faint); }
 
 .cb-pane { padding: 24px 26px 26px; }
 
 .cb-intro {
   margin: 0 0 18px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: #41484B;
   max-width: 560px;
@@ -3258,13 +3270,13 @@ textarea {
   text-overflow: ellipsis;
 }
 
-.cb-dur { flex: 0 0 46px; font-size: 11.5px; color: #6E767B; text-align: right; }
+.cb-dur { flex: 0 0 46px; font-size: 12px; color: #6E767B; text-align: right; }
 
 .cb-pill {
   flex: 0 0 auto;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-faint);
   border: 1px solid var(--console-lineSoft);
   border-radius: 99px;
@@ -3273,8 +3285,8 @@ textarea {
 }
 
 .cb-pill.req { font-weight: 600; color: #7A6215; border-color: #D6CFA8; }
-.cb-att { flex: 0 0 54px; font-size: 11px; color: var(--console-faint); text-align: right; }
-.cb-caret { flex: 0 0 auto; color: var(--console-faint); font-size: 11px; }
+.cb-att { flex: 0 0 54px; font-size: 12px; color: var(--console-faint); text-align: right; }
+.cb-caret { flex: 0 0 auto; color: var(--console-faint); font-size: 12px; }
 
 .cb-open { padding: 4px 26px 24px; }
 
@@ -3310,7 +3322,7 @@ textarea {
   background: #FFFFFF;
   color: var(--console-ink);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   padding: 10px 12px;
   border-radius: 9px;
 }
@@ -3320,7 +3332,7 @@ textarea {
 .cb-hint {
   display: block;
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--console-faint);
 }
@@ -3337,7 +3349,7 @@ textarea {
   background: #FFFFFF;
   color: var(--console-ink);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   padding: 10px 30px 10px 12px;
   border-radius: 9px;
 }
@@ -3348,7 +3360,7 @@ textarea {
   top: 50%;
   transform: translateY(-50%);
   color: var(--console-faint);
-  font-size: 9px;
+  font-size: 12px;
   pointer-events: none;
 }
 
@@ -3360,7 +3372,7 @@ textarea {
   background: #FFFFFF;
   color: #6E767B;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   padding: 8px 13px;
   border-radius: 9px;
   cursor: pointer;
@@ -3410,14 +3422,14 @@ textarea {
 }
 
 .cb-listfoot > span:nth-child(2) { flex: 1; }
-.cb-listfoot .cb-meta { margin: 0; font-size: 10.5px; letter-spacing: 0.06em; }
+.cb-listfoot .cb-meta { margin: 0; font-size: 12px; letter-spacing: 0; }
 
 .cb-drop {
   border: 1px dashed #CFC9C7;
   background: transparent;
   color: #6E767B;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   padding: 11px 16px;
   border-radius: 10px;
   cursor: pointer;
@@ -3439,14 +3451,14 @@ textarea {
   padding: 9px 12px;
 }
 
-.cb-attchip strong { display: block; font-size: 13.5px; font-weight: 500; }
+.cb-attchip strong { display: block; font-size: 14px; font-weight: 500; }
 .cb-attchip em { display: block; font-style: normal; font-size: 12px; color: var(--console-faint); }
 
 .cb-attkind {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: #A44A33;
   background: #F6E9E6;
   border-radius: 5px;
@@ -3496,13 +3508,13 @@ textarea {
 
 .cb-flag:last-child { border-bottom: 0; }
 .cb-flag > div { flex: 1; min-width: 0; }
-.cb-flag strong { display: block; font-size: 14.5px; font-weight: 500; }
+.cb-flag strong { display: block; font-size: 14px; font-weight: 500; }
 
 .cb-flag em {
   display: block;
   margin-top: 3px;
   font-style: normal;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.45;
   color: #6E767B;
   text-wrap: pretty;
@@ -3531,7 +3543,7 @@ textarea {
   height: 16px;
   border-radius: 4px;
   border: 1px solid var(--console-line);
-  font-size: 10px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3562,13 +3574,13 @@ textarea {
   color: #FFFFFF;
   border-radius: 6px;
   padding: 4px 9px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
-.cb-section-name { flex: 1 1 200px; min-width: 0; font-size: 15.5px; font-weight: 500; }
+.cb-section-name { flex: 1 1 200px; min-width: 0; font-size: 16px; font-weight: 500; }
 
 .cb-section-due {
   flex: 0 0 auto;
@@ -3577,11 +3589,11 @@ textarea {
   color: #7A6215;
   border-radius: 99px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.cb-section-meta { flex: 0 0 auto; font-size: 12.5px; color: var(--console-faint); }
+.cb-section-meta { flex: 0 0 auto; font-size: 13px; color: var(--console-faint); }
 
 .cb-section-edit {
   flex: 0 0 auto;
@@ -3590,7 +3602,7 @@ textarea {
   border-radius: 7px;
   padding: 5px 12px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--console-ink);
   cursor: pointer;
 }
@@ -3651,14 +3663,14 @@ textarea {
   border-radius: 8px;
   padding: 7px 14px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--console-ink);
   cursor: pointer;
 }
 
 .cb-kindbtn:hover { border-color: #CFC9C7; }
 .cb-kindbtn.on { background: #171E22; border-color: #171E22; color: #FFFFFF; }
-.cb-kindnote { font-size: 12.5px; color: var(--console-faint); }
+.cb-kindnote { font-size: 13px; color: var(--console-faint); }
 
 /* ── the rich-text editor ─────────────────────────────────────────────────────────────── */
 
@@ -3722,7 +3734,7 @@ textarea {
   border-radius: 7px;
   padding: 6px 12px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -3730,16 +3742,16 @@ textarea {
 .cb-rte-sub .cb-rte-apply { background: #171E22; border-color: #171E22; color: #FFFFFF; }
 .cb-rte-sub .cb-rte-apply:disabled { opacity: 0.55; cursor: default; }
 
-.cb-rte-error { padding: 8px 12px; background: #FBF0EE; color: #A44A33; font-size: 12.5px; }
+.cb-rte-error { padding: 8px 12px; background: #FBF0EE; color: #A44A33; font-size: 13px; }
 
 /* The document itself. Styled BY ELEMENT inside this container -- authored nodes carry no classes
    and must not, or the portal and the console would need the author to mark up for both. */
 .cb-rte .ProseMirror { min-height: 230px; padding: 16px 18px; outline: none; }
 .cb-rte .ProseMirror > :first-child { margin-top: 0; }
-.cb-rte p { margin: 13px 0 0; font-size: 14.5px; line-height: 1.65; }
+.cb-rte p { margin: 13px 0 0; font-size: 14px; line-height: 1.65; }
 .cb-rte h2 { margin: 24px 0 0; font-size: 19px; font-weight: 500; line-height: 1.3; letter-spacing: -0.2px; }
 .cb-rte h3 { margin: 20px 0 0; font-size: 16px; font-weight: 500; line-height: 1.35; }
-.cb-rte ul, .cb-rte ol { margin: 13px 0 0; padding-left: 21px; font-size: 14.5px; line-height: 1.7; }
+.cb-rte ul, .cb-rte ol { margin: 13px 0 0; padding-left: 21px; font-size: 14px; line-height: 1.7; }
 .cb-rte li + li { margin-top: 5px; }
 
 .cb-rte blockquote {
@@ -3772,7 +3784,7 @@ textarea {
 }
 
 .roster-crm span {
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -3790,8 +3802,8 @@ textarea {
   border: 0;
   background: none;
   color: var(--console-teal);
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -3890,9 +3902,9 @@ textarea {
 .followup-stages legend {
   padding: 0 4px;
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .followup-stages label {
@@ -3906,7 +3918,7 @@ textarea {
 .followup-stages em {
   color: var(--console-faint);
   font-style: normal;
-  font-size: 12.5px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3939,7 +3951,7 @@ textarea {
   margin: 0;
   align-self: end;
   color: var(--console-faint);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3983,8 +3995,8 @@ textarea {
 .wtdc-bar span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .wtdc-bar strong {
@@ -4034,9 +4046,9 @@ textarea {
 .wtdc-subhead {
   margin: 10px 0 0;
   font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--console-muted);
 }
 
@@ -4122,7 +4134,7 @@ textarea {
 .wtdc-link {
   color: var(--console-teal);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -4139,9 +4151,9 @@ textarea {
 .wtdc-scripts-pick legend {
   padding: 0 4px;
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .wtdc-scripts-pick label {
@@ -4153,8 +4165,8 @@ textarea {
 
 .wtdc-scripts-pick em {
   font-style: normal;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--console-teal);
 }
 
@@ -4173,7 +4185,7 @@ textarea {
 .wtdc-check-result ul {
   margin: 6px 0 0;
   padding-left: 18px;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .wtdc-inline-add {
@@ -4209,9 +4221,9 @@ textarea {
 
 .wtdc-table thead th {
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .wtdc-table tbody th {
@@ -4282,7 +4294,7 @@ textarea {
 .whoc-name small {
   color: var(--console-faint);
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .wtdc-counted {
@@ -4329,8 +4341,8 @@ textarea {
 .pe-head span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .pe-head strong {
@@ -4410,7 +4422,7 @@ textarea {
   border: 1px dashed var(--console-line);
   border-radius: 8px;
   color: var(--console-muted);
-  font-size: 13.5px;
+  font-size: 14px;
   text-align: center;
   padding: 16px;
 }
@@ -4426,9 +4438,9 @@ textarea {
   gap: 4px;
   justify-items: center;
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .pe-crop img {
@@ -4467,9 +4479,9 @@ textarea {
 .pe-lines legend {
   padding: 0 4px;
   color: var(--console-faint);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .pe-line {
@@ -4494,7 +4506,7 @@ textarea {
   background: white;
   font: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .pe-line button,
@@ -4591,7 +4603,7 @@ textarea {
 .sop-readers h3 {
   margin: 0;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .sop-procedure > header span,
@@ -4599,8 +4611,8 @@ textarea {
 .sop-readers > header span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .sop-tool-picker {
@@ -4639,12 +4651,12 @@ textarea {
   gap: 12px;
   padding: 9px 0;
   border-top: 1px solid var(--console-lineSoft);
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .sop-reader-row span {
   color: var(--console-faint);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .sop-readers .tile-actions button.on {
@@ -4671,14 +4683,14 @@ textarea {
 .sop-suggestions h3 {
   margin: 0;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .sop-suggestions > header span {
   color: var(--console-faint);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .sop-suggestion {
@@ -4702,19 +4714,19 @@ textarea {
 
 .sop-suggestion-head span {
   color: var(--console-faint);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .sop-suggestion-status {
   margin-left: auto;
-  font-weight: 700;
-  text-transform: uppercase;
-  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  font-size: 12px;
 }
 
 .sop-suggestion p {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 

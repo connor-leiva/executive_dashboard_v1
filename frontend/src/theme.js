@@ -132,7 +132,7 @@ export const LEDGER_FONT = {
 
 export const STATUS = {
   healthy: { dot: T.meadow, text: T.tertiary, label: "Healthy" },
-  watch: { dot: T.poppy, text: T.poppyText, label: "Watch" },
+  watch: { dot: T.daffodil, text: T.daffodilText, label: "Watch" },
   opportunity: { dot: T.teal, text: T.teal, label: "Opportunity" },
 };
 

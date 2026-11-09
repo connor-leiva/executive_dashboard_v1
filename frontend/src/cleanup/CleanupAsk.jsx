@@ -49,8 +49,8 @@ export function AskAbout({ about, label = "Ask about this", placeholder = "Why i
             <button type="submit" className="ca-btn ca-primary" disabled={busy || !q.trim()}>{busy ? "Asking…" : "Ask"}</button>
             <button type="button" className="ca-btn" onClick={close}>Close</button>
           </form>
-          {error ? <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.loss }}>{error}</div> : null}
-          <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+          {error ? <div style={{ fontFamily: F.body, fontSize: 13, color: L.loss }}>{error}</div> : null}
+          <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
             Answered by Claude from this tab&rsquo;s figures. It can&rsquo;t change anything here.</div>
         </div>
       )}
@@ -62,7 +62,7 @@ export function AskAbout({ about, label = "Ask about this", placeholder = "Why i
 const ASK_CSS = `
   .ca-wrap { margin-top: 12px; }
   .ca-open { height: 28px; padding: 0 11px; border-radius: 8px; border: 1px dashed ${L.pillEdge}; background: transparent;
-    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 13px; font-weight: 600; cursor: pointer; }
   .ca-open:hover { border-color: ${L.accentMuted}; color: ${L.deep}; }
   .ca-open:focus-visible, .ca-btn:focus-visible, .ca-input:focus-visible { outline: 2px solid ${L.accent}; outline-offset: 1px; }
   .ca-box { border: 1px solid ${L.ruleInner}; border-radius: 10px; background: ${L.paper}; padding: 12px 14px;
@@ -74,7 +74,7 @@ const ASK_CSS = `
   .ca-input { flex: 1; min-width: 180px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid ${L.pillEdge};
     background: ${L.paper}; color: ${L.deep}; font-family: ${F.body}; font-size: 13px; }
   .ca-btn { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid ${L.pillEdge}; background: ${L.paper};
-    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 13px; font-weight: 600; cursor: pointer; }
   .ca-btn:disabled { opacity: .55; cursor: default; }
   .ca-primary { background: ${L.deep}; border-color: ${L.deep}; color: ${L.onDeep}; }
 `;

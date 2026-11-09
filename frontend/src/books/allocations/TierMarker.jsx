@@ -34,7 +34,7 @@ export function TierMarker({ tier, size = 9 }) {
 
 export function TierCode({ tier }) {
   return (
-    <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em",
+    <span style={{ fontFamily: F.num, fontSize: 12,
                    color: tier === 3 ? L.flagInk : L.faint, fontWeight: 600 }}>
       {tier ? `T${tier}` : "--"}
     </span>

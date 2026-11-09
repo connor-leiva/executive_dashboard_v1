@@ -43,9 +43,9 @@ const btn = (tone = "quiet") => ({
 function Count({ label, value, tone }) {
   return (
     <div style={{ minWidth: 78 }}>
-      <div style={{ fontFamily: font.head, fontSize: 20, fontWeight: 700, color: tone || T.ink,
+      <div style={{ fontFamily: font.head, fontSize: 20, fontWeight: 600, color: tone || T.ink,
                     fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontFamily: font.body, fontSize: 11, color: T.muted, marginTop: 2 }}>{label}</div>
+      <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 2 }}>{label}</div>
     </div>
   );
 }
@@ -141,7 +141,7 @@ export default function BooksMapping({ isCFO = false }) {
               const on = e.id === active;
               return (
                 <button key={e.id} onClick={() => { setBizId(e.id); setPicked(new Set()); }}
-                  style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600, borderRadius: 99,
+                  style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600, borderRadius: 99,
                     padding: "7px 14px", cursor: "pointer", border: `1px solid ${on ? "transparent" : "rgba(243,238,231,0.28)"}`,
                     background: on ? T.onDark : "transparent", color: on ? T.evergreen : T.onDark }}>
                   {e.name}
@@ -169,7 +169,7 @@ export default function BooksMapping({ isCFO = false }) {
                          tone={d.counts.unmapped ? T.poppyText : T.meadowInk} />
                   <Count label="Ignored" value={d.counts.ignored} tone={T.muted} />
                   <Count label="By rule" value={d.counts.by_rule} tone={T.teal} />
-                  <div style={{ flex: 1, minWidth: 220, fontFamily: font.body, fontSize: 11.5,
+                  <div style={{ flex: 1, minWidth: 220, fontFamily: font.body, fontSize: 12,
                                 color: T.muted, lineHeight: 1.55, paddingTop: 2 }}>
                     Mapping changes how Axcion reads these books. It does not touch QuickBooks, and it
                     does not fix a transaction coded to the wrong account.
@@ -179,7 +179,7 @@ export default function BooksMapping({ isCFO = false }) {
 
               {err && (
                 <Card style={{ padding: "12px 18px", borderColor: T.poppy }}>
-                  <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
+                  <span style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText }}>{err}</span>
                 </Card>
               )}
 
@@ -200,11 +200,11 @@ export default function BooksMapping({ isCFO = false }) {
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search accounts"
-                        style={{ flex: 1, minWidth: 150, fontFamily: font.body, fontSize: 12.5, padding: "7px 10px",
+                        style={{ flex: 1, minWidth: 150, fontFamily: font.body, fontSize: 13, padding: "7px 10px",
                           border: `1px solid ${T.line}`, borderRadius: 8, color: T.ink, background: T.white }} />
                       {/* The bulk-map-by-type first pass: filter to one QBO type, select all, map once. */}
                       <select value={type} onChange={(e) => setType(e.target.value)}
-                        style={{ fontFamily: font.body, fontSize: 12.5, padding: "7px 10px", color: T.ink,
+                        style={{ fontFamily: font.body, fontSize: 13, padding: "7px 10px", color: T.ink,
                           border: `1px solid ${T.line}`, borderRadius: 8, background: T.white }}>
                         <option value="all">Every QBO type</option>
                         {types.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -239,13 +239,13 @@ export default function BooksMapping({ isCFO = false }) {
                           <input type="checkbox" checked={on} onChange={() => toggle(a.qbo_account_id)}
                             aria-label={`Select ${a.fqn}`} style={{ marginTop: 3, accentColor: T.meadow }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.ink, fontWeight: 600,
+                            <div style={{ fontFamily: font.body, fontSize: 13, color: T.ink, fontWeight: 600,
                                           wordBreak: "break-word" }}>
                               {a.fqn}
                               {!a.qbo_active && <span style={{ color: T.muted, fontWeight: 500 }}> · inactive in QBO</span>}
                             </div>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
-                              <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>{a.type}</span>
+                              <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{a.type}</span>
                               {a.code && (
                                 <Pill tone={a.mapped_via === "rule" ? "muted" : "good"}>
                                   {a.code} {a.standard_name}{a.mapped_via === "rule" ? " · by rule" : ""}
@@ -263,7 +263,7 @@ export default function BooksMapping({ isCFO = false }) {
                               )}
                               {(a.code || a.is_ignored) && (
                                 <button disabled={busy} onClick={() => mapTo([a.qbo_account_id], null)}
-                                  style={{ ...btn(), padding: "4px 9px", fontSize: 11 }}>Clear</button>
+                                  style={{ ...btn(), padding: "4px 9px", fontSize: 12 }}>Clear</button>
                               )}
                             </div>
                           </div>
@@ -278,10 +278,10 @@ export default function BooksMapping({ isCFO = false }) {
                   <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.line}` }}>
                     <Eyebrow>Standard chart</Eyebrow>
                     <input value={stdQ} onChange={(e) => setStdQ(e.target.value)} placeholder="Search by code or name"
-                      style={{ width: "100%", marginTop: 10, fontFamily: font.body, fontSize: 12.5, padding: "7px 10px",
+                      style={{ width: "100%", marginTop: 10, fontFamily: font.body, fontSize: 13, padding: "7px 10px",
                         border: `1px solid ${T.line}`, borderRadius: 8, color: T.ink, background: T.white,
                         boxSizing: "border-box" }} />
-                    <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 8 }}>
+                    <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 8 }}>
                       {selected.length
                         ? `Click an account to map the ${selected.length} selected.`
                         : "Select accounts on the left, then click a target here."}
@@ -293,8 +293,8 @@ export default function BooksMapping({ isCFO = false }) {
                       if (!rows.length) return null;
                       return (
                         <div key={key}>
-                          <div style={{ fontFamily: font.head, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em",
-                            textTransform: "uppercase", color: T.tertiary, background: T.parchment,
+                          <div style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+                            color: T.tertiary, background: T.parchment,
                             padding: "7px 20px", position: "sticky", top: 0 }}>{label}</div>
                           {rows.map((a) => (
                             <button key={a.id} title={a.definition || undefined}
@@ -304,9 +304,9 @@ export default function BooksMapping({ isCFO = false }) {
                                 padding: "8px 20px", border: "none", borderTop: `1px solid ${T.line}`,
                                 background: "transparent", cursor: selected.length ? "pointer" : "default",
                                 opacity: selected.length ? 1 : 0.55 }}>
-                              <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.teal,
+                              <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, color: T.teal,
                                 fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{a.code}</span>
-                              <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.ink }}>{a.name}</span>
+                              <span style={{ fontFamily: font.body, fontSize: 13, color: T.ink }}>{a.name}</span>
                             </button>
                           ))}
                         </div>
@@ -361,7 +361,7 @@ function Rules({ d, active, isCFO, busy, run, accounts, picked, ruleFor, setRule
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <Eyebrow>Subtree rules</Eyebrow>
-        <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
+        <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
           A rule maps a whole branch, including the accounts that do not exist yet.
         </span>
       </div>
@@ -379,11 +379,11 @@ function Rules({ d, active, isCFO, busy, run, accounts, picked, ruleFor, setRule
             <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
                            background: r.is_active ? T.teal : T.muted }} />
             <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink,
+              <div style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink,
                             overflowWrap: "anywhere" }}>
                 {r.pattern}<span style={{ color: T.muted, fontWeight: 500 }}> → {r.code}</span>
               </div>
-              <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 3 }}>
+              <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 3 }}>
                 {r.business_key ? r.business_key : "every entity"} · covers {r.covers} here
                 {r.is_active ? "" : " · off"}{r.note ? ` · ${r.note}` : ""}
               </div>
@@ -402,7 +402,7 @@ function Rules({ d, active, isCFO, busy, run, accounts, picked, ruleFor, setRule
       </div>
 
       {!isCFO && (
-        <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 12 }}>
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 12 }}>
           Rules are a CFO decision — one pattern silently maps every account a future hire creates.
         </div>
       )}
@@ -427,11 +427,11 @@ function Rules({ d, active, isCFO, busy, run, accounts, picked, ruleFor, setRule
             </div>
           ) : (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink,
+              <span style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink,
                              overflowWrap: "anywhere", maxWidth: "100%" }}>{ruleFor}</span>
               <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>→</span>
               <select value={std} onChange={(e) => setStd(e.target.value)}
-                style={{ fontFamily: font.body, fontSize: 12.5, padding: "7px 10px", color: T.ink,
+                style={{ fontFamily: font.body, fontSize: 13, padding: "7px 10px", color: T.ink,
                   border: `1px solid ${T.line}`, borderRadius: 8, background: T.white }}>
                 <option value="">Standard account…</option>
                 {(d.standard || []).filter((a) => a.is_active).map((a) => (
@@ -439,13 +439,13 @@ function Rules({ d, active, isCFO, busy, run, accounts, picked, ruleFor, setRule
                 ))}
               </select>
               <select value={scope} onChange={(e) => setScope(e.target.value)}
-                style={{ fontFamily: font.body, fontSize: 12.5, padding: "7px 10px", color: T.ink,
+                style={{ fontFamily: font.body, fontSize: 13, padding: "7px 10px", color: T.ink,
                   border: `1px solid ${T.line}`, borderRadius: 8, background: T.white }}>
                 <option value="entity">{d.business.name} only</option>
                 <option value="tenant">Every entity</option>
               </select>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why (optional)"
-                style={{ flex: 1, minWidth: 140, fontFamily: font.body, fontSize: 12.5, padding: "7px 10px",
+                style={{ flex: 1, minWidth: 140, fontFamily: font.body, fontSize: 13, padding: "7px 10px",
                   border: `1px solid ${T.line}`, borderRadius: 8, color: T.ink, background: T.white }} />
               <button disabled={busy || !std} onClick={create}
                 style={{ ...btn("solid"), opacity: std ? 1 : 0.5 }}>Create rule</button>

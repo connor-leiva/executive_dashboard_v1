@@ -17,7 +17,7 @@ import { fmtDay, gapLabel } from "./words.js";
 
 function Gap({ code, meta }) {
   return (
-    <span style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, color: L.flagInk,
+    <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600, color: L.flagInk,
                    background: L.flagBg, border: `1px solid ${L.flagEdge}`,
                    borderRadius: 5, padding: "3px 9px", whiteSpace: "nowrap" }}>
       {gapLabel(meta, code)}
@@ -40,11 +40,11 @@ export default function ExceptionGroup({ group, meta, businesses, poolName, isCF
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14,
                       alignItems: "baseline", flexWrap: "wrap" }}>
           <span style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: F.body, fontSize: 14.5, fontWeight: 600,
+            <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600,
                            color: L.deep }}>
               {group.payee || "No payee on these charges"}
             </span>
-            <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.code,
+            <span style={{ fontFamily: F.num, fontSize: 12, color: L.code,
                            display: "block", marginTop: 2 }}>
               {group.accounts.join(", ")}
               {poolName ? ` · on ${poolName}` : ""}
@@ -53,7 +53,7 @@ export default function ExceptionGroup({ group, meta, businesses, poolName, isCF
           </span>
           <span style={{ textAlign: "right" }}>
             <Money v={group.total} size={20} weight={600} />
-            <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted,
+            <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted,
                            display: "block" }}>
               {group.count} charge{group.count === 1 ? "" : "s"}
             </span>
@@ -72,7 +72,7 @@ export default function ExceptionGroup({ group, meta, businesses, poolName, isCF
         <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
           {(group.gaps || []).map((g) => <Gap key={g} code={g} meta={meta} />)}
           {group.count > 1 && (
-            <span style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600,
+            <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600,
                            color: L.flagInk, background: L.flagBg,
                            border: `1px solid ${L.flagEdge}`, borderRadius: 5,
                            padding: "3px 9px" }}>
@@ -116,7 +116,7 @@ export default function ExceptionGroup({ group, meta, businesses, poolName, isCF
       {open && charges.map((r) => (
         <div key={r.txn_id} style={{ display: "flex", gap: 10, alignItems: "baseline",
                                      padding: "7px 16px", borderTop: `1px solid ${L.ruleLine}`,
-                                     fontFamily: F.num, fontSize: 11 }}>
+                                     fontFamily: F.num, fontSize: 12 }}>
           <span style={{ color: L.code, flex: "0 0 auto" }}>{fmtDay(r.txn_date)}</span>
           <span style={{ color: L.muted, flex: "0 0 auto" }}>
             {(r.account || "").split(":").pop()}

@@ -21,8 +21,8 @@ import { TierMarker, TierCode } from "./TierMarker.jsx";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 const FIELD = { fontFamily: F.body, fontSize: 13, color: L.body, background: L.paper,
                 border: `1px solid ${L.cardEdge}`, borderRadius: 9, padding: "7px 10px",
                 width: "100%", boxSizing: "border-box" };
@@ -62,7 +62,7 @@ function Step({ n, title, children, note }) {
         </span>
       </div>
       {note && (
-        <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginBottom: 8 }}>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginBottom: 8 }}>
           {note}
         </div>
       )}
@@ -285,10 +285,10 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                   <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <TierMarker tier={t.tier} />
                     <TierCode tier={t.tier} />
-                    <span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+                    <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                                    color: L.deep }}>{t.label}</span>
                   </span>
-                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                  <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                  display: "block", marginTop: 3 }}>{t.gloss}</span>
                 </button>
               ))}
@@ -297,7 +297,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
 
           {tier === 4 && (
             <Step n="3" title="Nothing to enter">
-              <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+              <div style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
                 A retained rule sends nothing anywhere. The cost stays on the entity that books
                 it, and saying so explicitly is what takes it out of the exception queue.
               </div>
@@ -318,7 +318,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                                      border: `1px solid ${on ? L.flagEdge : L.pillEdge}` }}>
                       <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                                      color: L.deep, display: "block" }}>{name}</span>
-                      <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                      <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                      display: "block", marginTop: 2 }}>{gloss}</span>
                     </button>
                   );
@@ -331,7 +331,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
             <Step n="4" title="Which rules it follows"
                   note="The split is recomputed every month from what these rules actually allocated, weighted by the money each one moved. Nothing is typed and nothing is carried forward.">
               {!followable.length ? (
-                <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+                <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
                   There are no rules to follow yet. A rule that follows others needs those
                   others to exist and to be decided rather than derived themselves.
                 </div>
@@ -348,12 +348,12 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                                        cursor: "pointer", borderRadius: 9, padding: "8px 11px",
                                        background: on ? L.accentBg : L.paper,
                                        border: `1px solid ${on ? L.accent : L.pillEdge}` }}>
-                        <span style={{ fontFamily: F.body, fontSize: 12.5,
+                        <span style={{ fontFamily: F.body, fontSize: 13,
                                        fontWeight: on ? 600 : 500, color: L.deep,
                                        minWidth: 0 }}>
                           {r.pool_name}
                         </span>
-                        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                        <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                        flex: "0 0 auto" }}>
                           {r.targets_label || ""}
                         </span>
@@ -419,7 +419,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
             <Step n="3" title="The outside source">
               <div style={{ background: L.flagBg, border: `1px solid ${L.flagEdge}`,
                             borderRadius: 10, padding: "11px 13px", fontFamily: F.body,
-                            fontSize: 12.5, color: L.flagInk }}>
+                            fontSize: 13, color: L.flagInk }}>
                 A traced rule reads its ratio from a connected source and its campaign map.
                 Setting that map up is not in this drawer yet, so choose another tier here or
                 add the rule from the API.
@@ -461,12 +461,12 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
               <div style={{ marginTop: 10, background: L.flagBg,
                             border: `1px solid ${L.flagEdge}`, borderRadius: 10,
                             padding: "11px 13px" }}>
-                <div style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+                <div style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                               color: L.flagInk }}>
                   This restates {preview.would_restate.length} month
                   {preview.would_restate.length === 1 ? "" : "s"} already reported
                 </div>
-                <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.body, marginTop: 4 }}>
+                <div style={{ fontFamily: F.body, fontSize: 12, color: L.body, marginTop: 4 }}>
                   {preview.would_restate.join(", ")}. What those months said before stays
                   readable: the old version is kept, not overwritten.
                 </div>
@@ -481,15 +481,15 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                       padding: "13px 18px" }}>
           <div style={{ ...EYEBROW, marginBottom: 7 }}>What this would do</div>
           {blocker ? (
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
               Nothing to preview yet.
             </div>
           ) : previewErr ? (
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
               {previewErr}
             </div>
           ) : !preview ? (
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>Working.</div>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>Working.</div>
           ) : (
             <div style={{ display: "grid", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -497,7 +497,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                   In the books, across {preview.months.length} month
                   {preview.months.length === 1 ? "" : "s"}
                 </span>
-                <span style={{ ...NUM, fontSize: 12.5, color: L.deep }}>
+                <span style={{ ...NUM, fontSize: 13, color: L.deep }}>
                   {money(preview.pool_amount)}
                 </span>
               </div>
@@ -509,7 +509,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                     <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                       {b?.name || "Unknown entity"}
                     </span>
-                    <span style={{ ...NUM, fontSize: 12.5, color: L.body }}>
+                    <span style={{ ...NUM, fontSize: 13, color: L.body }}>
                       {money(t.amount)}
                     </span>
                   </div>
@@ -519,18 +519,18 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
                 <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                   Stays where it is
                 </span>
-                <span style={{ ...NUM, fontSize: 12.5, color: L.body }}>
+                <span style={{ ...NUM, fontSize: 13, color: L.body }}>
                   {money(preview.retained)}
                 </span>
               </div>
               {!!preview.claims?.count && (
-                <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.body, marginTop: 4 }}>
+                <div style={{ fontFamily: F.body, fontSize: 12, color: L.body, marginTop: 4 }}>
                   Clears {preview.claims.count} transaction
                   {preview.claims.count === 1 ? "" : "s"} from the exception queue.
                 </div>
               )}
               {(preview.pending || []).slice(0, 3).map((p, i) => (
-                <div key={i} style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk }}>
+                <div key={i} style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk }}>
                   {fmtMonth(p.month)}: {reasonOf(preview.meta, p.reason)?.label}
                 </div>
               ))}
@@ -544,7 +544,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
           )}
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 11 }}>
             <button onClick={save} disabled={!!blocker || saving}
-              style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+              style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                        color: blocker ? L.muted : L.paper,
                        background: blocker ? L.track : L.deep, border: "none",
                        borderRadius: 9, padding: "8px 15px",
@@ -552,7 +552,7 @@ export default function RuleDrawer({ open, mode = "new", rule = null, prefill = 
               {saving ? "Saving" : saveLabel}
             </button>
             {blocker && (
-              <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+              <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                 {blocker}
               </span>
             )}

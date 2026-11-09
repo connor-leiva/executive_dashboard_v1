@@ -3,6 +3,14 @@ import { CORE, CADET, NEUTRAL, TYPE } from "../../brand/axcion.jsx";
 import { SITE, PRICING, PRICING_IS_PLACEHOLDER, FAQ } from "../content.js";
 import { label, body, card, h1Type, h2Type, Primary, Ghost, Section, PageHead, WHITE } from "../ui.jsx";
 
+/* The developer note about placeholder figures is for whoever edits content.js, not for a
+   visitor: it shows only on a dev server with ?dev in the URL. While the figures are
+   placeholders, a tier without a real price says so in words rather than "$—"; not "Talk to
+   us", which is already what its button says. */
+const SHOW_DEV_NOTE = import.meta.env.DEV && typeof window !== "undefined"
+  && window.location.search.includes("dev");
+const priceOf = (p) => (PRICING_IS_PLACEHOLDER && /—/.test(p.price) ? "Priced on request" : p.price);
+
 export default function Pricing() {
   /* "Sign in" in the nav points at #signin — the FAQ entry explaining that each workspace has
      its own address — because there is no single sign-in host to send people to. A <details>
@@ -27,7 +35,7 @@ export default function Pricing() {
       </Section>
 
       <Section style={{ paddingTop: 0 }}>
-        {PRICING_IS_PLACEHOLDER ? (
+        {PRICING_IS_PLACEHOLDER && SHOW_DEV_NOTE ? (
           /* Renders only while the figures are placeholders, so an unfinished pricing table
              cannot reach production unnoticed. Flip PRICING_IS_PLACEHOLDER in content.js. */
           <p style={{
@@ -57,10 +65,10 @@ export default function Pricing() {
                 <span style={{ ...h2Type, fontSize: 17, color: p.featured ? WHITE : CORE.ink }}>{p.name}</span>
                 {p.featured ? (
                   <span style={{
-                    fontFamily: TYPE.text, fontWeight: 600, fontSize: 10, letterSpacing: "0.1em",
-                    textTransform: "uppercase", color: CORE.ink, background: CORE.sage,
-                    borderRadius: 999, padding: "3px 9px",
-                  }}>Most teams</span>
+                    fontFamily: TYPE.text, fontWeight: 500, fontSize: 12, letterSpacing: 0,
+                    color: NEUTRAL[200], border: `1px solid ${NEUTRAL[600]}`,
+                    borderRadius: 6, padding: "2px 8px",
+                  }}>Recommended</span>
                 ) : null}
               </div>
 
@@ -71,13 +79,13 @@ export default function Pricing() {
                   /* A price that is not a figure must not be set in the figure face. Archivo at
                      30px exists to make a number reconcilable against another system; "Talk to
                      us" is a sentence, and in tabular figures it shouted over the numbers. */
-                  /^[$\d]/.test(p.price)
+                  /^[$\d]/.test(priceOf(p))
                     ? { fontFamily: TYPE.data, fontWeight: 600, fontSize: 30, lineHeight: 1.1,
                         fontVariantNumeric: "tabular-nums", color: p.featured ? WHITE : CORE.ink }
-                    : { fontFamily: TYPE.display, fontWeight: 700, fontSize: 20, lineHeight: 1.7,
+                    : { fontFamily: TYPE.display, fontWeight: 500, fontSize: 20, lineHeight: 1.7,
                         letterSpacing: "-0.02em", color: p.featured ? WHITE : CORE.ink }
-                }>{p.price}</span>
-                {p.priceNote ? (
+                }>{priceOf(p)}</span>
+                {p.priceNote && /^[$\d]/.test(priceOf(p)) ? (
                   <span style={{ fontFamily: TYPE.text, fontSize: 13, color: p.featured ? NEUTRAL[300] : NEUTRAL[500] }}>{p.priceNote}</span>
                 ) : null}
               </div>

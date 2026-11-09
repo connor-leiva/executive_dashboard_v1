@@ -1,19 +1,21 @@
-export const GOLD = "#C9A227";
+export const ACCENT = "#8FB3AE";
 
+/* Axcion's identity (palette.js §06): the console wears the same five as the dashboard, so the
+   app switcher does not cross into a different product. */
 export const palette = {
-  ink: "#151A1D",
-  muted: "#72797E",
-  faint: "#A6ADB1",
-  line: "#D8D4CF",
-  lineSoft: "#E8E3DD",
-  surface: "#F4F1ED",
+  ink: "#16201F",
+  muted: "#5F645C",
+  faint: "#6B7068",
+  line: "#D5D8D0",
+  lineSoft: "#E9EBE5",
+  surface: "#F5F6F3",
   panel: "#FFFFFF",
-  sidebar: "#121B20",
-  sidebarSoft: "#1D2B32",
-  teal: "#385667",
-  tealSoft: "#B8D5DE",
-  gold: GOLD,
-  good: "#5C7F71",
-  warn: "#B77B32",
-  bad: "#A24D43",
+  sidebar: "#16201F",
+  sidebarSoft: "#1D3331",
+  teal: "#3F6B66",
+  tealSoft: "#BDD5D0",
+  accent: ACCENT,
+  good: "#1E5C48",
+  warn: "#7E5A1C",
+  bad: "#93413A",
 };

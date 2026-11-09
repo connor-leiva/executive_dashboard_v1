@@ -322,7 +322,15 @@ export const heroSlot = (name) => {
 };
 
 /** The three declarations a hero band needs, as a style object. */
+/* Inside the app a hero is a flat surface with a hairline: the figures on it are the content, and
+   a texture behind them only costs contrast. The plate itself (a workspace's image, or Axcion's
+   bokeh) is kept for the sign-in screen, where it is the brand's one moment: heroPlateStyle. */
 export function heroStyle(slot) {
+  const g = heroSlot(slot);
+  return { backgroundColor: `var(--hero-${g}-ground)`, boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" };
+}
+
+export function heroPlateStyle(slot) {
   const g = heroSlot(slot);
   return {
     backgroundColor: `var(--hero-${g}-ground)`,
@@ -336,9 +344,7 @@ export function heroStyle(slot) {
 /** The same three, as CSS text, for the panels styled by a stylesheet rather than a prop. */
 export function heroCss(slot) {
   const g = heroSlot(slot);
-  return `background-color:var(--hero-${g}-ground); background-image:var(--hero-${g}-image); `
-       + `background-blend-mode:var(--hero-${g}-blend); background-size:cover; `
-       + "background-position:center;";
+  return `background-color:var(--hero-${g}-ground); box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);`;
 }
 
 /** Write the eight slots onto the document root. Called with the platform's answer at load, then

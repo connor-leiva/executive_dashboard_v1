@@ -15,8 +15,8 @@ import { TierMarker, TierCode, tierRowStyle, tierWeight } from "./TierMarker.jsx
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 
 
@@ -62,17 +62,17 @@ function SummaryCards({ meta, monthLabel, tiers, filter, setFilter }) {
                              color: L.deep }}>{t.label}</span>
             </span>
             <Money v={row.pool_amount} size={15} tone={L.deep} />
-            <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".12em",
-                           textTransform: "uppercase", color: L.ghost, display: "block",
+            <span style={{ fontFamily: F.num, fontSize: 12,
+                           color: L.ghost, display: "block",
                            marginTop: 2 }}>
               In the books, {monthLabel}
             </span>
-            <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted, display: "block",
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, display: "block",
                            marginTop: 2 }}>
               {row.count} rule{row.count === 1 ? "" : "s"}
               {row.pending_count ? `, ${row.pending_count} not resolved` : ""}
             </span>
-            <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted, display: "block",
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, display: "block",
                            marginTop: 4 }}>{t.gloss}</span>
           </button>
         );
@@ -137,23 +137,22 @@ function Expanded({ rule, meta, businesses, isCFO, onSupersede }) {
         {(rule.versions || []).map((ver) => (
           <div key={ver.id} style={{ display: "flex", gap: 12, alignItems: "baseline",
                                      flexWrap: "wrap" }}>
-            <span style={{ fontFamily: F.num, fontSize: 11, color: L.faint, minWidth: 28 }}>
+            <span style={{ fontFamily: F.num, fontSize: 12, color: L.faint, minWidth: 28 }}>
               v{ver.version}
             </span>
             <span style={{ fontFamily: F.body, fontSize: 12, color: L.body, minWidth: 90 }}>
               From {fmtMonth(ver.effective_from)}
             </span>
-            <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, minWidth: 70 }}>
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, minWidth: 70 }}>
               {methodLabel(meta, ver.method)}
             </span>
             {/* The approver, which this printed as "Unknown" on every row because the
                 payload carried no name at all (U5). Still "Unknown" when a version really
                 has no approver, which is a different and far rarer thing. */}
-            <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
               {ver.approved_by?.name || "Unknown"}
             </span>
-            <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em",
-                           textTransform: "uppercase",
+            <span style={{ fontFamily: F.num, fontSize: 12,
                            color: ver.is_current ? L.deep : L.faint }}>
               {ver.is_current ? "Current" : "Superseded"}
             </span>
@@ -162,7 +161,7 @@ function Expanded({ rule, meta, businesses, isCFO, onSupersede }) {
       </div>
 
       {isCFO && (
-        <button onClick={() => onSupersede(rule)} style={{ fontFamily: F.body, fontSize: 12.5,
+        <button onClick={() => onSupersede(rule)} style={{ fontFamily: F.body, fontSize: 13,
           fontWeight: 600, color: L.deep, background: L.paper,
           border: `1px solid ${L.ruleInner}`, borderRadius: 9, padding: "7px 14px",
           cursor: "pointer" }}>
@@ -311,16 +310,16 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
                       it belongs on the name: on the row it bolded the method sentence and
                       the zeros too, which says something about the money that is not
                       true (U13). */}
-                  <span style={{ fontFamily: F.body, fontSize: 13.5,
+                  <span style={{ fontFamily: F.body, fontSize: 14,
                                  color: t === 4 ? L.muted : L.deep,
                                  fontWeight: tierWeight(t) }}>{r.pool_name}</span>
-                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.faint,
+                  <span style={{ fontFamily: F.body, fontSize: 12, color: L.faint,
                                  display: "block", overflow: "hidden",
                                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     <TierCode tier={t} /> {scopeLabel(meta, r.scope_kind)} {r.pattern}
                   </span>
                   {anyPending && (
-                    <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk,
+                    <span style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk,
                                    display: "block", overflow: "hidden",
                                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {fmtMonth(r.pending[0].month)} not resolved:{" "}
@@ -365,7 +364,7 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%",
                            padding: "11px 18px", background: L.controls, border: "none",
                            borderTop: `1px solid ${L.ruleLine}`, cursor: "pointer",
-                           fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                           fontFamily: F.body, fontSize: 13, color: L.muted,
                            textAlign: "left" }}>
             <span aria-hidden style={{ display: "inline-block",
                                        transform: foldOpen ? "rotate(90deg)" : "none",
@@ -381,7 +380,7 @@ export default function RulesView({ data, month, entity = "", isCFO, refresh,
              style={{ display: "grid", gap: 10, padding: "13px 18px",
                       background: L.totalBand, borderTop: `1.5px solid ${L.deep}` }}>
           <span />
-          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 700, color: L.deep }}>
+          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
             {all.length} rule{all.length === 1 ? "" : "s"}
           </span>
           <span className="al-hide-narrow" />

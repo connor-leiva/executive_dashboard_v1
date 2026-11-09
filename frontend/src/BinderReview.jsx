@@ -19,13 +19,13 @@ function Card({ children, style }) {
   return <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, ...style }}>{children}</div>;
 }
 function Eyebrow({ children }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.tertiary }}>{children}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{children}</span>;
 }
 function MethodTag({ method }) {
   const rule = method === "rule";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)",
-      fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+      fontSize: 12, fontWeight: 600,
       color: rule ? T.meadowInk : T.teal, background: rule ? T.meadowBg : "rgba(34,113,117,0.10)",
       borderRadius: 5, padding: "2px 8px" }}>
       {rule && <Icon name="spark" size={11} color={T.meadowInk} />}
@@ -33,7 +33,7 @@ function MethodTag({ method }) {
     </span>
   );
 }
-const selStyle = { fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, background: T.white,
+const selStyle = { fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white,
   border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 9px" };
 
 function ProposalRow({ p, open, onToggle, entities, onConfirm, onDismiss, busy }) {
@@ -52,18 +52,18 @@ function ProposalRow({ p, open, onToggle, entities, onConfirm, onDismiss, busy }
           <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink }}>{p.kind}</span>
             <MethodTag method={p.method} />
-            {p.ambiguous && <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, color: T.poppyText }}>· entity unclear</span>}
-            {p.flavor === "gap" && <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, color: T.poppyText }}>· possible gap</span>}
-            {p.flavor === "renewal" && <span style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 700, color: T.teal }}>· renewal</span>}
+            {p.ambiguous && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.poppyText }}>· entity unclear</span>}
+            {p.flavor === "gap" && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.poppyText }}>· possible gap</span>}
+            {p.flavor === "renewal" && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.teal }}>· renewal</span>}
           </span>
-          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 3,
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3,
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {p.entity || "unmatched"} · from {p.document} · {VIA_LABEL[p.via] || p.via}
           </span>
         </span>
         <span style={{ textAlign: "right", flexShrink: 0 }}>
-          <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700, color: dateColor }}>{p.date || "human-set"}</span>
-          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, color: cf.c, marginTop: 2 }}>{cf.label} confidence</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: dateColor }}>{p.date || "human-set"}</span>
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: cf.c, marginTop: 2 }}>{cf.label} confidence</span>
         </span>
         <span style={{ color: T.muted, fontSize: 12, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
       </button>
@@ -72,16 +72,16 @@ function ProposalRow({ p, open, onToggle, entities, onConfirm, onDismiss, busy }
         <div style={{ background: T.parchment, borderRadius: 10, padding: "15px 16px", margin: "0 0 13px" }}>
           <div style={{ display: "flex", gap: 9, marginBottom: 13 }}>
             <Icon name="spark" size={15} color={T.teal} style={{ marginTop: 1 }} />
-            <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.55 }}>
-              <span style={{ fontWeight: 700, color: T.ink }}>How this was derived: </span>{p.basis}
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, lineHeight: 1.55 }}>
+              <span style={{ fontWeight: 600, color: T.ink }}>How this was derived: </span>{p.basis}
             </span>
           </div>
 
           <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 9, overflow: "hidden", marginBottom: 13 }}>
             {(p.fields || []).map(([k, v], i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
-                <span style={{ width: 118, flexShrink: 0, fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{k}</span>
-                <span style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{v}</span>
+                <span style={{ width: 118, flexShrink: 0, fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{k}</span>
+                <span style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink }}>{v}</span>
               </div>
             ))}
           </div>
@@ -99,16 +99,16 @@ function ProposalRow({ p, open, onToggle, entities, onConfirm, onDismiss, busy }
 
           <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={() => onConfirm(p, pick || null)} disabled={busy || needPick} className="cc-nav" style={{
-              display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600,
+              display: "inline-flex", alignItems: "center", gap: 7, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600,
               color: T.white, background: T.meadow, border: "none", borderRadius: 8, padding: "9px 16px",
               cursor: (busy || needPick) ? "default" : "pointer", opacity: (busy || needPick) ? 0.5 : 1 }}>
               <Icon name="check" size={14} color={T.white} />Confirm &amp; track
             </button>
             <button onClick={() => onDismiss(p)} disabled={busy} className="cc-nav" style={{
-              fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.poppyText,
+              fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.poppyText,
               background: "transparent", border: "none", borderRadius: 8, padding: "9px 10px", cursor: busy ? "default" : "pointer" }}>Dismiss</button>
             <span style={{ flex: 1 }} />
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
               <Icon name="link" size={12} color={T.muted} />the document files as evidence
             </span>
           </div>
@@ -143,7 +143,7 @@ export default function BinderReview({ review, entities }) {
         <span style={{ width: 5, height: 28, borderRadius: 3, background: T.teal }} />
         <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink }}>
           Binder <span style={{ color: T.muted, fontWeight: 500 }}>/ Review</span></span>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>confirm what Claude pulled from your documents</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>confirm what Claude pulled from your documents</span>
       </div>
 
       {loading && <Card style={{ color: T.muted, fontFamily: "var(--font-text)", fontSize: 13 }}>Loading the review queue…</Card>}
@@ -151,7 +151,7 @@ export default function BinderReview({ review, entities }) {
         <Card style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Icon name="warning" size={16} color={T.poppyText} />
           <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, flex: 1 }}>Could not load the review queue.</span>
-          <button onClick={reload} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Retry</button>
+          <button onClick={reload} className="cc-nav" style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Retry</button>
         </Card>
       )}
 
@@ -163,8 +163,8 @@ export default function BinderReview({ review, entities }) {
               ["Entity unclear", proposals.filter((p) => p.ambiguous).length, T.poppyText],
               ["Possible gaps", proposals.filter((p) => p.flavor === "gap").length, T.poppyText]].map(([l, v, c], i) => (
               <Card key={i} style={{ padding: "14px 16px" }}>
-                <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginBottom: 6 }}>{l}</div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 23, fontWeight: 700, color: c }}>{v}</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginBottom: 6 }}>{l}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 23, fontWeight: 600, color: c }}>{v}</div>
               </Card>
             ))}
           </div>
@@ -172,7 +172,7 @@ export default function BinderReview({ review, entities }) {
           <Card style={{ padding: "8px 16px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 6px 4px" }}>
               <Eyebrow>Proposed obligations</Eyebrow>
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>nothing is tracked until you confirm it</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>nothing is tracked until you confirm it</span>
             </div>
             {proposals.length ? proposals.map((p) => (
               <ProposalRow key={p.id} p={p} open={openId === p.id} entities={entities} busy={busy}
@@ -188,15 +188,15 @@ export default function BinderReview({ review, entities }) {
           {filed.length > 0 && (
             <div style={{ marginTop: 18 }}>
               <Eyebrow>Filed, no obligation</Eyebrow>
-              <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, margin: "4px 0 10px" }}>Documents stored as evidence but carrying no dated obligation.</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, margin: "4px 0 10px" }}>Documents stored as evidence but carrying no dated obligation.</div>
               <Card style={{ padding: "6px 16px" }}>
                 {filed.map((n, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 4px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
                     <Icon name="link" size={14} color={T.muted} />
-                    <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{n.filename}</span>
-                    {n.entity && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>· {n.entity}</span>}
+                    <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.ink }}>{n.filename}</span>
+                    {n.entity && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>· {n.entity}</span>}
                     <span style={{ flex: 1 }} />
-                    <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.tertiary }}>{n.note}</span>
+                    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.tertiary }}>{n.note}</span>
                   </div>
                 ))}
               </Card>
@@ -204,7 +204,7 @@ export default function BinderReview({ review, entities }) {
           )}
 
           {usingSample && (
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, textAlign: "center", marginTop: 20 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, textAlign: "center", marginTop: 20 }}>
               Sample data · every proposal is human-confirmed before it becomes a tracked obligation
             </div>
           )}

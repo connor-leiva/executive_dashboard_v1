@@ -12,34 +12,34 @@
      canvas. Each is a small number and all of them together are the difference. */
 
   /* Ink and type on light */
-  --ink: #171e22;          /* x146 - body text, and the rail */
-  --body: #41484b;         /* x91  - the step under ink: hero paragraph, card sub-copy.
+  --ink: #16201f;          /* x146 - body text, and the rail */
+  --body: #333730;         /* x91  - the step under ink: hero paragraph, card sub-copy.
                                      Was missing, so this copy was rendering at --muted. */
-  --muted: #6e767b;        /* x101 - secondary copy */
-  --faint: #9aa1a5;        /* x124 - eyebrows, labels, placeholders */
+  --muted: #5f645c;        /* x101 - secondary copy */
+  --faint: #5f645c;        /* x124 - eyebrows, labels, placeholders */
 
   /* Brand */
-  --primary: #395262;      /* x152 - the action colour */
-  --accent: #aecbd4;       /* x43  - the light blue: active bar, dots, pending segment */
+  --primary: #3f6b66;      /* x152 - the action colour */
+  --accent: #bdd5d0;       /* x43  - the light blue: active bar, dots, pending segment */
 
   /* Surfaces */
-  --page: #eae7e6;         /* x41  - the warm canvas */
+  --page: #f5f6f3;         /* x41  - the warm canvas */
   --panel: #ffffff;        /* x201 - cards sit flatly white on the canvas */
-  --wash: #fbfafa;         /* x20  - the one step off white, for nested fills */
-  --line: #ded9d7;         /* x161 - every card border */
-  --soft-line: #efebea;    /* x46  - hairlines inside a card */
+  --wash: #fafaf8;         /* x20  - the one step off white, for nested fills */
+  --line: #d5d8d0;         /* x161 - every card border */
+  --soft-line: #e9ebe5;    /* x46  - hairlines inside a card */
 
   /* WHO'S WHO AND WIN THE DAY, measured from the same mockup (WHOS-WHO-WIN-THE-DAY-SPEC.md 7.2).
      palette.js derives each one from the workspace's own swatches when a swatch is changed; left
      alone, these are the mockup's exact hexes. */
-  --hair: #f4f1f0;         /* rules inside a card: scoreboard rows, the bring list */
-  --line-done: #e4dfdd;    /* the border of a done block or list */
-  --steel: #5e7784;        /* the Top Down kind */
-  --accent-line: #c6d8e0;  /* the Clear It chip's border */
-  --avatar: #dde6ea;       /* the initials circle */
-  --input-line: #c9c3c0;   /* the minutes box's underline */
-  --photo: #0f1417;        /* the ground behind a leadership photo */
-  --dark-edge: #3a454b;    /* an outline button on ink: Message */
+  --hair: #e9ebe5;         /* rules inside a card: scoreboard rows, the bring list */
+  --line-done: #dfe2da;    /* the border of a done block or list */
+  --steel: #618e88;        /* the Top Down kind */
+  --accent-line: #bdd5d0;  /* the Clear It chip's border */
+  --avatar: #ddeae7;       /* the initials circle */
+  --input-line: #b0b4ab;   /* the minutes box's underline */
+  --photo: #0f1716;        /* the ground behind a leadership photo */
+  --dark-edge: #335954;    /* an outline button on ink: Message */
   /* Trips People Up. A fixed amber, semantic like --warn: it means "watch out" in every
      workspace, so it is not taken from anybody's palette. */
   --warm: #f7efe3;
@@ -47,14 +47,14 @@
   --warm-ink: #9a6a22;
 
   /* The rail: ink ground, and four steps of text on it */
-  --rail: #171e22;
-  --rail-active: #222c31;
-  --rail-hover: #1e282d;
-  --rail-text: #a9b2b7;    /* inactive nav label */
-  --rail-dim: #7c8a92;     /* "Team Intranet", the wordmark's supporting line */
-  --rail-label: #5f6c74;   /* nav group headings */
-  --rail-line: #262f34;    /* the divider above the footer */
-  --dark-line: #2a343a;    /* border on an ink-coloured button */
+  --rail: #16201f;
+  --rail-active: #1d3331;
+  --rail-hover: #1a2a28;
+  --rail-text: #bdd5d0;    /* inactive nav label */
+  --rail-dim: #8fb3ae;     /* "Team Intranet", the wordmark's supporting line */
+  --rail-label: #8fb3ae;   /* nav group headings */
+  --rail-line: #284543;    /* the divider above the footer */
+  --dark-line: #284543;    /* border on an ink-coloured button */
 
   /* SUNBURST'S BAND -- the only place in the portal that leaves the Utah Life palette. Every
      value here is from the design spec, not sampled: I briefly replaced them with hexes eyedropped
@@ -69,7 +69,7 @@
   --sun-panel: #141419;    /* prompt tile fill */
   --sun-line: #24242a;     /* prompt tile border */
   --sun-outline: #2e2e36;  /* outline button border */
-  --sun-accent: #c04bd1;   /* arrows and every hover border. Nothing else. */
+  --sun-accent: #8fb3ae;   /* arrows and every hover border. Nothing else. */
   --sun-body: #a9b2b7;     /* body copy on the band */
   --sun-dim: #8c979d;      /* eyebrow */
 
@@ -88,9 +88,9 @@
 
   /* DM Sans and Archivo are the close proxies for TT Norms Pro and TT Drugs, which is what the
      mockup itself uses. Swap here when the licensed files arrive. */
-  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
-  --font-text: "DM Sans", "Segoe UI", Arial, sans-serif;
-  --font-ui: "Archivo", "Segoe UI", Arial, sans-serif;
+  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-text: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-ui: Archivo, "Helvetica Neue", Arial, sans-serif;
 }
 
 * {
@@ -154,7 +154,9 @@ input {
 }
 
 .ut-logo-lockup {
-  min-height: 100px;
+  /* Never shrink: the rail is a column flex at viewport height, and a tall nav would otherwise
+     squeeze the lockup until the first section label sat on top of it. */
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -172,10 +174,11 @@ input {
 }
 
 .ut-logo-text {
-  font-family: var(--font-text);
-  font-size: 32px;
-  line-height: 1;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: 500;
+  color: #ffffff;
   letter-spacing: 0;
 }
 
@@ -183,55 +186,58 @@ input {
   margin-top: 4px;
   color: rgba(238, 244, 244, .76);
   font-family: var(--font-ui);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-logo-kicker {
-  margin-top: 18px;
-  color: var(--accent);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
+  margin-top: 4px;
+  color: var(--rail-dim);
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 400;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-nav {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 30px;
-  padding-top: 6px;
+  gap: 24px;
+  padding-top: 24px;
 }
 
 .ut-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .ut-nav-label {
   margin: 0 0 8px;
-  padding: 0 12px;
+  /* 12 padding + 3 tick + 10 gap: the label starts where the item text starts */
+  padding: 0 12px 0 25px;
   color: var(--rail-label);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: 9px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
   color: var(--rail-text);
   text-decoration: none;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 400;
 }
 
@@ -267,23 +273,23 @@ input {
 /* Rail footer — pinned to the bottom by margin-top:auto, above the nav's natural end. */
 .ut-rail-footer {
   margin-top: auto;
-  padding: 18px 12px 6px;
+  padding: 16px 12px 4px 25px;
   border-top: 1px solid var(--rail-line);
 }
 
 .ut-rail-footer-label {
   color: var(--rail-label);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-rail-footer p {
   margin: 8px 0 0;
   color: var(--rail-text);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -372,7 +378,7 @@ input {
   background: var(--rail);
   color: #ffffff;
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -382,12 +388,9 @@ input {
   font-size: 14px;
 }
 
-.ut-ask-top > span,
-.ut-floating-ask > span {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--accent);
+.ut-ask-icon {
+  flex: 0 0 16px;
+  color: var(--accent);
 }
 
 .ut-ask-top kbd {
@@ -422,9 +425,9 @@ input {
   color: var(--faint);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-role-control > div {
@@ -446,7 +449,7 @@ input {
   color: var(--muted);
   padding: 0 13px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -483,7 +486,7 @@ input {
   background: var(--primary);
   color: #ffffff;
   font-family: var(--font-ui);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-profile strong {
@@ -492,15 +495,21 @@ input {
   line-height: 1;
 }
 
+/* No role line (the preview, or a person without one): centre the name on the avatar. */
+.ut-profile:not(:has(em:not(:empty))) strong {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
 .ut-profile em {
   align-self: start;
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-menu {
@@ -557,10 +566,10 @@ input {
   margin-bottom: 12px;
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-hero h1,
@@ -671,9 +680,9 @@ input {
   color: var(--faint);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-source-pill {
@@ -686,10 +695,10 @@ input {
   background: #e6e4e2;
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-stat-card > strong {
@@ -705,7 +714,7 @@ input {
 .ut-stat-card p {
   margin: 10px 0 0;
   color: var(--body);
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .ut-stat-line {
@@ -780,9 +789,9 @@ input {
   color: var(--faint);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-goal-legend span {
@@ -868,8 +877,8 @@ input {
   color: var(--faint);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  text-transform: none;
 }
 
 .ut-numbers-table th:first-child {
@@ -921,10 +930,10 @@ input {
 .ut-sunburst-kicker {
   color: var(--sun-dim);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-sunburst h2 {
@@ -961,7 +970,7 @@ input {
   align-items: center;
   border-radius: 10px;
   padding: 13px 22px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
@@ -1000,7 +1009,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   background: var(--sun-panel);
   color: #ffffff;
   text-decoration: none;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.4;
   font-weight: 400;
 }
@@ -1050,7 +1059,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   color: var(--primary);
   text-decoration: none;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1127,9 +1136,9 @@ button.sun-prompt { text-align: left; width: 100%; }
   background: var(--rail);
   color: #ffffff;
   font-family: var(--font-ui);
-  font-size: 8px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
 }
 
 /* The vendor logo, laid over the initials. `contain` with padding so a wide wordmark and a square
@@ -1237,9 +1246,9 @@ button.sun-prompt { text-align: left; width: 100%; }
   color: var(--faint);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-wtd-hero strong {
@@ -1283,10 +1292,10 @@ button.sun-prompt { text-align: left; width: 100%; }
 .ut-search-group > p {
   margin: 6px 8px 4px;
   color: var(--faint);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-search-group a {
@@ -1311,7 +1320,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   margin: 0;
   padding: 12px 10px;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 /* An authored page's prose and its link row. Deliberately plain: this is a workspace's own
@@ -1320,7 +1329,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   margin: 0 0 12px;
   max-width: 68ch;
   color: var(--body);
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -1339,7 +1348,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   border-radius: 999px;
   background: var(--wash);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   text-decoration: none;
 }
@@ -1369,8 +1378,8 @@ button.sun-prompt { text-align: left; width: 100%; }
 
 .ut-course-progress span {
   color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1448,7 +1457,7 @@ button.sun-prompt { text-align: left; width: 100%; }
 
 .ut-fub-card a {
   color: var(--primary);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-tool-card {
@@ -1481,8 +1490,8 @@ button.sun-prompt { text-align: left; width: 100%; }
   background: #eeeae7;
   padding: 0 10px;
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1511,7 +1520,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   color: var(--primary);
   font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-step.done {
@@ -1563,14 +1572,14 @@ button.sun-prompt { text-align: left; width: 100%; }
    taken back, so once made it reads as a dated fact rather than something still to do. */
 .ut-acked {
   color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ut-table-row > span {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-config-form {
@@ -1587,7 +1596,7 @@ button.sun-prompt { text-align: left; width: 100%; }
 .ut-config-form small {
   color: var(--good);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-config-form small.bad {
@@ -1611,7 +1620,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   border-radius: 10px;
   background: var(--wash);
   color: var(--primary);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -1646,7 +1655,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   border-radius: 9px;
   background: #cfd4d2;
   color: #65706f;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ut-note {
@@ -1779,7 +1788,7 @@ button.sun-prompt { text-align: left; width: 100%; }
     inset: 0 auto 0 0;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform .2s ease;
+    transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .ut-rail.open {
@@ -1902,10 +1911,10 @@ button.sun-prompt { text-align: left; width: 100%; }
 .ut-field > span {
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-field input,
@@ -1947,7 +1956,7 @@ button.sun-prompt { text-align: left; width: 100%; }
 
 .ut-request-list strong {
   display: block;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -1967,10 +1976,10 @@ button.sun-prompt { text-align: left; width: 100%; }
 .ut-request-status {
   color: var(--muted);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   background: var(--wash);
   border: 1px solid var(--soft-line);
   border-radius: 5px;
@@ -2058,9 +2067,9 @@ button.sun-prompt { text-align: left; width: 100%; }
 }
 
 .ut-ask-cite-kind {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -2204,9 +2213,9 @@ button.sun-prompt { text-align: left; width: 100%; }
   border-radius: 4px;
   background: var(--wash);
   border: 1px solid var(--line);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
 }
 
@@ -2246,7 +2255,7 @@ button.sun-prompt { text-align: left; width: 100%; }
   border: 1.5px solid var(--line);
   background: var(--panel);
   color: transparent;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   padding: 0;
   cursor: pointer;
@@ -2316,9 +2325,9 @@ span.ut-tick { cursor: default; }
   border-radius: 999px;
   background: var(--wash);
   border: 1px solid var(--line);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
 }
 
@@ -2457,9 +2466,9 @@ span.ut-tick { cursor: default; }
 
 .ut-course-tags em {
   font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--ink);
   opacity: 0.72;
 }
@@ -2592,7 +2601,7 @@ span.ut-tick { cursor: default; }
 
 .ut-sb-note {
   margin: 14px 0 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--sun-dim);
 }
@@ -2653,8 +2662,8 @@ span.ut-tick { cursor: default; }
   margin-top: auto;
   padding-top: 10px;
   font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--primary);
 }
 
@@ -2705,10 +2714,10 @@ span.ut-tick { cursor: default; }
 
 .ut-section-chip em {
   font-style: normal;
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-section-chip strong { font-size: 17px; font-weight: 500; line-height: 1.1; }
@@ -2735,16 +2744,16 @@ span.ut-tick { cursor: default; }
   gap: 4px;
 }
 
-.ut-section-right em { font-style: normal; font-size: 12.5px; color: #9AA1A5; }
+.ut-section-right em { font-style: normal; font-size: 13px; color: #9AA1A5; }
 .ut-section-right em.current { color: #7A6215; }
 
 .ut-section-pill {
   border-radius: 99px;
   padding: 3px 11px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   border: 1px solid transparent;
   white-space: nowrap;
 }
@@ -2753,7 +2762,7 @@ span.ut-tick { cursor: default; }
 .ut-section-pill.current { background: #F4F7F8; color: #395262; border-color: #C6D8DF; }
 .ut-section-pill.locked { background: transparent; color: #9AA1A5; border-color: #DED9D7; }
 
-.ut-section-caret { flex: 0 0 auto; font-size: 10px; color: #9AA1A5; }
+.ut-section-caret { flex: 0 0 auto; font-size: 12px; color: #9AA1A5; }
 .ut-section-body { border-top: 1px solid #EFEBEA; padding: 4px 8px 8px; }
 
 /* ── the kind chip ────────────────────────────────────────────────────────────────────────
@@ -2767,10 +2776,10 @@ span.ut-tick { cursor: default; }
   border-radius: 99px;
   padding: 5px 11px;
   font-family: Archivo, var(--sans, system-ui), sans-serif;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -2798,12 +2807,12 @@ span.ut-tick { cursor: default; }
   color: #FFFFFF;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
 }
 
-.ut-byline-who strong { display: block; font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.ut-byline-who strong { display: block; font-size: 14px; font-weight: 500; color: var(--ink); }
 .ut-byline-who em { display: block; font-style: normal; font-size: 12px; color: #9AA1A5; }
-.ut-byline-meta { font-size: 12.5px; color: #6E767B; }
+.ut-byline-meta { font-size: 13px; color: #6E767B; }
 .ut-byline .ut-section-pill { margin-left: auto; }
 
 /* A section heading inside the rail. Sticky, so the section you are reading in stays named while
@@ -2815,10 +2824,10 @@ span.ut-tick { cursor: default; }
   padding: 10px 8px 6px;
   background: #FFFFFF;
   font-family: Archivo, var(--sans, system-ui), sans-serif;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: #9AA1A5;
 }
 
@@ -2841,7 +2850,7 @@ span.ut-tick { cursor: default; }
 
 /* The lead paragraph is automatic. Authors do not mark it, and would not think to. */
 .ut-lesson-body-copy p:first-child {
-  font-size: 18.5px;
+  font-size: 18px;
   font-weight: 300;
   line-height: 1.5;
   color: #171E22;
@@ -2855,7 +2864,7 @@ span.ut-tick { cursor: default; }
   letter-spacing: -0.2px;
 }
 
-.ut-lesson-body-copy h3 { margin: 30px 0 0; font-size: 18.5px; font-weight: 500; line-height: 1.3; }
+.ut-lesson-body-copy h3 { margin: 30px 0 0; font-size: 18px; font-weight: 500; line-height: 1.3; }
 .ut-lesson-body-copy strong { font-weight: 600; }
 
 .ut-lesson-body-copy a {
@@ -2897,7 +2906,7 @@ span.ut-tick { cursor: default; }
   border-radius: 12px;
 }
 
-.ut-lesson-body-copy figcaption { margin-top: 9px; font-size: 13.5px; color: #6E767B; }
+.ut-lesson-body-copy figcaption { margin-top: 9px; font-size: 14px; color: #6E767B; }
 .ut-lesson-body-copy hr { margin: 30px 0 0; border: 0; border-top: 1px solid #EFEBEA; }
 
 /* An external link gets a marker; an internal one does not. Done in CSS off the href rather than
@@ -2930,14 +2939,14 @@ span.ut-tick { cursor: default; }
   display: block;
   margin-bottom: 8px;
   font-family: Archivo, var(--sans, system-ui), sans-serif;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: #6E767B;
 }
 
-.ut-contents ol { margin: 0; padding-left: 20px; font-size: 14.5px; line-height: 1.6; }
+.ut-contents ol { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
 .ut-contents li + li { margin-top: 5px; }
 .ut-contents a { color: #395262; text-decoration: none; }
 .ut-contents a:hover { text-decoration: underline; text-underline-offset: 2px; }
@@ -3020,10 +3029,10 @@ a.ut-fu-row:focus-visible {
   padding: 3px 9px;
   border-radius: 999px;
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
   background: var(--wash);
   color: var(--muted);
@@ -3090,7 +3099,7 @@ a.ut-fu-row:focus-visible {
   margin-top: 12px;
   color: var(--primary);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -3194,11 +3203,11 @@ a.ut-fu-row:focus-visible {
   border-bottom: 1px solid var(--line);
   color: var(--faint);
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
   text-align: right;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .ut-fu-table th:first-child,
@@ -3225,7 +3234,7 @@ a.ut-fu-row:focus-visible {
   background: none;
   color: var(--primary);
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -3303,10 +3312,10 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-eyebrow {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -3356,7 +3365,7 @@ a.ut-fu-row:focus-visible {
   background: var(--primary);
   color: #ffffff;
   border-radius: 12px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   text-decoration: none;
 }
@@ -3376,10 +3385,10 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-dark-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -3394,7 +3403,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-rule-sub {
   margin: 10px 0 0;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--rail-text);
 }
 
@@ -3411,7 +3420,7 @@ a.ut-fu-row:focus-visible {
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 400;
   padding: 12px 16px;
   margin-bottom: -1px;
@@ -3431,19 +3440,19 @@ a.ut-fu-row:focus-visible {
 /* Labels: the 10px one heads a strip (the sheet, the progress bar), the 9.5px one names a figure. */
 .ut-wtd-label {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
 .ut-wtd-label-sm {
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -3473,7 +3482,7 @@ a.ut-fu-row:focus-visible {
 .ut-wtd-won {
   margin-left: auto;
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -3530,7 +3539,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-goal {
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -3566,7 +3575,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-intro {
   margin: 10px 0 0;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.5;
   color: var(--body);
   text-wrap: pretty;
@@ -3636,7 +3645,7 @@ a.ut-fu-row:focus-visible {
   align-items: center;
   justify-content: center;
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   margin-top: 2px;
 }
@@ -3667,10 +3676,10 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-chip {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--primary);
   background: var(--page);
   padding: 4px 8px;
@@ -3679,8 +3688,8 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-chip.block {
   display: inline-block;
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
+  font-size: 12px;
+  letter-spacing: 0;
 }
 
 .ut-wtd-block-text {
@@ -3703,7 +3712,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-listno {
   font-family: var(--font-ui);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--primary);
   background: var(--page);
@@ -3730,10 +3739,10 @@ a.ut-fu-row:focus-visible {
   align-items: center;
   gap: 9px;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ut-wtd-kind-head.clear,
@@ -3760,13 +3769,13 @@ a.ut-fu-row:focus-visible {
   align-items: center;
   justify-content: center;
   font-family: var(--font-text);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0;
 }
 
 .ut-wtd-kind-text {
   margin-top: 11px;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--body);
 }
 
@@ -3787,10 +3796,10 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-trips-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--warm-ink);
 }
 
@@ -3802,12 +3811,12 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-trips.single .ut-wtd-trip-title {
   margin-top: 10px;
-  font-size: 15.5px;
+  font-size: 16px;
 }
 
 .ut-wtd-trip-text {
   margin-top: 6px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--body);
   text-wrap: pretty;
@@ -3834,10 +3843,10 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-note-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--primary);
 }
 
@@ -3855,7 +3864,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-weekly-text {
   margin-top: 6px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--body);
 }
@@ -3908,8 +3917,8 @@ a.ut-fu-row:focus-visible {
   font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
 }
 
@@ -3922,7 +3931,7 @@ a.ut-fu-row:focus-visible {
 
 .ut-wtd-group-sub {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -3990,7 +3999,7 @@ a.ut-fu-row:focus-visible {
   align-items: center;
   justify-content: center;
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   margin-top: 1px;
   text-decoration: none;
@@ -4026,10 +4035,10 @@ a.ut-wtd-list-name:hover {
 
 .ut-wtd-cadence {
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
   background: var(--soft-line);
   padding: 4px 7px;
@@ -4042,10 +4051,10 @@ a.ut-wtd-list-name:hover {
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   border: 1px solid var(--line);
   padding: 3px 8px;
   border-radius: 5px;
@@ -4057,7 +4066,7 @@ a.ut-wtd-list-name:hover {
 }
 
 .ut-wtd-kind-g {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .ut-wtd-min {
@@ -4065,7 +4074,7 @@ a.ut-wtd-list-name:hover {
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -4082,7 +4091,7 @@ a.ut-wtd-list-name:hover {
 
 .ut-wtd-list-text {
   margin-top: 9px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--body);
   text-wrap: pretty;
@@ -4132,7 +4141,7 @@ a.ut-wtd-script-chip:hover {
 
 .ut-wtd-dark p {
   margin: 12px 0 0;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--rail-text);
   max-width: 720px;
@@ -4199,14 +4208,14 @@ a.ut-wtd-pond:hover {
 }
 
 .ut-wtd-step-title {
-  font-size: 17.5px;
+  font-size: 18px;
   font-weight: 500;
   line-height: 1.35;
 }
 
 .ut-wtd-step-text {
   margin-top: 8px;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--body);
   text-wrap: pretty;
@@ -4257,7 +4266,7 @@ a.ut-wtd-pond:hover {
 
 .ut-wtd-habit-text {
   margin-top: 7px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -4300,7 +4309,7 @@ a.ut-wtd-pond:hover {
 
 a.ut-wtd-script-card:hover {
   border-color: var(--primary);
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .ut-wtd-script-name {
@@ -4313,7 +4322,7 @@ a.ut-wtd-script-card:hover {
 .ut-wtd-script-text {
   display: block;
   margin-top: 8px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -4345,10 +4354,10 @@ a.ut-wtd-script-card:hover {
   background: var(--wash);
   border-bottom: 1px solid var(--soft-line);
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -4363,7 +4372,7 @@ a.ut-wtd-script-card:hover {
 
 .ut-wtd-board-foot {
   padding: 16px 24px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--muted);
 }
@@ -4384,10 +4393,10 @@ a.ut-wtd-script-card:hover {
 
 .ut-wtd-phase-label {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--primary);
 }
 
@@ -4403,7 +4412,7 @@ a.ut-wtd-script-card:hover {
 }
 
 .ut-wtd-phase-k {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -4411,7 +4420,7 @@ a.ut-wtd-script-card:hover {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--hair);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--body);
 }
@@ -4453,7 +4462,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-wtd-tool-text {
   margin-top: 10px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--muted);
   text-wrap: pretty;
@@ -4505,10 +4514,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-eyebrow {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -4550,10 +4559,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-band-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -4627,10 +4636,10 @@ a.ut-wtd-tool-name:hover {
 .ut-who-stat-k {
   margin-top: 7px;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--rail-dim);
 }
 
@@ -4665,8 +4674,8 @@ a.ut-wtd-tool-name:hover {
   font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
 }
 
@@ -4679,7 +4688,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-count {
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -4688,7 +4697,7 @@ a.ut-wtd-tool-name:hover {
   background: transparent;
   padding: 0;
   color: var(--primary);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: normal;
   cursor: pointer;
 }
@@ -4727,7 +4736,7 @@ a.ut-wtd-tool-name:hover {
 }
 
 .ut-who-leader:hover {
-  transform: translateY(-3px);
+  transform: none;
 }
 
 .ut-who-leader-photo {
@@ -4770,10 +4779,10 @@ a.ut-wtd-tool-name:hover {
 .ut-who-leader-eyebrow {
   display: block;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -4789,7 +4798,7 @@ a.ut-wtd-tool-name:hover {
 .ut-who-leader-help {
   display: block;
   margin-top: 12px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--rail-text);
 }
@@ -4801,10 +4810,10 @@ a.ut-wtd-tool-name:hover {
   display: block;
   margin-top: 16px;
   font-family: "Archivo", sans-serif;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -4865,16 +4874,16 @@ a.ut-wtd-tool-name:hover {
 .ut-who-agent-line {
   display: block;
   margin-top: 3px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 
 .ut-who-agent-tag {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
   white-space: nowrap;
 }
@@ -4885,7 +4894,7 @@ a.ut-wtd-tool-name:hover {
   background: transparent;
   padding: 0;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   cursor: pointer;
@@ -4941,9 +4950,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-profile-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -5045,9 +5054,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-label {
   font-family: var(--font-ui);
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5063,7 +5072,7 @@ a.ut-wtd-tool-name:hover {
   gap: 14px;
   padding: 12px 0;
   border-top: 1px solid var(--hair);
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.45;
   color: var(--body);
 }
@@ -5093,9 +5102,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-who-box-label {
   font-family: var(--font-ui);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5190,10 +5199,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-eyebrow {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5245,10 +5254,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-rail-label {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5269,7 +5278,7 @@ a.ut-wtd-tool-name:hover {
   justify-content: space-between;
   gap: 10px;
   padding: 11px 2px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 400;
   line-height: normal;
   color: var(--muted);
@@ -5287,7 +5296,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-dept-n {
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -5303,7 +5312,7 @@ a.ut-wtd-tool-name:hover {
 }
 
 .ut-sop-suggest-t {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
 }
@@ -5321,7 +5330,7 @@ a.ut-wtd-tool-name:hover {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   padding: 10px;
@@ -5348,10 +5357,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-changed-label {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--accent);
 }
 
@@ -5381,7 +5390,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-changed-v {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   width: 52px;
   flex: 0 0 52px;
@@ -5394,7 +5403,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-changed-t {
   display: block;
-  font-size: 15.5px;
+  font-size: 16px;
   font-weight: 500;
   color: #ffffff;
 }
@@ -5402,13 +5411,13 @@ a.ut-wtd-tool-name:hover {
 .ut-sop-changed-m {
   display: block;
   margin-top: 3px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--sun-dim);
 }
 
 .ut-sop-changed-go {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--sun-dim);
   white-space: nowrap;
 }
@@ -5431,7 +5440,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-listhead span {
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -5458,7 +5467,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-card:hover {
   border-color: var(--primary);
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .ut-sop-card-top {
@@ -5469,10 +5478,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-chip {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
   background: var(--soft-line);
   padding: 4px 8px;
@@ -5482,14 +5491,14 @@ a.ut-wtd-tool-name:hover {
 .ut-sop-card-v {
   margin-left: auto;
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
 .ut-sop-card-title {
   display: block;
   margin-top: 15px;
-  font-size: 17.5px;
+  font-size: 18px;
   font-weight: 500;
   line-height: 1.3;
   color: var(--ink);
@@ -5498,7 +5507,7 @@ a.ut-wtd-tool-name:hover {
 .ut-sop-card-sum {
   display: block;
   margin-top: 9px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.45;
   color: var(--muted);
 }
@@ -5522,7 +5531,7 @@ a.ut-wtd-tool-name:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .ut-sop-card-owner {
@@ -5534,14 +5543,14 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-card-when {
   font-family: var(--font-ui);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--faint);
   white-space: nowrap;
 }
 
 .ut-sop-none {
   margin: 18px 0 0;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--muted);
 }
 
@@ -5551,7 +5560,7 @@ a.ut-wtd-tool-name:hover {
   background: transparent;
   padding: 0;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   cursor: pointer;
@@ -5579,9 +5588,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-doc-eyebrow {
   font-family: var(--font-ui);
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5607,9 +5616,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-meta-k {
   font-family: var(--font-ui);
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5621,7 +5630,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-intro {
   margin: 24px 0 0;
-  font-size: 16.5px;
+  font-size: 16px;
   line-height: 1.6;
   color: var(--body);
   text-wrap: pretty;
@@ -5663,7 +5672,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-step-d {
   margin-top: 7px;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--body);
   text-wrap: pretty;
@@ -5679,15 +5688,15 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-callout-label {
   font-family: var(--font-ui);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--primary);
 }
 
 .ut-sop-callout-text {
   margin-top: 9px;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--ink);
 }
@@ -5711,7 +5720,7 @@ a.ut-wtd-tool-name:hover {
 .ut-sop-download {
   display: inline-block;
   margin-top: 12px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--primary);
   text-decoration: none;
@@ -5736,7 +5745,7 @@ a.ut-wtd-tool-name:hover {
   border: 0;
   background: var(--primary);
   color: #ffffff;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   padding: 12px 20px;
@@ -5753,7 +5762,7 @@ a.ut-wtd-tool-name:hover {
 }
 
 .ut-sop-ack-note {
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--muted);
 }
 
@@ -5776,9 +5785,9 @@ a.ut-wtd-tool-name:hover {
 
 .ut-sop-label {
   font-family: var(--font-ui);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -5790,7 +5799,7 @@ a.ut-wtd-tool-name:hover {
 }
 
 .ut-sop-toc a {
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--body);
   padding: 7px 0;
   border-top: 1px solid var(--hair);
@@ -5844,12 +5853,12 @@ a.ut-wtd-tool-name:hover {
 }
 
 .ut-sop-owner-n {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
 }
 
 .ut-sop-owner-r {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -5859,7 +5868,7 @@ a.ut-wtd-tool-name:hover {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   padding: 10px;
@@ -5930,7 +5939,7 @@ a.ut-wtd-tool-name:hover {
   border-radius: 9px;
   padding: 9px 11px;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--ink);
   background: var(--panel);
 }
@@ -5945,7 +5954,7 @@ a.ut-wtd-tool-name:hover {
   border: 0;
   background: var(--primary);
   color: #ffffff;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   padding: 9px 14px;
@@ -5961,7 +5970,7 @@ a.ut-wtd-tool-name:hover {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: normal;
   cursor: pointer;
@@ -5992,10 +6001,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-set-eyebrow {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -6024,7 +6033,7 @@ a.ut-wtd-tool-name:hover {
   border-radius: 10px;
   background: var(--wash);
   color: var(--body);
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .ut-set-card {
@@ -6047,7 +6056,7 @@ a.ut-wtd-tool-name:hover {
 
 .ut-set-card-lede {
   margin: 8px 0 0;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
   max-width: 620px;
@@ -6076,10 +6085,10 @@ a.ut-wtd-tool-name:hover {
 
 .ut-set-label {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--faint);
 }
 
@@ -6092,7 +6101,7 @@ a.ut-wtd-tool-name:hover {
   border-radius: 9px;
   padding: 9px 11px;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.45;
   color: var(--ink);
   background: var(--panel);

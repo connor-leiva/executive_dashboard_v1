@@ -26,8 +26,8 @@ const monthWords = (m) => (!m || m === "ytd" ? "the year to date" : fmtMonth(m))
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12,
+                  color: L.faint };
 
 
 /* Gold means a judgment or an unresolved item, never an error (7.2). A gap is not a mistake:
@@ -37,7 +37,7 @@ const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
    page after 8.2 deleted the other three, which principle 4 does not allow. */
 function Gap({ code, meta, children }) {
   return (
-    <span style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, color: L.flagInk,
+    <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600, color: L.flagInk,
                    background: L.flagBg, border: `1px solid ${L.flagEdge}`,
                    borderRadius: 5, padding: "3px 9px", whiteSpace: "nowrap" }}>
       {children || gapLabel(meta, code)}
@@ -75,11 +75,11 @@ function SetupState({ businesses, onSaved, initial = null, onCancel = null }) {
     <div style={{ background: L.card, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                   padding: 24, maxWidth: 560 }}>
       <div style={{ ...EYEBROW, marginBottom: 8 }}>{again ? "Change" : "Set up"}</div>
-      <div style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, fontWeight: 600,
+      <div style={{ fontFamily: F.body, fontSize: 14, color: L.deep, fontWeight: 600,
                     marginBottom: 6 }}>
         Which entities carry shared cost?
       </div>
-      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, marginBottom: 16 }}>
+      <div style={{ fontFamily: F.body, fontSize: 13, color: L.body, marginBottom: 16 }}>
         {again
           ? `This setting decides what the queue below looks at, and nothing else. Rules you
              have already written stay exactly as they are, and no allocated figure moves.
@@ -112,7 +112,7 @@ function SetupState({ businesses, onSaved, initial = null, onCancel = null }) {
       )}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={save} disabled={busy || !picked.length}
-          style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+          style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                    color: picked.length ? L.paper : L.muted,
                    background: picked.length ? L.deep : L.track,
                    border: "none", borderRadius: 9, padding: "8px 16px",
@@ -121,7 +121,7 @@ function SetupState({ businesses, onSaved, initial = null, onCancel = null }) {
         </button>
         {onCancel && (
           <button onClick={onCancel} disabled={busy}
-            style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600, color: L.body,
+            style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600, color: L.body,
                      background: L.controls, border: `1px solid ${L.ruleInner}`,
                      borderRadius: 9, padding: "8px 14px",
                      cursor: busy ? "default" : "pointer" }}>
@@ -146,18 +146,18 @@ function PoolStrip({ names, isCFO, onChange }) {
           <span key={b.id} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%",
                                        background: b.accent || L.faint }} />
-            <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>{b.name}</span>
+            <span style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>{b.name}</span>
           </span>
         ))}
         {!names.length && (
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
             None
           </span>
         )}
       </span>
       {isCFO && (
         <button onClick={onChange}
-          style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600, color: L.body,
+          style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600, color: L.body,
                    background: L.controls, border: `1px solid ${L.ruleInner}`,
                    borderRadius: 8, padding: "4px 10px", cursor: "pointer" }}>
           Change
@@ -210,12 +210,12 @@ export default function ExceptionsView({ data, month, isCFO, businesses, refresh
         {strip}
         <div style={{ background: L.card, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                       padding: 28, textAlign: "center" }}>
-          <div style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, fontWeight: 600 }}>
+          <div style={{ fontFamily: F.body, fontSize: 14, color: L.deep, fontWeight: 600 }}>
             {nothingWatched
               ? "No entity is set as carrying shared cost."
               : `Nothing unclaimed in ${monthWords(month)}.`}
           </div>
-          <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, marginTop: 6 }}>
+          <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted, marginTop: 6 }}>
             {nothingWatched
               ? `So this queue is examining nothing, which is not the same as having nothing
                  left to do. Choose the entities that carry shared cost and it will fill.`
@@ -237,7 +237,7 @@ export default function ExceptionsView({ data, month, isCFO, businesses, refresh
                          letterSpacing: "-.02em", color: L.deep }}>
             <Money v={data?.total} size={30} weight={600} />
           </span>
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
             {unclaimedCount} charge{unclaimedCount === 1 ? "" : "s"} from {groups.length}{" "}
             payee{groups.length === 1 ? "" : "s"}
           </span>

@@ -90,12 +90,12 @@ export function ForgotPassword({ post = postPublic } = {}) {
             {busy ? "Sending…" : resent ? "Sent again" : "Resend link"}
           </QuietButton>
           <a href="/" onClick={(e) => { e.preventDefault(); nav("/", { replace: true }); }}
-             style={{ textAlign: "center", fontFamily: FONT, fontSize: 13.5, fontWeight: 500,
+             style={{ textAlign: "center", fontFamily: FONT, fontSize: 14, fontWeight: 500,
                       color: T.muted, textDecoration: "none" }}>
             Back to sign in
           </a>
         </div>
-        <p style={{ fontFamily: FONT, fontSize: 12.5, lineHeight: 1.5, color: T.muted,
+        <p style={{ fontFamily: FONT, fontSize: 13, lineHeight: 1.5, color: T.muted,
                     margin: "26px 0 0", paddingTop: 18, borderTop: `1px solid ${T.line}`,
                     textWrap: "pretty" }}>
           Nothing in your inbox? Check spam, or ask your workspace admin to confirm the address on

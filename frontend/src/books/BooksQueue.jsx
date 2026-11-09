@@ -21,7 +21,7 @@ const fmtWhen = (iso) => {
 };
 
 function actionBtn(kind) {
-  const base = { fontFamily: font.head, fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "8px 16px", cursor: "pointer" };
+  const base = { fontFamily: font.head, fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "8px 16px", cursor: "pointer" };
   if (kind === "primary") return { ...base, color: T.white, background: T.meadow, border: "none" };
   if (kind === "danger") return { ...base, color: T.poppyText, background: T.white, border: `1px solid ${T.line}` };
   return { ...base, color: T.slate, background: T.white, border: `1px solid ${T.line}` };
@@ -65,11 +65,11 @@ const TABLE_MIN = 634 + 6 * COL_GAP + CHECK + 2 * 12 + ACTIONS_W + 2 * PAD_X;
 function StatCard({ label, value, color, scope }) {
   return (
     <Card style={{ padding: "15px 17px" }}>
-      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary, marginBottom: 7 }}>
+      <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, marginBottom: 7 }}>
         {label}
         {scope && <span style={{ color: T.muted }}> · {scope}</span>}
       </div>
-      <div style={{ fontFamily: font.head, fontSize: 23, fontWeight: 700, color: color || T.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: font.head, fontSize: 23, fontWeight: 600, color: color || T.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </Card>
   );
 }
@@ -90,7 +90,7 @@ function CategoryChip({ tx }) {
      NOT repeated here: Evidence states it, and "· 90%" twice on one row was the single biggest
      thing crowding the category name out of its own chip. */
   const base = { display: "inline-block", maxWidth: "100%", boxSizing: "border-box",
-    verticalAlign: "middle", fontFamily: font.body, fontSize: 11.5, borderRadius: 6,
+    verticalAlign: "middle", fontFamily: font.body, fontSize: 12, borderRadius: 6,
     padding: "3px 9px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   if (tx.is_proposal && tx.suggest) {
     return (
@@ -99,7 +99,7 @@ function CategoryChip({ tx }) {
     );
   }
   if (!tx.current_category) {
-    return <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>—</span>;
+    return <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>—</span>;
   }
   return (
     <span title={tx.current_category}
@@ -123,7 +123,7 @@ function Evidence({ tx, compact = false }) {
   const text = `${BASIS_GLYPH[tx.basis] || ""} ${label}${detail ? ` · ${detail}` : ""}`.trim();
   const word = tx.strength === "weak" ? "WEAK" : tx.strength === "thin" ? "THIN" : null;
   const badge = word && (
-    <span style={{ fontFamily: font.head, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em",
+    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
       borderRadius: 4, padding: "1px 4px", background: T.white, whiteSpace: "nowrap",
       color: word === "WEAK" ? T.ink : T.secondary,
       border: `1px solid ${word === "WEAK" ? T.ink : T.muted}` }}>{word}</span>
@@ -150,7 +150,7 @@ function Evidence({ tx, compact = false }) {
         : badge}
       {/* min-width:0 is what lets the ellipsis ever happen: a flex item's minimum is otherwise
           its full text width, and the text refused to shrink. */}
-      <span style={{ fontFamily: font.body, fontSize: 11, color: T.secondary, overflow: "hidden",
+      <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, overflow: "hidden",
         textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "1 1 auto" }}>
         {text}
       </span>
@@ -163,9 +163,9 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
   const [cat, setCat] = useState(tx.suggest || "");
   const [busy, setBusy] = useState(false);
   const run = async (fn) => { setBusy(true); try { await fn(); onDone(tx.id); } finally { setBusy(false); } };
-  const quiet = { fontFamily: font.head, fontSize: 11.5, fontWeight: 600, borderRadius: 7,
+  const quiet = { fontFamily: font.head, fontSize: 12, fontWeight: 600, borderRadius: 7,
                   padding: "5px 11px", cursor: "pointer", whiteSpace: "nowrap" };
-  const cell = { fontFamily: font.body, fontSize: 11.5, minWidth: 0, overflow: "hidden",
+  const cell = { fontFamily: font.body, fontSize: 12, minWidth: 0, overflow: "hidden",
                  textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const payee = tx.vendor || tx.memo || "—";
   const entName = ent?.name || tx.entity || "—";
@@ -191,7 +191,7 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
           <Evidence tx={tx} compact />
           {/* The data face, not the display face: it has tabular figures, which is the entire
               reason a right-aligned money column lines up digit for digit. */}
-          <span style={{ textAlign: "right", fontFamily: "var(--font-data)", fontSize: 13.5,
+          <span style={{ textAlign: "right", fontFamily: "var(--font-data)", fontSize: 14,
             fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap" }}>{usd(tx.amount)}</span>
           <span aria-hidden="true" style={{ color: T.muted, fontSize: 12, textAlign: "center",
@@ -224,8 +224,8 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
         <div style={{ background: T.parchment, borderRadius: 10, padding: "14px 16px", margin: "0 0 13px" }}>
           {/* Why it is here — then how much that is worth. Reason and verdict were one grey
               line before, which buried the only thing on screen worth reading. */}
-          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
-            <span style={{ fontWeight: 700, color: T.ink }}>{tx.basis_label || "How it got here"}: </span>
+          <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary, lineHeight: 1.55 }}>
+            <span style={{ fontWeight: 600, color: T.ink }}>{tx.basis_label || "How it got here"}: </span>
             {tx.reason || (tx.basis === "none"
               ? "No pass has reached this transaction yet, so nothing has formed an opinion about it."
               : tx.basis === "split"
@@ -234,10 +234,10 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
             <Evidence tx={tx} />
-            <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>{tx.strength_rule}</span>
+            <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{tx.strength_rule}</span>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 7, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>Source: {tx.source}</span>
+            <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>Source: {tx.source}</span>
             {flagsOf(tx.flags).map((k) => <Pill key={k} tone="warn">{FLAG_LABEL[k] || k}</Pill>)}
           </div>
           <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
@@ -287,8 +287,8 @@ function QueueRow({ tx, open, onToggle, onDone, selected = false, onSelect, focu
    select-all box lives here, at the same x as every row's box, instead of on a strip above where
    it lined up with nothing. */
 function QueueHeader({ allShown, onToggleAll }) {
-  const h = { fontFamily: font.head, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
-    textTransform: "uppercase", color: T.secondary, whiteSpace: "nowrap", overflow: "hidden",
+  const h = { fontFamily: font.head, fontSize: 12, fontWeight: 600,
+    color: T.secondary, whiteSpace: "nowrap", overflow: "hidden",
     textOverflow: "ellipsis", minWidth: 0 };
   return (
     <div style={{ ...ROW, padding: `9px ${PAD_X}px`, borderTop: `1px solid ${T.line}` }}>
@@ -347,28 +347,28 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
     <div style={{ borderTop: `1px solid ${T.line}` }}>
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14,
         padding: "13px 4px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-        <span style={{ width: 44, fontFamily: font.body, fontSize: 11.5, color: T.muted, flexShrink: 0 }}>{e.date}</span>
+        <span style={{ width: 44, fontFamily: font.body, fontSize: 12, color: T.muted, flexShrink: 0 }}>{e.date}</span>
         <span style={{ width: 9, height: 9, borderRadius: 99, background: dot, flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{e.label}</span>
-        <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-          textTransform: "uppercase", color: isTxn ? T.daffodilText : T.poppyText,
+        <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
+          color: isTxn ? T.daffodilText : T.poppyText,
           flexShrink: 0 }}>{meta.badge}</span>
-        <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 13.5, fontWeight: 600,
+        <span style={{ width: 82, textAlign: "right", fontFamily: font.head, fontSize: 14, fontWeight: 600,
           color: T.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{usd(e.amount)}</span>
         <span style={{ color: T.muted, fontSize: 12, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
       </button>
       {open && (
         <div style={{ background: T.parchment, borderRadius: 10, padding: "14px 16px", margin: "0 0 13px" }}>
-          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary, lineHeight: 1.55 }}>
-            <span style={{ fontWeight: 700, color: T.ink }}>Why it stopped: </span>{e.reason}</div>
+          <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary, lineHeight: 1.55 }}>
+            <span style={{ fontWeight: 600, color: T.ink }}>Why it stopped: </span>{e.reason}</div>
           {(e.txns || []).map((t, i) => (
             <div key={i} style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px", marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                   <EntityChip k={t.entity} />
-                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>{t.qbo_type} · {t.date}</span>
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{t.qbo_type} · {t.date}</span>
                 </span>
-                <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 700, color: T.ink }}>{usd(t.amount)}</span>
+                <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600, color: T.ink }}>{usd(t.amount)}</span>
               </div>
               <div style={{ display: "grid", gap: 4 }}>
                 <Field label="Payee" value={t.payee} />
@@ -379,10 +379,10 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
               {t.qbo_url && <div style={{ marginTop: 8 }}><QboLink url={t.qbo_url} entity={t.entity} /></div>}
             </div>
           ))}
-          {!isTxn && e.tax_note && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.daffodilText, background: T.daffodilBg,
+          {!isTxn && e.tax_note && <div style={{ fontFamily: font.body, fontSize: 12, color: T.daffodilText, background: T.daffodilBg,
             borderRadius: 7, padding: "7px 11px", marginTop: 10, lineHeight: 1.5 }}>{e.tax_note}</div>}
           {err && (
-            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>
+            <div style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText, marginTop: 10 }}>{err}</div>
           )}
           {isTxn ? (
             /* No isCFO gate on this kind. Somebody already decided it needed a second pair of
@@ -392,28 +392,28 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
               <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap", alignItems: "center" }}>
                 <input autoFocus value={cat} onChange={(ev) => setCat(ev.target.value)}
                   placeholder="Account name as it reads in QuickBooks"
-                  style={{ flex: "1 1 240px", minWidth: 0, fontFamily: font.body, fontSize: 12.5,
+                  style={{ flex: "1 1 240px", minWidth: 0, fontFamily: font.body, fontSize: 13,
                     padding: "8px 11px", border: `1px solid ${T.line}`, borderRadius: 8 }} />
-                <button disabled={busy || !cat.trim()} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                <button disabled={busy || !cat.trim()} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                   color: T.white, background: cat.trim() ? T.evergreen : T.muted, border: "none",
                   borderRadius: 8, padding: "8px 16px", cursor: cat.trim() ? "pointer" : "default" }}
                   onClick={() => decide(() => mutate(`/books/txn/${e.id}/recategorize`, { category: cat.trim() }))}>Save</button>
-                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                   color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
                   padding: "8px 16px", cursor: "pointer" }} onClick={() => setEditing(false)}>Cancel</button>
               </div>
             ) : (
               <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap", alignItems: "center" }}>
-                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                   color: T.white, background: T.evergreen, border: "none", borderRadius: 8,
                   padding: "8px 16px", cursor: "pointer" }}
                   onClick={() => decide(() => mutate(`/books/txn/${e.id}/approve`))}>
                   Approve{e.suggest ? ` as ${e.suggest}` : e.current_category ? ` as ${e.current_category}` : ""}</button>
-                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                <button disabled={busy} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                   color: T.slate, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
                   padding: "8px 16px", cursor: "pointer" }} onClick={() => setEditing(true)}>Change category</button>
                 {e.escalated_by && (
-                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
                     Escalated by {e.escalated_by}{e.escalated_at ? ` · ${e.escalated_at}` : ""}</span>
                 )}
               </div>
@@ -421,13 +421,13 @@ function EscRow({ e, open, onToggle, onDone, isCFO }) {
           ) : isCFO ? (
             <div style={{ display: "flex", gap: 9, marginTop: 13, flexWrap: "wrap" }}>
               {(e.options || []).map((o, i) => (
-                <button key={i} disabled={busy} onClick={() => resolve(o)} style={{ fontFamily: font.head, fontSize: 12.5,
+                <button key={i} disabled={busy} onClick={() => resolve(o)} style={{ fontFamily: font.head, fontSize: 13,
                   fontWeight: 600, color: i === 0 ? T.white : T.slate, background: i === 0 ? T.evergreen : T.white,
                   border: i === 0 ? "none" : `1px solid ${T.line}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>{o}</button>
               ))}
             </div>
           ) : (
-            <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.muted, marginTop: 12 }}>
+            <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, marginTop: 12 }}>
               Awaiting CFO characterization — this is Connor's call.</div>
           )}
         </div>
@@ -461,8 +461,8 @@ const BASIS_GLYPH = { history_match: "↻", claude: "◆", over_band: "↕", spl
 function AxisRow({ label, children }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
-      <span style={{ width: 78, flexShrink: 0, fontFamily: font.head, fontSize: 10,
-        fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.secondary }}>
+      <span style={{ width: 78, flexShrink: 0, fontFamily: font.head, fontSize: 12,
+        fontWeight: 600, color: T.secondary }}>
         {label}</span>
       {children}
     </div>
@@ -474,7 +474,7 @@ function Facet({ label, count, active, onClick, glyph, ink, title, dot }) {
   return (
     <button onClick={onClick} title={title || undefined}
       style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: font.body,
-        fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer",
+        fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer",
         borderRadius: 99, padding: "5px 12px",
         color: active ? T.white : dead ? T.muted : T.secondary,
         background: active ? (ink ? T.evergreen : T.meadow) : T.white,
@@ -482,7 +482,7 @@ function Facet({ label, count, active, onClick, glyph, ink, title, dot }) {
       {/* An entity chip carries the same dot as that entity's rows, so the two read as one. */}
       {dot && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
         background: dot, boxShadow: active ? `0 0 0 1.5px ${T.white}` : "none" }} />}
-      {glyph && <span aria-hidden="true" style={{ fontSize: 11, lineHeight: 1 }}>{glyph}</span>}
+      {glyph && <span aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>{glyph}</span>}
       {label}
       {count != null && <span style={{ fontVariantNumeric: "tabular-nums",
         color: active ? T.white : T.muted }}>{count}</span>}
@@ -496,12 +496,12 @@ function Lens({ label, count, on, onClick, title }) {
   return (
     <button onClick={onClick} title={title || undefined}
       style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: font.body,
-        fontSize: 11.5, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", cursor: "pointer",
+        fontSize: 12, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", cursor: "pointer",
         border: "none", borderRadius: 8, padding: "5px 10px",
         color: on ? T.ink : T.secondary, background: on ? T.mist : "transparent" }}>
       <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0,
-        display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9,
-        fontWeight: 700, lineHeight: 1, color: T.white,
+        display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12,
+        fontWeight: 600, lineHeight: 1, color: T.white,
         background: on ? T.evergreen : T.white,
         border: `1px solid ${on ? T.evergreen : T.muted}` }}>{on ? "✓" : ""}</span>
       {label}
@@ -620,7 +620,7 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
             <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
               {[["queue", `Review · ${rows.length}`],
                 ["esc", `Escalations · ${escalations.length}`]].map(([k, l]) => (
-                <button key={k} onClick={() => setTab(k)} style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 600,
+                <button key={k} onClick={() => setTab(k)} style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                   color: tab === k ? T.ink : T.muted, background: tab === k ? T.parchment : "transparent", border: "none",
                   borderBottom: tab === k ? `2px solid ${k === "esc" ? T.poppy : T.daffodilText}` : "2px solid transparent",
                   borderRadius: "8px 8px 0 0", padding: "8px 14px", cursor: "pointer" }}>{l}</button>
@@ -678,14 +678,14 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
                     padding: `9px ${PAD_X}px`, borderTop: `1px solid ${T.line}`, minHeight: 34 }}>
                     {selRows.length === 0 ? (
-                      <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
+                      <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
                         {data?.period?.label} · j/k to move, x to select, a approve, r reviewed
                       </span>
                     ) : pending ? (
                       // Naming the count AND the money before it commits — a bulk action on a
                       // financial record should never be one unconsidered click.
                       <>
-                        <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.ink, fontWeight: 600 }}>
+                        <span style={{ fontFamily: font.body, fontSize: 13, color: T.ink, fontWeight: 600 }}>
                           {pending === "approve" ? "Approve" : "Mark reviewed"} {selRows.length}{" "}
                           transaction{selRows.length === 1 ? "" : "s"} totalling {usd(selTotal)}?
                         </span>
@@ -695,7 +695,7 @@ export default function BooksQueue({ isCFO = false, period = "mtd" }) {
                       </>
                     ) : (
                       <>
-                        <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.ink, fontWeight: 600 }}>
+                        <span style={{ fontFamily: font.body, fontSize: 13, color: T.ink, fontWeight: 600 }}>
                           {selRows.length} selected · {usd(selTotal)}
                         </span>
                         <button style={actionBtn("primary")} onClick={() => setPending("approve")}>Approve</button>

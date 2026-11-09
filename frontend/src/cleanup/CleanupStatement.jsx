@@ -63,7 +63,7 @@ function HowMade({ d, monthLabel }) {
 
 /* The staff line, person by person: what each one cost this company, month by month. */
 function People({ people, months, viewShort }) {
-  const cell = { ...NUM, padding: "7px 6px", fontSize: 12.5 };
+  const cell = { ...NUM, padding: "7px 6px", fontSize: 13 };
   return (
     <Sheet title={`Who's in it: ${viewShort}'s share, person by person`}>
       <div style={{ overflowX: "auto" }}>
@@ -81,7 +81,7 @@ function People({ people, months, viewShort }) {
                 const v = p.months[String(m.m)];
                 return <td key={m.m} style={{ ...cell, color: v ? L.body : L.ghost }}>{v ? money(v) : "–"}</td>;
               })}
-              <td style={{ ...cell, padding: "7px 16px", fontWeight: 700, color: L.deep }}>{money(p.total)}</td>
+              <td style={{ ...cell, padding: "7px 16px", fontWeight: 600, color: L.deep }}>{money(p.total)}</td>
             </tr>))}
           </tbody>
         </table>
@@ -98,11 +98,11 @@ function LineDetail({ ov, view, line, month, monthLabel, rev, brandView, income 
   const year = (ov.period?.start || "").slice(0, 4);
   const rows = useMemo(() => (data ? rowsFromLine(data, { viewShort: short(view), hubShort: short(ov.hub), short, income })
     : []), [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (loading) return <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+  if (loading) return <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
     Loading the dollars behind this line…</div>;
   if (error) {
     return (
-      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+      <div style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
         Couldn&rsquo;t load the detail.{" "}
         <button onClick={retry} style={{ height: 24, padding: "0 10px", borderRadius: 8, cursor: "pointer",
           fontFamily: F.body, fontSize: 12, border: `1px solid ${L.pillEdge}`, background: L.paper,
@@ -119,11 +119,11 @@ function LineDetail({ ov, view, line, month, monthLabel, rev, brandView, income 
     <div style={{ display: "grid", gap: 14 }}>
       {!brandView && <HowMade d={data} monthLabel={monthLabel} />}
       {data.people && data.people.length ? <People people={data.people} months={months} viewShort={short(view)} /> : null}
-      <Sheet right={<Legend />} title={<>Month by month <span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 400,
+      <Sheet right={<Legend />} title={<>Month by month <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 400,
         color: L.muted }}>· {tx} {income ? (tx === 1 ? "payment" : "payments") : (tx === 1 ? "charge" : "charges")}
         {adj ? `, ${adj} adjustment${adj === 1 ? "" : "s"}` : ""} · oldest first</span></>}>
         {rows.length ? <TxList rows={rows} income={income} year={year} /> : (
-          <div style={{ padding: "12px 16px", fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+          <div style={{ padding: "12px 16px", fontFamily: F.body, fontSize: 13, color: L.muted }}>
             Nothing on this line{monthLabel ? ` in ${monthLabel}` : ""}.</div>
         )}
         <div style={{ padding: "9px 16px", borderTop: `1px solid ${L.ruleInner}`, display: "flex", gap: 12,
@@ -179,9 +179,9 @@ function SectionRow({ sec, open, onToggle, revenue, one }) {
           borderTop: "4.5px solid transparent", borderBottom: "4.5px solid transparent",
           borderLeft: `6px solid ${L.faint}`, transform: open ? "rotate(90deg)" : "none",
           transformOrigin: "35% 50%" }} />
-        <span style={{ fontFamily: F.num, fontSize: 15.5, fontWeight: 700, letterSpacing: ".02em", color: L.deep }}>
+        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600, color: L.deep }}>
           {sec.label}</span>
-        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost, whiteSpace: "nowrap" }}>
+        <span style={{ fontFamily: F.body, fontSize: 12, color: L.ghost, whiteSpace: "nowrap" }}>
           {n} {n === 1 ? "line" : "lines"}</span>
       </span>
       {/* A collapsed section still shows what it's worth, or collapsing hides the number. */}
@@ -204,7 +204,7 @@ function LineRow({ line, open, onToggle, revenue, one, children }) {
             ? { width: 7, height: 7, borderRadius: "50%", border: `2px solid ${L.flagRing}`, flex: "none",
                 boxSizing: "border-box" }
             : { width: 7, height: 7, flex: "none" }} />
-          <span style={{ fontFamily: F.body, fontSize: 13.5, color: L.body, whiteSpace: "nowrap", overflow: "hidden",
+          <span style={{ fontFamily: F.body, fontSize: 14, color: L.body, whiteSpace: "nowrap", overflow: "hidden",
                          textOverflow: "ellipsis", minWidth: 0 }}>
             {line.line}
             {on && <span style={{ color: L.flagInk }}> · changed by the cleanup</span>}
@@ -256,7 +256,7 @@ function FutureStatement({ company, name, rev }) {
     <div key={label} className="cu-frow" style={{ padding: tone === "big" ? "14px 20px 14px 18px" : "8px 20px 8px 32px",
       alignItems: "center", background: tone === "big" ? L.deep : tone === "strong" ? L.totalBand : L.paper,
       borderTop: `1px solid ${tone ? L.ruleInner : L.ruleLine}` }}>
-      <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: tone ? 700 : 400,
+      <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: tone ? 700 : 400,
                      color: tone === "big" ? L.onDeep : tone ? L.deep : L.body }}>{label}</span>
       <span className="wide-only" style={{ ...cols(false), color: tone === "big" ? L.onDeepPct : L.muted }}>{money(a)}</span>
       <span className="wide-only" style={{ ...cols(false), color: tone === "big" ? L.onDeepPct : L.infoInk }}>{money(b)}</span>
@@ -267,7 +267,7 @@ function FutureStatement({ company, name, rev }) {
   return (
     <StatePanel loading={fw.loading} error={fw.error} retry={fw.retry}>
       {fw.data && !f ? (fw.data.live_error ? <LiveError fw={fw} style={{ padding: "20px 26px 26px" }} /> : (
-        <div style={{ padding: "24px 26px", fontFamily: F.body, fontSize: 13.5, color: L.muted }}>
+        <div style={{ padding: "24px 26px", fontFamily: F.body, fontSize: 14, color: L.muted }}>
           Nothing is projected ahead for {name} right now.</div>)) : null}
       {st && (
         <div className="cu-page" style={{ padding: "20px 26px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
@@ -280,7 +280,7 @@ function FutureStatement({ company, name, rev }) {
                 <div style={{ fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 23, color: L.deep,
                               letterSpacing: "-.02em" }}>{money(t.through[k])}
                   {k.startsWith("net") ? <Loss v={t.through[k]} size={13} /> : null}</div>
-                <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+                <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                   {money(t.so_far[k])} so far · {money(t.ahead[k])} still to come</div>
               </div>))}
           </div>
@@ -296,7 +296,7 @@ function FutureStatement({ company, name, rev }) {
               <div key={sec.key}>
                 {sec.lines.length ? (
                   <div style={{ padding: "11px 20px 11px 18px", background: L.sectionBand, borderTop: `1px solid ${L.ruleSection}`,
-                                fontFamily: F.num, fontSize: 15.5, fontWeight: 700, color: L.deep }}>{sec.label}</div>) : null}
+                                fontFamily: F.num, fontSize: 16, fontWeight: 600, color: L.deep }}>{sec.label}</div>) : null}
                 {sec.lines.map((l) => rowOf(l.line, l.so_far, l.ahead, l.through))}
                 {sec.key === "revenue" ? rowOf("Total revenue", t.so_far.total_revenue, t.ahead.total_revenue,
                                                 t.through.total_revenue, "strong") : null}
@@ -411,7 +411,7 @@ export default function CleanupStatement({ ov, rev }) {
           ))}
         </div>) : null}
         <button onClick={() => setClosed(allClosed ? {} : Object.fromEntries(keys.map((k) => [k, true])))} style={{
-          height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer", fontFamily: F.body, fontSize: 12.5,
+          height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer", fontFamily: F.body, fontSize: 13,
           fontWeight: 500, whiteSpace: "nowrap", border: `1px solid ${L.pillEdge}`, background: L.paper,
           color: L.bodyDim }}>{allClosed ? "Expand all" : "Collapse all"}</button>
         <div style={{ flex: 1 }} />
@@ -421,7 +421,7 @@ export default function CleanupStatement({ ov, rev }) {
             Starts from QuickBooks&rsquo; P&amp;L · delta {cents(tie.delta)}</OkPill>
         )}
         {d && !one && (
-          <span style={{ fontFamily: F.num, fontSize: 11, color: L.ghost, whiteSpace: "nowrap" }}>
+          <span style={{ fontFamily: F.num, fontSize: 12, color: L.ghost, whiteSpace: "nowrap" }}>
             {flagged} {flagged === 1 ? "line" : "lines"} changed</span>
         )}
       </Controls>
@@ -443,11 +443,11 @@ export default function CleanupStatement({ ov, rev }) {
                       <div style={{ width: `${Math.min(Math.max(ratio, 0), 1) * 100}%`, height: "100%",
                                     borderRadius: 999, background: tone }} />
                     </div>
-                    <span style={{ fontFamily: F.num, fontSize: 11, color: L.faint, flex: "none" }}>
+                    <span style={{ fontFamily: F.num, fontSize: 12, color: L.faint, flex: "none" }}>
                       {pctOf(v.corrected, revenue)}</span>
                   </div>
                   {!one && (
-                    <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+                    <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
                       QuickBooks {money(v.qbo)}
                       {Math.abs(v.corrections) >= 1 && <span style={{ color: L.flagInk }}> · {change(v.corrections)}</span>}
                     </div>

@@ -57,14 +57,14 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           </button>
 
           <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
-            <span title={r.measurable} style={{ fontSize: 13.5, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span title={r.measurable} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {r.measurable}
             </span>
             {r.cumulative_goal != null && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
             )}
             {r.streak >= 3 && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 9, fontWeight: 600, letterSpacing: "0.05em", color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
+              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
             )}
           </div>
 
@@ -72,7 +72,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             <div
               style={{
                 width: 22, height: 22, borderRadius: "50%", background: T.shell, border: `1px solid ${T.line}`,
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: T.inkSoft,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.inkSoft,
               }}
             >
               {r.owner && r.owner.initials}
@@ -80,8 +80,8 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           </div>
 
           <div style={{ width: W_GOAL, flexShrink: 0, textAlign: "right", paddingRight: 10 }}>
-            <span style={{ fontSize: 11, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
-            <span style={{ ...NUM, fontSize: 12.5, fontWeight: 500, color: T.inkSoft }}>
+            <span style={{ fontSize: 12, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
+            <span style={{ ...NUM, fontSize: 13, fontWeight: 500, color: T.inkSoft }}>
               {r.goal}
               {rate ? "%" : ""}
             </span>
@@ -101,14 +101,14 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             {c ? (
               <>
                 <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
-                  <span style={{ ...NUM, fontSize: 13.5, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
-                  <span style={{ ...NUM, fontSize: 10.5, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
+                  <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
+                  <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
                 </div>
                 <PaceBar pct={pct} />
-                <div style={{ width: C_TREND, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 11.5, color: t == null || Math.abs(t) < 3 ? T.faint : t > 0 ? T.good : T.bad }}>
+                <div style={{ width: C_TREND, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 12, color: t == null || Math.abs(t) < 3 ? T.faint : t > 0 ? T.good : T.bad }}>
                   {t == null || Math.abs(t) < 3 ? "—" : `${t > 0 ? "↑" : "↓"}${Math.abs(Math.round(t))}`}
                 </div>
-                <div style={{ width: C_GAP, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 12.5, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad }}>
+                <div style={{ width: C_GAP, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 13, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad }}>
                   {rate ? `${sgn(c.gap, dp)}` : sgn(c.gap)}
                 </div>
                 <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "center", gap: 7 }}>
@@ -119,7 +119,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
                 </div>
               </>
             ) : (
-              <div style={{ paddingLeft: 14, fontSize: 11.5, color: T.faint }}>not cumulative</div>
+              <div style={{ paddingLeft: 14, fontSize: 12, color: T.faint }}>not cumulative</div>
             )}
           </div>
         )}
@@ -142,7 +142,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
                 cursor: onDrill ? "pointer" : "default",
               }}
             >
-              <span style={{ ...NUM, fontSize: 12.5, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
+              <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
                 {isNull ? "—" : rate ? `${v}%` : bigNum(v)}
               </span>
             </div>
@@ -155,7 +155,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
         <div style={{ display: "flex", borderBottom: `1px solid ${T.line}`, background: T.shell }}>
           <div style={{ position: "sticky", left: 0, zIndex: 4, width: RAIL + (cumOpen ? CUM : 0), flexShrink: 0, padding: "13px 18px", background: T.shell, borderRight: `1px solid ${T.line}` }}>
             <div style={{ ...LBL, marginBottom: 5 }}>{r.measurable} · detail</div>
-            <div style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
               {nonNull.length ? (
                 <>
                   Best <strong style={NUM}>{Math.max(...nonNull)}{rate ? "%" : ""}</strong> · worst{" "}

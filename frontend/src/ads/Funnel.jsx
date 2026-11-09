@@ -91,8 +91,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
             {zoneChanged && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 12px" }}>
                 <span style={{ flex: 1, height: 1, background: C.line }} />
-                <span style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 600,
-                               letterSpacing: ".08em", textTransform: "uppercase",
+                <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
                                color: C.muted }}>
                   In Axcion
                 </span>
@@ -102,8 +101,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
             {i === 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                 <span style={{ flex: 1, height: 1, background: C.line }} />
-                <span style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 600,
-                               letterSpacing: ".08em", textTransform: "uppercase",
+                <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
                                color: C.muted }}>
                   On Meta
                 </span>
@@ -115,7 +113,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
             {drop !== null && drop > 0 && (
               <div className="fn-row" style={{ marginBottom: 4 }}>
                 <span />
-                <span style={{ fontFamily: FONT, fontSize: 11, color: C.muted }}>
+                <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>
                   {num(drop)} leave
                 </span>
               </div>
@@ -140,7 +138,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                   {onDrill && ours(r) ? (
                     <button type="button" onClick={() => onDrill(r.key, r.label)}
                             className="fn-open"
-                            style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600,
+                            style={{ fontFamily: HEAD, fontSize: 14, fontWeight: 600,
                                      color: C.ink, background: "none", border: "none",
                                      padding: 0, cursor: "pointer",
                                      textDecoration: "underline",
@@ -149,12 +147,12 @@ export default function Funnel({ rungs, spend, onDrill }) {
                       {r.label}
                     </button>
                   ) : (
-                    <span style={{ fontFamily: HEAD, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
+                    <span style={{ fontFamily: HEAD, fontSize: 14, fontWeight: 600, color: C.ink }}>
                       {r.label}
                     </span>
                   )}
                   {r.diagnostic && (
-                    <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: C.muted,
+                    <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted,
                                    border: `1px solid ${C.line}`, borderRadius: 999,
                                    padding: "1px 7px" }}>
                       diagnostic
@@ -162,7 +160,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                   )}
                   {r.undated > 0 && (
                     <span title="counted, but these rows carry no date so they are never timed"
-                          style={{ fontFamily: FONT, fontSize: 10, color: C.warnInk,
+                          style={{ fontFamily: FONT, fontSize: 12, color: C.warnInk,
                                    background: C.warnBg, borderRadius: 999, padding: "1px 7px" }}>
                       {num(r.undated)} undated
                     </span>
@@ -175,7 +173,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                     <span title={r.still_here
                       ? `${num(r.still_here)} of these ${num(r.n)} have not moved past this stage yet`
                       : "everyone who reached this stage has since moved past it"}
-                          style={{ fontFamily: FONT, fontSize: 10, color: C.slate,
+                          style={{ fontFamily: FONT, fontSize: 12, color: C.slate,
                                    border: `1px solid ${C.line}`, borderRadius: 999,
                                    padding: "1px 7px" }}>
                       {r.still_here ? `${num(r.still_here)} still here` : "none still here"}
@@ -199,15 +197,15 @@ export default function Funnel({ rungs, spend, onDrill }) {
                     ever have. */}
                 <div className={`fn-figs${r.value ? " has-value" : ""}`}
                      style={{ marginTop: 7 }}>
-                  <Fig label="count" value={compact(r.n)} />
+                  <Fig label="Count" value={compact(r.n)} />
                   {r.value ? (
                     <Fig label={r.key === "closed" ? "contracted" : "cash"}
                          value={usd(r.value, 0)} />
                   ) : null}
-                  <Fig label="from previous"
+                  <Fig label="From previous"
                        value={r.conversion === null || r.conversion === undefined
                          ? "—" : pct(r.conversion, 1)} />
-                  <Fig label="cost each"
+                  <Fig label="Cost each"
                        value={r.cost_per === null || r.cost_per === undefined
                          ? "—" : usd(r.cost_per, 0)} />
                 </div>
@@ -218,7 +216,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                   <div style={{ marginTop: 9, background: C.badBg,
                                 border: `1px solid ${C.badBar}`, borderRadius: 10,
                                 padding: "9px 12px" }}>
-                    <span style={{ fontFamily: FONT, fontSize: 12.5, color: C.ink,
+                    <span style={{ fontFamily: FONT, fontSize: 13, color: C.ink,
                                    lineHeight: 1.5 }}>
                       <strong>Biggest leak.</strong> {pct(r.conversion, 0)} of {prevRung.label
                         .toLowerCase()} reach {r.label.toLowerCase()} — {num((r.prev ?? 0) - r.n)}{" "}
@@ -238,8 +236,8 @@ export default function Funnel({ rungs, spend, onDrill }) {
 function Fig({ label, value }) {
   return (
     <div>
-      <div style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, letterSpacing: ".06em",
-                    textTransform: "uppercase", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
+                    color: C.muted }}>{label}</div>
       <div style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 14,
                     color: C.ink, marginTop: 1 }}>{value}</div>
     </div>

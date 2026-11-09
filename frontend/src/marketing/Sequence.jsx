@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from "react";
 import { CORE, NEUTRAL, TYPE } from "../brand/axcion.jsx";
-import { SITE, HERO } from "./content.js";
 
 /* The scroll-scrubbed hero.
  *
@@ -43,9 +42,71 @@ const ANNOTATIONS = [
   { key: "qbo", text: "Ties to QuickBooks", side: "left", style: { left: -176, bottom: "16%" }, w: 170, h: 44, d: "M4 30 H110 L162 6" },
 ];
 
+/* The panel's content, shared by the scroll sequence and the hero's static preview, so the two
+   can never disagree about what the product shows. */
+const TABS = ["Production", "Books", "Campaigns", "Binder"];
+const ROWS = [
+  ["TX-2026-0881", "Dana Whitfield", "$4,120,000", "Sisu"],
+  ["TX-2026-0874", "Marcus Oyelaran", "$3,480,500", "Sisu"],
+  ["TX-2026-0869", "Priya Raghavan", "$2,905,000", "Follow Up Boss"],
+];
+const cellLabel = {
+  fontFamily: TYPE.text, fontWeight: 500, fontSize: 12, letterSpacing: 0, color: NEUTRAL[500],
+};
+const kpiVal = {
+  fontFamily: TYPE.data, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+  fontSize: 30, lineHeight: 1.08, color: CORE.ink, marginTop: 8,
+};
+
+/* The same panel at rest, fully assembled: the hero's product view. */
+export function ProductPanel() {
+  return (
+    <div className="acu-panel acu-panel-static" style={{ "--panel-a": 1 }}>
+      <div className="acu-p-top">
+        <span className="acu-p-tabs">
+          <b>{TABS[0]}</b>{TABS.slice(1).map((t) => <span key={t}>{t}</span>)}
+        </span>
+        <span className="acu-p-cta">New campaign</span>
+      </div>
+      <div className="acu-p-body">
+        <div className="acu-kpis">
+          <div className="acu-kpi">
+            <div style={cellLabel}>Units closed</div>
+            <div style={kpiVal}>38</div>
+            <div className="acu-kpi-d">of 45 target</div>
+          </div>
+          <div className="acu-kpi acu-hero-kpi" style={{ "--kpi-a": 1 }}>
+            <div style={cellLabel}>GCI, month to date</div>
+            <div style={{ ...kpiVal, color: CORE.cadet }}>$412,900</div>
+            <div className="acu-kpi-d">+14.2% vs last month</div>
+          </div>
+          <div className="acu-kpi">
+            <div style={cellLabel}>Pipeline</div>
+            <div style={kpiVal}>$1.9M</div>
+            <div className="acu-kpi-d">62 active</div>
+          </div>
+        </div>
+        <div className="acu-rows" style={{ "--rows-a": 1 }}>
+          <div className="acu-row">
+            <span style={cellLabel}>Transaction</span><span style={cellLabel}>Agent</span>
+            <span style={{ ...cellLabel, textAlign: "right" }}>Volume</span>
+            <span style={{ ...cellLabel, textAlign: "right" }}>Source</span>
+          </div>
+          {ROWS.map((r) => (
+            <div className="acu-row" key={r[0]}>
+              <span>{r[0]}</span><span>{r[1]}</span>
+              <span className="acu-row-n">{r[2]}</span><span className="acu-row-s">{r[3]}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Sequence() {
   const track = useRef(null), stage = useRef(null), copy = useRef(null);
-  const scene = useRef(null), fly = useRef(null), bloom = useRef(null), hint = useRef(null);
+  const scene = useRef(null), fly = useRef(null), hint = useRef(null);
   const panel = useRef(null), heroKpi = useRef(null), pTop = useRef(null), rowsBox = useRef(null);
 
   useEffect(() => {
@@ -54,7 +115,7 @@ export default function Sequence() {
 
     const els = {
       track: track.current, stage: stage.current, copy: copy.current, scene: scene.current,
-      fly: fly.current, bloom: bloom.current, hint: hint.current, panel: panel.current,
+      fly: fly.current, hint: hint.current, panel: panel.current,
       heroKpi: heroKpi.current, pTop: pTop.current, rowsBox: rowsBox.current,
     };
     if (Object.values(els).some((e) => !e)) return undefined;
@@ -95,11 +156,6 @@ export default function Sequence() {
       const t = easeInOut(seg(p, 0.06, 0.5)), inv = 1 - t;
       els.fly.style.transform =
         `translate(${flip.dx * inv}px, ${flip.dy * inv}px) scale(${1 + (flip.scale - 1) * inv})`;
-
-      const pB = seg(p, 0.02, 0.34), pBout = seg(p, 0.46, 0.78);
-      els.bloom.style.opacity = String(easeOut(pB) * (1 - 0.82 * easeOut(pBout)));
-      els.bloom.style.transform =
-        `translate(-50%,-50%) translateY(${12 - 30 * easeOut(pB)}vh) scale(${0.82 + 0.28 * easeOut(pB)})`;
 
       const pScene = seg(p, 0.46, 0.68);
       els.panel.style.setProperty("--panel-a", String(easeOut(pScene)));
@@ -155,35 +211,16 @@ export default function Sequence() {
     };
   }, []);
 
-  const cellLabel = {
-    fontFamily: TYPE.data, fontWeight: 600, fontSize: 9.5, letterSpacing: "0.13em",
-    textTransform: "uppercase", color: NEUTRAL[500],
-  };
-  const kpiVal = {
-    fontFamily: TYPE.data, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-    fontSize: 30, lineHeight: 1.08, color: CORE.ink, marginTop: 8,
-  };
 
   return (
     <div ref={track} className="acu-track">
       <div ref={stage} className="acu-stage">
-        <div ref={bloom} className="acu-bloom" />
-        <div className="acu-grain" aria-hidden>
-          <svg width="100%" height="100%"><rect width="100%" height="100%" filter="url(#acu-grain-f)" opacity=".4" /></svg>
-        </div>
-
+        {/* The hero now sits above this (Home.jsx). The sequence opens the second section,
+            so its copy is a section heading rather than a second H1. The bloom plate that
+            floated behind the figure is gone: the number travelling is the whole effect. */}
         <div ref={copy} className="acu-seq-copy">
-          <p className="acu-eyebrow">{HERO.eyebrow}</p>
-          <h1 className="acu-display">
-            Track production, <span style={{ color: NEUTRAL[500] }}>not spreadsheets</span>
-          </h1>
-          <p className="acu-seq-sub">
-            Every number Axcion shows you came from somewhere. Scroll, and watch one land.
-          </p>
-          <div className="acu-seq-cta">
-            <a className="acu-btn-ink" href={`mailto:${SITE.contactEmail}?subject=Axcion%20demo`}>Book a demo</a>
-            <p className="acu-seq-support">{HERO.note}</p>
-          </div>
+          <p className="acu-eyebrow">Lineage</p>
+          <h2 className="acu-seq-h2">Watch one number land where it came from</h2>
         </div>
 
         <div ref={scene} className="acu-scene">
@@ -193,7 +230,7 @@ export default function Sequence() {
                   (identity guide §05), and a second, smaller one here is the repetition the
                   guide forbids. */}
               <span className="acu-p-tabs">
-                <b>Production</b><span>Books</span><span>Campaigns</span><span>Binder</span>
+                <b>{TABS[0]}</b>{TABS.slice(1).map((t) => <span key={t}>{t}</span>)}
               </span>
               <span className="acu-p-cta">New campaign</span>
             </div>
@@ -211,7 +248,7 @@ export default function Sequence() {
                   <div style={{ ...kpiVal, textAlign: "center" }}>
                     <span ref={fly} className="acu-fly">$412,900</span>
                   </div>
-                  <div className="acu-kpi-d" data-tilepart>+14.2% vs. last month</div>
+                  <div className="acu-kpi-d" data-tilepart>+14.2% vs last month</div>
                 </div>
 
                 <div className="acu-kpi" data-stagger="2">
@@ -227,11 +264,7 @@ export default function Sequence() {
                   <span style={{ ...cellLabel, textAlign: "right" }}>Volume</span>
                   <span style={{ ...cellLabel, textAlign: "right" }}>Source</span>
                 </div>
-                {[
-                  ["TX-2026-0881", "Dana Whitfield", "$4,120,000", "Sisu"],
-                  ["TX-2026-0874", "Marcus Oyelaran", "$3,480,500", "Sisu"],
-                  ["TX-2026-0869", "Priya Raghavan", "$2,905,000", "Follow Up Boss"],
-                ].map((r, i) => (
+                {ROWS.map((r, i) => (
                   <div className="acu-row" data-row={i + 1} key={r[0]}>
                     <span>{r[0]}</span><span>{r[1]}</span>
                     <span className="acu-row-n">{r[2]}</span><span className="acu-row-s">{r[3]}</span>

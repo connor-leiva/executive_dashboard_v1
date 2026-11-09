@@ -230,60 +230,60 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
 
         .evt .ev-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
           flex-wrap:wrap; margin-bottom:14px; }
-        .evt .ev-title { font-family:var(--font-display); font-size:20px; font-weight:700; color:${T.ink};
+        .evt .ev-title { font-family:var(--font-display); font-size:20px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; }
-        .evt .ev-when { font-size:12.5px; color:${T.muted}; margin-top:2px; }
+        .evt .ev-when { font-size:13px; color:${T.muted}; margin-top:2px; }
         .evt .ev-gear { border:1px solid ${T.line}; background:${T.white}; border-radius:9px; height:32px;
-          padding:0 12px; font-size:12.5px; color:${T.secondary}; cursor:pointer; }
+          padding:0 12px; font-size:13px; color:${T.secondary}; cursor:pointer; }
 
         .evt .ev-hero { border:1px solid ${T.line}; border-radius:16px; background:${T.white};
           padding:20px 22px; margin-bottom:14px; }
-        .evt .ev-big { font-family:var(--font-display); font-size:44px; font-weight:700; color:${T.ink};
+        .evt .ev-big { font-family:var(--font-display); font-size:44px; font-weight:600; color:${T.ink};
           letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
         .evt .ev-of { font-size:15px; color:${T.muted}; font-weight:500; }
-        .evt .ev-pill { display:inline-block; border-radius:999px; padding:3px 10px; font-size:11.5px;
+        .evt .ev-pill { display:inline-block; border-radius:999px; padding:3px 10px; font-size:12px;
           font-weight:600; }
         .evt .ev-track { position:relative; height:10px; border-radius:999px; background:${T.page};
           margin:14px 0 6px; overflow:hidden; }
         .evt .ev-fill { position:absolute; inset:0 auto 0 0; border-radius:999px; background:${T.evergreen}; }
         .evt .ev-exp { position:absolute; top:-3px; bottom:-3px; width:2px; background:${T.poppy}; }
-        .evt .ev-legend { display:flex; justify-content:space-between; font-size:11.5px; color:${T.muted}; }
+        .evt .ev-legend { display:flex; justify-content:space-between; font-size:12px; color:${T.muted}; }
 
         .evt .ev-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;
           margin-bottom:14px; }
         .evt .ev-stat { border:1px solid ${T.line}; border-radius:12px; background:${T.white};
           padding:12px 14px; min-width:0; }
-        .evt .ev-stat-l { font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+        .evt .ev-stat-l { font-size:12px; font-weight:600;
           color:${T.muted}; }
-        .evt .ev-stat-v { font-family:var(--font-display); font-size:22px; font-weight:700; color:${T.ink};
+        .evt .ev-stat-v { font-family:var(--font-display); font-size:22px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; margin-top:3px; font-variant-numeric:tabular-nums; }
-        .evt .ev-stat-s { font-size:11.5px; color:${T.muted}; margin-top:2px; }
+        .evt .ev-stat-s { font-size:12px; color:${T.muted}; margin-top:2px; }
 
         .evt .ev-card { border:1px solid ${T.line}; border-radius:14px; background:${T.white};
           padding:16px 18px; margin-bottom:14px; }
-        .evt .ev-card-h { font-size:10.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+        .evt .ev-card-h { font-size:12px; font-weight:600;
           color:${T.muted}; margin-bottom:10px; }
         .evt .ev-step { display:flex; align-items:center; gap:10px; padding:7px 0; }
-        .evt .ev-step-l { flex:0 0 132px; font-size:12.5px; color:${T.secondary}; }
+        .evt .ev-step-l { flex:0 0 132px; font-size:13px; color:${T.secondary}; }
         .evt .ev-step-bar { flex:1; height:8px; border-radius:999px; background:${T.page}; overflow:hidden; min-width:0; }
         .evt .ev-step-fill { height:100%; border-radius:999px; background:${T.meadow}; }
         .evt .ev-step-n { flex:0 0 46px; text-align:right; font-family:var(--font-display); font-weight:600;
           color:${T.ink}; font-variant-numeric:tabular-nums; }
-        .evt .ev-note { font-size:11.5px; color:${T.muted}; line-height:1.55; margin-top:8px; }
+        .evt .ev-note { font-size:12px; color:${T.muted}; line-height:1.55; margin-top:8px; }
         .evt .ev-warn { border-left:3px solid ${T.daffodil}; background:${T.daffodilBg}; border-radius:8px;
           padding:9px 12px; font-size:12px; color:${T.daffodilText}; margin-bottom:8px; }
 
         .evt .ev-field { display:block; margin-bottom:12px; }
-        .evt .ev-field-l { display:block; font-size:11px; font-weight:700; letter-spacing:.08em;
-          text-transform:uppercase; color:${T.muted}; margin-bottom:4px; }
+        .evt .ev-field-l { display:block; font-size:12px; font-weight:600;
+          color:${T.muted}; margin-bottom:4px; }
         .evt .ev-field input, .evt .ev-field textarea { width:100%; box-sizing:border-box;
           font-family:var(--font-text); font-size:13px; padding:7px 10px; border:1px solid ${T.line};
           border-radius:8px; color:${T.ink}; background:${T.white}; }
-        .evt .ev-field-h { display:block; font-size:11px; color:${T.muted}; margin-top:4px; line-height:1.45; }
+        .evt .ev-field-h { display:block; font-size:12px; color:${T.muted}; margin-top:4px; line-height:1.45; }
         .evt .ev-row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
         .evt .ev-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
         .evt .ev-btn { border:1px solid ${T.line}; background:${T.white}; border-radius:9px; height:32px;
-          padding:0 14px; font-size:12.5px; color:${T.secondary}; cursor:pointer; }
+          padding:0 14px; font-size:13px; color:${T.secondary}; cursor:pointer; }
         .evt .ev-btn-go { background:${T.evergreen}; color:${T.onDark}; border-color:${T.evergreen}; }
         .evt .ev-btn-go:disabled { opacity:.55; cursor:not-allowed; }
         .evt .ev-err { font-size:12px; color:${T.gapText}; margin-top:8px; }
@@ -296,16 +296,16 @@ export default function EventSection({ data, usingSample, role, businessKey = "s
           flex-direction:column; box-shadow:-12px 0 40px ${alpha(T.evergreen, .2)}; }
         .evt .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; background:${T.parchment}; }
-        .evt .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
+        .evt .drx-title { font-family:var(--font-display); font-size:14px; font-weight:600; color:${T.ink}; }
         .evt .drx-x { border:none; background:none; font-size:15px; color:${T.slate}; cursor:pointer; }
         .evt .drx-body { padding:18px 20px; overflow-y:auto; }
         .evt .drx-sub { font-size:12px; color:${T.muted}; margin-bottom:10px; }
         .evt .drx-note { font-size:12px; color:${T.muted}; line-height:1.5; }
-        .evt .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .evt .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .evt .drx-tblwrap { overflow-x:auto; }
         .evt .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; }
-        .evt .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em;
-          text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .evt .drx-tbl th { text-align:left; font-size:12px; font-weight:600;
+          color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .evt .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${T.parchment}; color:${T.secondary}; }
         `}</style>
 

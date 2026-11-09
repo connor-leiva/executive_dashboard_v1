@@ -49,7 +49,7 @@ export function BrandSignature({ tone = "dark", height = 34, color, style }) {
     return (
       <span role="img" aria-label={name || "Home"} style={{
         display: "inline-block", color: c, whiteSpace: "nowrap",
-        fontFamily: "var(--font-display)", fontWeight: 700,
+        fontFamily: "var(--font-display)", fontWeight: 600,
         fontSize: Math.round(height * 0.62), letterSpacing: "-.02em",
         lineHeight: 1, ...style,
       }}>{name}</span>
@@ -74,7 +74,7 @@ export function BrandLogomark({ tone = "dark", size = 28, color, style }) {
       <span aria-hidden style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: size, height: size, color: c, fontFamily: "var(--font-display)",
-        fontWeight: 800, fontSize: Math.round(size * 0.7), lineHeight: 1, ...style,
+        fontWeight: 600, fontSize: Math.round(size * 0.7), lineHeight: 1, ...style,
       }}>{(name || "?").trim().charAt(0).toUpperCase()}</span>
     );
   }
@@ -82,27 +82,6 @@ export function BrandLogomark({ tone = "dark", size = 28, color, style }) {
     <span aria-hidden style={{
       display: "inline-block", width: size, height: size,
       backgroundColor: c, ...mask(`url(${logomark})`), ...style,
-    }} />
-  );
-}
-
-/* THE HERO WATERMARK — one component, because the treatment being copy-pasted is exactly why it
- * ended up on two views out of fifteen.
- *
- * It was written inline twice (portfolio and financials) with the numbers spelled out each time,
- * so every view built afterwards either reproduced them from memory or skipped it. The Ads hero
- * did neither: it shipped an <img> pointing at one customer's LOGOMARK — the bare circle rather
- * than the wordmark — hardcoded, at a different opacity, tinted with a CSS invert filter.
- *
- * 12% is deliberately faint. This sits on top of a hero band carrying the largest number on the
- * screen, and a mark that competes with that number is worse than no mark. It is aria-hidden and
- * pointer-events:none for the same reason — it is texture, not content, and a screen reader
- * announcing the company name on every panel is noise.
- */
-export function HeroMark({ tone = "light", height = 46, opacity = 0.12, top = 14, right = 26 }) {
-  return (
-    <BrandSignature tone={tone} height={height} aria-hidden style={{
-      position: "absolute", top, right, opacity, pointerEvents: "none",
     }} />
   );
 }

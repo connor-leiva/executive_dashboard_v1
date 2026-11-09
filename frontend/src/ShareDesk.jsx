@@ -144,26 +144,26 @@ export default function ShareDesk() {
         .sh-wrap { max-width:640px; margin:0 auto; }
         .sh-head { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
         .sh-bar { width:4px; height:34px; border-radius:2px; background:${T.petal}; }
-        .sh-name { font-family:var(--font-display); font-size:20px; font-weight:700; letter-spacing:-.01em; }
+        .sh-name { font-family:var(--font-display); font-size:20px; font-weight:600; letter-spacing:-.01em; }
         .sh-sub { font-size:12px; color:${T.muted}; }
         .sh-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:10px; }
         .sh-stat { background:${T.white}; border:1px solid ${T.line}; border-radius:12px; padding:10px 12px; }
-        .sh-l { font-size:9.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:${T.tertiary}; }
-        .sh-v { font-family:var(--font-display); font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
-        .sh-s { font-size:10px; color:${T.muted}; margin-top:1px; }
+        .sh-l { font-size:12px; font-weight:600; color:${T.tertiary}; }
+        .sh-v { font-family:var(--font-display); font-size:20px; font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
+        .sh-s { font-size:12px; color:${T.muted}; margin-top:1px; }
         .sh-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; padding:14px 16px; margin-top:12px; }
-        .sh-t { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.12em;
-          text-transform:uppercase; margin-bottom:8px; }
+        .sh-t { font-family:var(--font-display); font-size:12px; font-weight:600;
+          margin-bottom:8px; }
         .sh-t em { font-style:normal; color:${T.amber}; margin-left:6px; }
         .sh-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid ${alpha(T.line, .5)}; }
         .sh-row:last-child { border-bottom:none; }
-        .sh-when { font-size:11px; color:${T.muted}; width:130px; flex:none; }
+        .sh-when { font-size:12px; color:${T.muted}; width:130px; flex:none; }
         .sh-who { font-size:13px; font-weight:600; flex:1; }
-        .sh-oc { font-size:10.5px; font-weight:700; } .sh-oc.pend { color:${T.muted}; }
-        .sh-empty { font-size:12.5px; color:${T.muted}; padding:6px 0; }
+        .sh-oc { font-size:12px; font-weight:600; } .sh-oc.pend { color:${T.muted}; }
+        .sh-empty { font-size:13px; color:${T.muted}; padding:6px 0; }
         .sh-dead { max-width:420px; margin:80px auto; text-align:center; font-size:14px; color:${T.muted}; }
-        .sh-foot { font-size:10.5px; color:${T.muted}; margin-top:14px; text-align:center; }
-        .sh-tap { font-size:10.5px; color:${T.tertiary}; margin:2px 2px 0; }
+        .sh-foot { font-size:12px; color:${T.muted}; margin-top:14px; text-align:center; }
+        .sh-tap { font-size:12px; color:${T.tertiary}; margin:2px 2px 0; }
         .sh-stat.click { cursor:pointer; transition:border-color .12s; }
         .sh-stat.click:hover, .sh-stat.click:focus-visible { border-color:${T.petalDeep}; outline:none; }
         .sh-stat.click .sh-v { box-shadow:inset 0 -1.5px 0 ${alpha(T.petalDeep, .45)}; width:fit-content; }
@@ -175,26 +175,26 @@ export default function ShareDesk() {
           box-shadow:-24px 0 60px ${alpha(T.evergreen, .18)}; }
         .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; }
-        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
+        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:600; color:${T.ink}; }
         .drx-x { border:none; background:none; font-size:15px; color:${T.tertiary}; cursor:pointer; }
         .drx-body { padding:18px 20px; overflow-y:auto; }
-        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:700; color:${T.ink};
+        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
         .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
-        .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px;
+        .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:13px;
           border-bottom:1px solid ${alpha(T.line, .5)}; }
         .drx-step:last-child { border-bottom:none; }
         .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:var(--font-display);
           font-weight:600; text-align:right; }
-        .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal};
+        .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:${T.teal};
           background:${alpha(T.teal, .07)}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
-        .drx-note, .drx-note2 { font-size:11.5px; color:${T.muted}; line-height:1.5; }
-        .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .drx-note, .drx-note2 { font-size:12px; color:${T.muted}; line-height:1.5; }
+        .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .drx-tblwrap { overflow-x:auto; }
         .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em;
-          text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .drx-tbl th { text-align:left; font-size:12px; font-weight:600;
+          color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
       `}</style>

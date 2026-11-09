@@ -15,9 +15,9 @@ export default function MoveCard({ group, wkey }) {
   return (
     <Card style={{ flex: "1 1 300px", minWidth: 280, borderTop: `3px solid ${crC ? band(crC.attain).bar : C.meadow}` }} pad={18}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <div style={{ fontFamily: FD, fontSize: 13, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: C.ink }}>{group.name}</div>
+        <div style={{ fontFamily: FD, fontSize: 13, fontWeight: 600, color: C.ink }}>{group.name}</div>
         {group.owner ? <OwnerBadge owner={group.owner} size={24} />
-                     : <span style={{ fontFamily: FB, fontSize: 11.5, color: C.amberInk }}>Unassigned</span>}
+                     : <span style={{ fontFamily: FB, fontSize: 12, color: C.amberInk }}>Unassigned</span>}
       </div>
       {crC ? (
         <>
@@ -33,7 +33,7 @@ export default function MoveCard({ group, wkey }) {
           </div>
           {v && (
             <div style={{ marginTop: 14, background: v.bg, borderRadius: 9, padding: "11px 13px" }}>
-              <div style={{ fontFamily: FB, fontSize: 12.5, color: C.body, lineHeight: 1.55 }}>
+              <div style={{ fontFamily: FB, fontSize: 13, color: C.body, lineHeight: 1.55 }}>
                 Closing this needs <strong style={{ fontWeight: 600, color: v.ink }}>{crC.required.toFixed(0)} a week</strong>. Best week in the window was {crC.best}.
               </div>
               <div style={{ marginTop: 8 }}><Chip ink={v.ink} bg={C.surface}>{v.t.toUpperCase()}</Chip></div>
@@ -51,7 +51,7 @@ export default function MoveCard({ group, wkey }) {
               <span style={{ fontFamily: FM, fontSize: 12, color: band(fwC.attain).ink }}>{fwC.attain.toFixed(0)}%</span>
             </span>
           </div>
-          <div style={{ fontFamily: FB, fontSize: 11.5, color: C.slate, marginTop: 5, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: FB, fontSize: 12, color: C.slate, marginTop: 5, lineHeight: 1.5 }}>
             A conversation on deals already in hand. No extra appointments required.
           </div>
         </div>

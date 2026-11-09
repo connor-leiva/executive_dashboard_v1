@@ -38,7 +38,7 @@ export default function AppSwitcher({ user, tone = "light" }) {
         style={{
           display: "inline-flex", alignItems: "center", gap: 8, height: 34,
           border: `1px solid ${line}`, borderRadius: 8, background: bg, color: ink,
-          padding: "0 10px", cursor: "pointer", fontSize: 12.5, fontWeight: 700,
+          padding: "0 10px", cursor: "pointer", fontSize: 13, fontWeight: 600,
         }}
       >
         <span aria-hidden style={{

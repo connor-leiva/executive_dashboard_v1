@@ -45,14 +45,14 @@ function TxChanges({ d, canDecide, onSaved }) {
           <span style={{ flex: 1, minWidth: 240, fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.45 }}>
             <strong style={{ color: L.deep, fontWeight: 600 }}>{r.said}</strong>
             {r.change?.why ? <span> Why: &ldquo;{r.change.why}&rdquo;.</span> : null}
-            <span style={{ display: "block", fontSize: 11.5, color: L.muted }}>
+            <span style={{ display: "block", fontSize: 12, color: L.muted }}>
               {[r.change?.by, r.change?.at ? r.change.at.slice(0, 10) : ""].filter(Boolean).join(", ")}</span>
           </span>
           {canDecide ? <Button onClick={() => undo(r.key)} disabled={busy === r.key}>
             {busy === r.key ? "Undoing…" : "Undo"}</Button> : null}
         </div>
       ))}
-      {error ? <div style={{ padding: "0 18px 12px", fontFamily: F.body, fontSize: 12.5, color: L.loss }}>{error}</div> : null}
+      {error ? <div style={{ padding: "0 18px 12px", fontFamily: F.body, fontSize: 13, color: L.loss }}>{error}</div> : null}
     </Sheet>
   );
 }
@@ -148,16 +148,16 @@ function Partners({ d, ov, canDecide, onSaved }) {
             <div key={p.company} style={{ display: "grid", gap: 6, paddingTop: 10, borderTop: `1px solid ${L.ruleLine}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>{p.person}</span>
-                <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+                <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
                   share of {shortOf(ov, p.company)}&rsquo;s net operating income</span>
                 <div style={{ flex: 1 }} />
                 <PctInput label={`${p.person}'s rate`} value={g.get(["rates", p.company], d.rates[p.company])}
                           disabled={!canDecide} onChange={(v) => g.set(["rates", p.company], v)} />
-                <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>%</span>
+                <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>%</span>
               </div>
-              {p.note && <div style={{ ...BODY, fontSize: 12.5, color: L.muted }}>{p.note}</div>}
+              {p.note && <div style={{ ...BODY, fontSize: 13, color: L.muted }}>{p.note}</div>}
               {r && (
-                <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, lineHeight: 1.6 }}>
+                <div style={{ fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.6 }}>
                   January to {through}: operating income {money(r.noi)}
                   {r.salary ? <>, less {d.salary_owner}&rsquo;s salary {money(r.salary)}</> : null}
                   {" "}&rarr; earned <strong>{money(r.earned)}</strong>; paid {money(r.paid)}
@@ -175,13 +175,13 @@ function Partners({ d, ov, canDecide, onSaved }) {
               <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
                 {w.salary_label || `${d.salary_owner}'s salary, a year`}</span>
               <div style={{ flex: 1 }} />
-              <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>$</span>
+              <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>$</span>
               <input aria-label="The owner's yearly salary" inputMode="decimal" disabled={!canDecide}
                 value={salary === null || salary === undefined || Number.isNaN(salary) ? "" : String(salary)}
                 onChange={(e) => g.set(["salary"], e.target.value.trim() === "" ? 0 : Number(e.target.value))}
                 style={{ ...inputStyle, width: 110, textAlign: "right" }} />
             </div>
-            {w.salary_note && <div style={{ ...BODY, fontSize: 12.5, color: L.muted }}>{w.salary_note}</div>}
+            {w.salary_note && <div style={{ ...BODY, fontSize: 13, color: L.muted }}>{w.salary_note}</div>}
           </div>
         )}
       </div>
@@ -201,7 +201,7 @@ function Switch({ title, words, options, value, canDecide, onPick, state, childr
           <div style={{ display: "grid", gap: 6 }}>
             {[["What it means", words.means], ["What the old books did", words.old], ["Recommendation", words.rec]]
               .filter(([, v]) => v).map(([k, v]) => (
-                <div key={k} style={{ ...BODY, fontSize: 12.5 }}>
+                <div key={k} style={{ ...BODY, fontSize: 13 }}>
                   <span style={{ ...EYEBROW, marginRight: 8 }}>{k}</span>{v}</div>
               ))}
           </div>
@@ -230,7 +230,7 @@ function Holdco({ d, ov, canDecide, onSaved }) {
             state={state} options={d.holdco_choices.map((c) => [c, c])} onPick={(v) => pick(["holdco"], v)}>
       <div style={{ display: "grid", gap: 4 }}>
         {d.holdco_rows.map((r) => (
-          <div key={`${r.company}|${r.account}`} style={{ display: "flex", gap: 12, fontFamily: F.body, fontSize: 12.5,
+          <div key={`${r.company}|${r.account}`} style={{ display: "flex", gap: 12, fontFamily: F.body, fontSize: 13,
                                                           flexWrap: "wrap" }}>
             <span style={{ flex: 1, minWidth: 220, color: L.body }}>{shortOf(ov, r.company)}
               <span style={{ color: L.muted }}> · booked to {r.account} · {r.count} {r.count === 1 ? "payment" : "payments"}</span>
@@ -252,7 +252,7 @@ function Basis({ d, ov, canDecide, onSaved }) {
   return (
     <Switch title={b.title} value={d.bc_basis} canDecide={canDecide} state={state}
             options={b.choices.map((c) => [c.label, c.key])} onPick={(v) => pick(["bc_basis"], v)}>
-      <div style={{ ...BODY, fontSize: 12.5, color: L.muted }}>
+      <div style={{ ...BODY, fontSize: 13, color: L.muted }}>
         {chosen?.note} {b.company ? `It moves ${shortOf(ov, b.company)}'s program revenue between months, and with it the partner's share.` : ""}
       </div>
     </Switch>
@@ -290,7 +290,7 @@ function Ads({ d, canDecide, onSaved }) {
           <SplitHead brands={d.brands} extra={[`${d.ads.billback_name} (billed back)`]} lead="Shared cost" />
           <div className="cd-grid" style={{ gridTemplateColumns: `minmax(160px,1fr) repeat(${cols.length}, 92px) 84px`,
                                             padding: "10px 18px", alignItems: "center", borderBottom: `1px solid ${L.ruleLine}` }}>
-            <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600, color: L.deep }}>
+            <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
               Advertising <span style={{ fontWeight: 400, color: L.muted }}>· {money(pool)} this year</span></span>
             {cols.map((b) => (
               <span key={b} style={{ textAlign: "right" }}>
@@ -307,7 +307,7 @@ function Ads({ d, canDecide, onSaved }) {
           </div>
           <div className="cd-grid" style={{ gridTemplateColumns: `minmax(160px,1fr) repeat(${cols.length}, 92px) 84px`,
                                             padding: "10px 18px", alignItems: "center" }}>
-            <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600, color: L.deep }}>
+            <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
               Payment processing <span style={{ fontWeight: 400, color: L.muted }}>· {money(fees)}</span></span>
             {cols.map((b) => <span key={b} style={{ ...NUM, fontSize: 13, color: L.bodyDim }}>
               {b === "billback" ? "–" : share(d.fees.split[b])}</span>)}
@@ -343,7 +343,7 @@ function Person({ p, d, canDecide, onSaved, open, onToggle }) {
         style={{ gridTemplateColumns: cols, padding: "9px 18px", alignItems: "center", cursor: "pointer",
                  borderBottom: `1px solid ${L.ruleLine}`, background: open ? L.totalBand : L.paper }}>
         <span style={{ minWidth: 0 }}>
-          <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600, color: L.deep }}>{p.name}</span>
+          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>{p.name}</span>
           <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
             {p.follows_wages ? " · follows the W-2 wages" : p.w2 ? " · W-2" : ""}{g.dirty ? " · unsaved" : ""}</span>
         </span>
@@ -357,9 +357,9 @@ function Person({ p, d, canDecide, onSaved, open, onToggle }) {
       {open && (
         <div style={{ background: L.totalBand, padding: "12px 18px 16px", borderBottom: `1px solid ${L.ruleInner}`,
                       display: "grid", gap: 10 }}>
-          {p.note && <div style={{ ...BODY, fontSize: 12.5, color: L.bodyDim }}>{p.note}</div>}
+          {p.note && <div style={{ ...BODY, fontSize: 13, color: L.bodyDim }}>{p.note}</div>}
           {p.follows_wages ? (
-            <div style={{ ...BODY, fontSize: 12.5, color: L.muted }}>Not a decision: it splits each month the way the
+            <div style={{ ...BODY, fontSize: 13, color: L.muted }}>Not a decision: it splits each month the way the
               W-2 wages that month split.</div>
           ) : (
             <>
@@ -375,8 +375,8 @@ function Person({ p, d, canDecide, onSaved, open, onToggle }) {
                 return (
                   <div key={m.m} className="cd-grid" style={{ gridTemplateColumns: `90px 100px repeat(${d.brands.length}, 92px) 84px`,
                                                               alignItems: "center", opacity: was ? 1 : 0.6 }}>
-                    <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>{m.label}</span>
-                    <span style={{ ...NUM, fontSize: 12.5, color: was ? L.deep : L.ghost }}>{was ? cents(p.cost[i]) : "not paid"}</span>
+                    <span style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>{m.label}</span>
+                    <span style={{ ...NUM, fontSize: 13, color: was ? L.deep : L.ghost }}>{was ? cents(p.cost[i]) : "not paid"}</span>
                     {d.brands.map((b) => (
                       <span key={b} style={{ textAlign: "right" }}>
                         <PctInput label={`${p.name}, ${m.label}: ${b}`} value={row[b]} disabled={!canDecide}
@@ -495,7 +495,7 @@ function Charge({ c, d, canDecide, onSaved }) {
   return (
     <div style={{ padding: "10px 18px", borderBottom: `1px solid ${L.ruleLine}`, display: "grid", gap: 6 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-        <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.ghost, width: 76, flexShrink: 0 }}>{c.date}</span>
+        <span style={{ fontFamily: F.num, fontSize: 12, color: L.ghost, width: 76, flexShrink: 0 }}>{c.date}</span>
         <span style={{ flex: 1, minWidth: 220, fontFamily: F.body, fontSize: 13, color: L.body }}>
           <strong style={{ color: L.deep, fontWeight: 600 }}>{c.who}</strong> · {c.what}
           <span style={{ color: L.muted }}> · booked as {c.booked_line} ({c.account}) · {c.sid}</span>
@@ -525,7 +525,7 @@ function Charges({ d, canDecide, onSaved }) {
   return (
     <Sheet title="The owner's charges, one by one" right={<span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
       {own.length} of {d.charges.length} the owner&rsquo;s own · {money(own.reduce((n, c) => n + c.amount, 0))}</span>}>
-      {words?.rec && <div style={{ ...BODY, fontSize: 12.5, color: L.bodyDim, padding: "12px 18px 4px" }}>{words.means} {words.rec}</div>}
+      {words?.rec && <div style={{ ...BODY, fontSize: 13, color: L.bodyDim, padding: "12px 18px 4px" }}>{words.means} {words.rec}</div>}
       {d.charges.map((c) => <Charge key={c.ref} c={c} d={d} canDecide={canDecide} onSaved={onSaved} />)}
     </Sheet>
   );
@@ -540,15 +540,15 @@ function OnRecord({ d }) {
   return (
     <Sheet title="Decided, and on record">
       <div style={{ padding: "12px 18px 16px", display: "grid", gap: 12 }}>
-        {(w.decided || []).map((x, i) => <div key={i} style={{ ...BODY, fontSize: 12.5 }}>{x}</div>)}
+        {(w.decided || []).map((x, i) => <div key={i} style={{ ...BODY, fontSize: 13 }}>{x}</div>)}
         {rest.map((x) => (
           <details key={x.title} style={{ borderTop: `1px solid ${L.ruleLine}`, paddingTop: 8 }}>
-            <summary style={{ cursor: "pointer", fontFamily: F.body, fontSize: 13.5, fontWeight: 600, color: L.deep }}>
+            <summary style={{ cursor: "pointer", fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>
               {x.title}</summary>
             <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
               {[["What it means", x.means], ["What the old books did", x.old], ["Recommendation", x.rec],
                 ["Decision", x.answer], ["Notes", x.notes]].filter(([, v]) => v).map(([k, v]) => (
-                <div key={k} style={{ ...BODY, fontSize: 12.5 }}><span style={{ ...EYEBROW, marginRight: 8 }}>{k}</span>{v}</div>
+                <div key={k} style={{ ...BODY, fontSize: 13 }}><span style={{ ...EYEBROW, marginRight: 8 }}>{k}</span>{v}</div>
               ))}
             </div>
           </details>
@@ -571,7 +571,7 @@ export default function CleanupDecisions({ ov, rev, onSaved }) {
         <Panel>
           <div style={{ background: L.deep, padding: "14px 26px", display: "flex", gap: 18, flexWrap: "wrap",
                         alignItems: "baseline" }}>
-            <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase",
+            <span style={{ fontFamily: F.num, fontSize: 12,
                            color: L.onDeepEyebrow }}>Net income, corrected, with these decisions</span>
             {ov.companies.map((c) => (
               <span key={c} style={{ fontFamily: F.body, fontSize: 13, color: L.onDeepPill }}>

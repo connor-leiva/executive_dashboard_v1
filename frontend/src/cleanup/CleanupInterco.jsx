@@ -74,11 +74,11 @@ function PairDetail({ ov, pair, rev }) {
   const { data, error, loading, retry } = useCleanupPair(pair.pair, rev);
   const rows = useMemo(() => (data ? rowsFromPair(data, ov) : []), [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const year = (ov.period?.start || "").slice(0, 4);
-  if (loading) return <div style={{ padding: "4px 18px 16px", fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+  if (loading) return <div style={{ padding: "4px 18px 16px", fontFamily: F.body, fontSize: 13, color: L.muted }}>
     Loading what&rsquo;s behind it…</div>;
   if (error) {
     return (
-      <div style={{ padding: "4px 18px 16px", fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+      <div style={{ padding: "4px 18px 16px", fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
         Couldn&rsquo;t load the detail.{" "}
         <button onClick={retry} style={{ height: 24, padding: "0 10px", borderRadius: 8, cursor: "pointer",
           fontFamily: F.body, fontSize: 12, border: `1px solid ${L.pillEdge}`, background: L.paper,
@@ -99,14 +99,14 @@ function PairDetail({ ov, pair, rev }) {
             <span style={{ ...NUM, fontSize: 13, color: L.deep }}>{cents(x.amount)}</span>
           </div>))}
         <div style={{ display: "flex", gap: 12, alignItems: "baseline", borderTop: `1px solid ${L.ruleLine}`, paddingTop: 6 }}>
-          <span style={{ flex: 1, fontFamily: F.body, fontSize: 13, fontWeight: 700, color: L.deep }}>The cleanup&rsquo;s change</span>
-          <span style={{ ...NUM, fontSize: 13.5, fontWeight: 700, color: L.deep }}>{cents(data.corrections)}</span>
+          <span style={{ flex: 1, fontFamily: F.body, fontSize: 13, fontWeight: 600, color: L.deep }}>The cleanup&rsquo;s change</span>
+          <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: L.deep }}>{cents(data.corrections)}</span>
         </div>
       </div>
-      <Sheet right={<Legend />} title={<>Item by item <span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 400,
+      <Sheet right={<Legend />} title={<>Item by item <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 400,
         color: L.muted }}>· oldest first · a positive amount adds to what&rsquo;s owed</span></>}>
         {rows.length ? <TxList rows={rows} year={year} noun={["item", "items"]} /> : (
-          <div style={{ padding: "12px 16px", fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+          <div style={{ padding: "12px 16px", fontFamily: F.body, fontSize: 13, color: L.muted }}>
             The cleanup doesn&rsquo;t change what these two owe each other.</div>)}
         <div style={{ padding: "9px 16px", borderTop: `1px solid ${L.ruleInner}`, background: L.totalBand }}>
           <OkPill ok={data.ties}>{data.ties ? `Together ${money(total)}: the cleanup's change to this pair`
@@ -160,12 +160,12 @@ export default function CleanupInterco({ ov, rev }) {
                                       borderBottom: `1px solid ${L.ruleLine}`, background: on ? L.totalBand : undefined }}>
                           <span aria-hidden="true" style={{ fontFamily: F.num, fontSize: 13, color: L.muted, display: "inline-block",
                             transform: on ? "rotate(90deg)" : "none", transition: "transform 120ms" }}>›</span>
-                          <span style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, fontWeight: 600 }}>{p.pair}
+                          <span style={{ fontFamily: F.body, fontSize: 14, color: L.deep, fontWeight: 600 }}>{p.pair}
                             <span style={{ display: "block", fontWeight: 400, fontSize: 12, color: L.muted }}>{p.reads}</span></span>
                           <span style={{ ...NUM, fontSize: 13, color: L.muted }}>{money(p.booked)}</span>
                           <span style={{ ...NUM, fontSize: 13, color: Math.abs(p.corrections) >= 1 ? L.flagInk : L.ghost }}>
                             {Math.abs(p.corrections) < 0.5 ? "–" : money(p.corrections)}</span>
-                          <span style={{ ...NUM, fontSize: 15, fontWeight: 700, color: L.deep }}>{money(p.corrected)}</span>
+                          <span style={{ ...NUM, fontSize: 15, fontWeight: 600, color: L.deep }}>{money(p.corrected)}</span>
                           {!on && p.parts?.length ? (           // why it changed, in a line across the row
                             <span style={{ gridColumn: "2 / -1", fontFamily: F.body, fontSize: 12, color: L.bodyDim,
                                            marginTop: -4 }}>
@@ -191,9 +191,9 @@ export default function CleanupInterco({ ov, rev }) {
                   {s.brands.map((b) => (
                     <div key={b.brand} className="ci-grid" style={{ padding: "9px 18px", alignItems: "baseline",
                                                                     borderBottom: `1px solid ${L.ruleLine}` }}>
-                      <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 600, color: L.deep }}>{b.brand}
+                      <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>{b.brand}
                         {shortOf(ov, ov.brand_company?.[b.brand]) !== b.brand && (
-                          <span style={{ fontWeight: 400, fontSize: 11.5, color: L.muted }}> · inside {shortOf(ov, ov.brand_company?.[b.brand])}</span>
+                          <span style={{ fontWeight: 400, fontSize: 12, color: L.muted }}> · inside {shortOf(ov, ov.brand_company?.[b.brand])}</span>
                         )}</span>
                       {brandCols.map(([k]) => (
                         <span key={k} style={{ ...NUM, fontSize: 13, fontWeight: k === "operating_result" ? 700 : 400,
@@ -215,7 +215,7 @@ export default function CleanupInterco({ ov, rev }) {
                 <div key={p.company} style={{ padding: "12px 18px", borderBottom: `1px solid ${L.ruleLine}`, display: "grid", gap: 6 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>{p.person}</span>
-                    <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+                    <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
                       {(p.rate * 100).toFixed(0)}% of {shortOf(ov, p.company)}</span>
                     <div style={{ flex: 1 }} />
                     {p.owed_back > 0 && <span style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
