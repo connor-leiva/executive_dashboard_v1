@@ -1,6 +1,14 @@
 # UI audit: an unslop pass over the whole product
 
-Date: 2026-11-09. This is a recommendations pass. No product code was changed.
+Date: 2026-11-09. This started as a recommendations pass.
+
+**Status.** Most of it is now applied on this branch, in one commit per area: the dashboard type sweep, the dashboard (Portfolio, shell, heroes, motion, bugs 1, 2, 11 and 12), the intranet (bugs 6 and 7), the console (bugs 3, 4, 5, 8 and 9), and the marketing site (bug 10). The Portfolio's source tags come from the API (`Scorecard.source`). Still open:
+
+- The Forum restructure in Pass 7: one lead chart, tiles without mini charts, and the renewal calendar as a table.
+- Moving the source tag onto the business pages' tiles, which still show the `↗` arrow.
+- Settings › Appearance's sticky preview column.
+- The operator console's stat labels.
+- The three bigger suggestions at the end.
 
 **What was looked at.** All five frontends ran locally:
 
