@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_session
-from ..models import Business, ShareLink
+from ..models import ShareLink
 from ..services import scorecard
 from ..services import roles
 from ..tenancy import tenant_app_url
@@ -55,24 +55,28 @@ async def _resolve(s: AsyncSession, token: str, *scopes: str) -> ShareLink:
     return link
 
 
-async def _board_business(s: AsyncSession, link: ShareLink) -> Business:
-    """The business whose board this link shares — from the LINK's scope, never the request."""
-    b = await roles.primary(s, link.tenant_id, SCORECARD_SCOPES[SHARE_SCOPES[link.scope]]["kind"])
+async def _board_business_id(s: AsyncSession, link: ShareLink):
+    """The business whose board this link shares — from the LINK's scope, never the request. None for
+    a workspace board (it belongs to no business)."""
+    kind = SCORECARD_SCOPES[SHARE_SCOPES[link.scope]]["kind"]
+    if kind is None:
+        return None
+    b = await roles.primary(s, link.tenant_id, kind)
     if not b:
         raise HTTPException(404, "Not found")
-    return b
+    return b.id
 
 
 @router.get("/{token}/scorecard")
 async def shared_scorecard(token: str, response: Response, weeks: int = 13,
                            s: AsyncSession = Depends(get_session)):
     link = await _resolve(s, token, *SHARE_SCOPES)        # a ULRG or a Spring B board link
-    b = await _board_business(s, link)
+    bid = await _board_business_id(s, link)
     weeks = max(1, min(52, weeks))
     # never cache the payload: the token is in the URL, and a cached copy could outlive a revoke
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
-    return await scorecard.build_scorecard(s, link.tenant_id, b.id, weeks)
+    return await scorecard.build_scorecard(s, link.tenant_id, bid, weeks)
 
 
 @router.get("/{token}/room")

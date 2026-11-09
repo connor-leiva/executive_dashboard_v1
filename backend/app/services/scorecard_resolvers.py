@@ -37,6 +37,7 @@ Overwrite rules (SPEC 3.1 / 3.3):
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import logging
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
@@ -48,7 +49,35 @@ from ..models import (Agent, Integration, ScorecardGroup, ScorecardMetric, Score
 log = logging.getLogger("app")
 
 Resolver = Callable[..., Awaitable[float | None]]
-RESOLVERS: dict[str, Resolver] = {}
+
+
+class _ResolverRegistry(dict):
+    """The resolver registry, plus PARAMETERISED keys: a metric's resolver_key "name:arg" resolves to
+    the resolver registered as "name:*", called with arg=arg. One resolver then serves many rows that
+    differ only in which entity they read (e.g. each company's profit on the Portfolio board), and the
+    argument lives on the metric row as data, not in code. Every lookup — .get, [], `in` — handles it,
+    so the runner, the drill and the scripts need no change."""
+
+    def get(self, key, default=None):
+        fn = dict.get(self, key)
+        if fn is None and isinstance(key, str) and ":" in key:
+            base, arg = key.split(":", 1)
+            pfn = dict.get(self, base + ":*")
+            if pfn is not None and arg:
+                fn = functools.partial(pfn, arg=arg)
+        return default if fn is None else fn
+
+    def __getitem__(self, key):
+        fn = self.get(key)
+        if fn is None:
+            raise KeyError(key)
+        return fn
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+
+RESOLVERS: dict[str, Resolver] = _ResolverRegistry()
 
 
 class _Unavailable:
@@ -752,5 +781,7 @@ async def run_resolvers(session_factory, tenant_id, today: dt.date, weeks: int =
     return written
 
 
-# Registers the lending board's resolvers. Last, because that module imports the decorator above.
+# Registers the lending board's and the Portfolio board's resolvers. Last, because those modules import
+# the decorator above.
 from . import scorecard_sympli  # noqa: E402
+from . import scorecard_portfolio  # noqa: E402,F401

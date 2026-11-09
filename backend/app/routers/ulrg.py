@@ -35,7 +35,7 @@ from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
 from ..services.scorecard_resolvers import resolver_records, RESOLVERS, UNAVAILABLE
-from ..services import scorecard_sympli
+from ..services import scorecard_portfolio, scorecard_sympli
 from ..services.scorecard_routing import (run_spec, spec_records, validate_spec, RESOLVER_SPECS,
                                           catalog as routing_catalog)
 from ..services.tabs import effective_tabs, tenant_tabs
@@ -53,6 +53,10 @@ SCORECARD_SCOPES = {
     "ulrg":    {"kind": roles.REAL_ESTATE, "tabs": ("ulrg",)},
     "springb": {"kind": roles.MEMBERSHIP,  "tabs": ("forum", "becollective", "edge")},
     "sympli":  {"kind": roles.COMMISSION_JV, "tabs": ("sympli",)},
+    # A WORKSPACE board: kind None = it belongs to no business (its groups carry business_id NULL).
+    # The owners' own Monday scorecard across every company, so admin_only — owners and admins see
+    # it, a member with the Portfolio tab does not.
+    "portfolio": {"kind": None, "tabs": ("portfolio",), "admin_only": True},
 }
 # Each board's read-only share-link scope ("ulrg_scorecard", "springb_scorecard") → its board. The
 # public read (share.py) resolves the business from the LINK's scope, so a token opens one board only.
@@ -66,22 +70,37 @@ async def _ulrg_business(s, tenant_id):
     return b
 
 
-async def _scope_business(s, tenant_id, scope: str) -> Business:
+async def _scope_business(s, tenant_id, scope: str) -> Business | None:
+    """The business a board belongs to, or None for a WORKSPACE board (kind None). Use
+    `_group_scope(b)` / `_bid(b)` with the result, never `b.id` directly."""
     sc = SCORECARD_SCOPES.get(scope)
     if not sc:
         raise HTTPException(404, "Unknown scorecard")
+    if sc["kind"] is None:
+        return None
     b = await roles.primary(s, tenant_id, sc["kind"])
     if not b:
         raise HTTPException(404, "This scorecard has no business for this tenant")
     return b
 
 
+def _bid(b: Business | None):
+    return b.id if b is not None else None
+
+
+def _group_scope(b: Business | None):
+    """The WHERE clause for a board's groups: its business's, or the workspace board's (no business)."""
+    return ScorecardGroup.business_id == b.id if b is not None else ScorecardGroup.business_id.is_(None)
+
+
 async def _assert_scope_view(user: User, s, scope: str) -> None:
     """403 unless the user can see the scorecard — i.e. holds ANY of the scope's tabs (owners/admins
-    pass implicitly, exactly like require_tab)."""
+    pass implicitly, exactly like require_tab). An admin_only board is owners/admins, full stop."""
     sc = SCORECARD_SCOPES.get(scope)
     if not sc:
         raise HTTPException(404, "Unknown scorecard")
+    if sc.get("admin_only") and user.role not in ("owner", "admin"):
+        raise HTTPException(403, "No access to this scorecard")
     seen = set(effective_tabs(user, await tenant_tabs(s, user.tenant_id),
                               tenant=await s.get(Tenant, user.tenant_id)))
     if not seen & set(sc["tabs"]):
@@ -92,6 +111,8 @@ async def _metric_scope(s, m: ScorecardMetric) -> str | None:
     """The scorecard scope a metric belongs to, via its group's business kind — so a write endpoint
     can gate on the RIGHT board without the client naming it."""
     g = await s.get(ScorecardGroup, m.group_id)
+    if g is not None and g.business_id is None:          # a workspace board's row
+        return next((k for k, sc in SCORECARD_SCOPES.items() if sc["kind"] is None), None)
     b = await s.get(Business, g.business_id) if g else None
     if b:
         for scope, sc in SCORECARD_SCOPES.items():
@@ -106,7 +127,7 @@ async def get_scorecard(weeks: int = Query(13, ge=1, le=52), scope: str = "ulrg"
                         s: AsyncSession = Depends(get_session)):
     await _assert_scope_view(user, s, scope)
     b = await _scope_business(s, user.tenant_id, scope)
-    return await scorecard.build_scorecard(s, user.tenant_id, b.id, weeks)
+    return await scorecard.build_scorecard(s, user.tenant_id, _bid(b), weeks)
 
 
 @router.get("/metric/{metric_id}/records")
@@ -144,6 +165,7 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
         return {"source": "resolver", "source_label": "Sisu", "measurable": m.name, "records": [], "restricted": True}
     recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
     label = (scorecard_sympli.source_label(m.resolver_key) if scorecard_sympli.is_sympli_key(m.resolver_key)
+             else scorecard_portfolio.source_label(m.resolver_key) if scorecard_portfolio.is_portfolio_key(m.resolver_key)
              else "GHL" if m.resolver_key.startswith(("forum_", "ghl_")) else "Sisu")
     return {"source": "resolver", "source_label": label, "measurable": m.name, "records": recs or []}
 
@@ -337,12 +359,12 @@ async def create_group(body: GroupCreate, user: User = Depends(current_user),
     if not name:
         raise HTTPException(400, "Name required")
     siblings = (await s.execute(select(ScorecardGroup).where(
-        ScorecardGroup.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id))).scalars().all()
+        ScorecardGroup.tenant_id == user.tenant_id, _group_scope(b)))).scalars().all()
     # Inherit the board's convention: ULRG offices are team rooms (Move card + team sub-tab), Spring B's
     # are not. A new office matches its board instead of forcing one (a spurious Move card on a Spring B
     # office was what lingered on remove).
     team_room = any(x.is_team_room for x in siblings)
-    g = ScorecardGroup(tenant_id=user.tenant_id, business_id=b.id, name=name[:120],
+    g = ScorecardGroup(tenant_id=user.tenant_id, business_id=_bid(b), name=name[:120],
                        key=_slug_key(name, {x.key for x in siblings}), is_team_room=team_room,
                        sort_order=max((x.sort_order for x in siblings), default=-1) + 1, active=True)
     s.add(g)
@@ -527,7 +549,7 @@ async def get_routing(scope: str = "ulrg", user: User = Depends(current_user),
                ScorecardMetric.resolver_key, ScorecardMetric.source_spec,
                ScorecardGroup.name, ScorecardGroup.sisu_group_id)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
-        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id,
+        .where(ScorecardMetric.tenant_id == user.tenant_id, _group_scope(b),
                ScorecardGroup.active.is_(True), ScorecardMetric.active.is_(True))
         .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
     return {"metrics": [
@@ -682,7 +704,7 @@ async def get_goals(period: str, scope: str = "ulrg", user: User = Depends(curre
     rows = (await s.execute(
         select(ScorecardMetric, ScorecardGroup.name, ScorecardGroup.sort_order)
         .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
-        .where(ScorecardMetric.tenant_id == user.tenant_id, ScorecardGroup.business_id == b.id,
+        .where(ScorecardMetric.tenant_id == user.tenant_id, _group_scope(b),
                ScorecardGroup.active.is_(True), ScorecardMetric.active.is_(True))
         .order_by(ScorecardGroup.sort_order, ScorecardMetric.sort_order))).all()
     over = {str(mid): (float(gv), None if cg is None else float(cg))

@@ -219,7 +219,8 @@ async def _gates(s, tenant_id, business_id, today: dt.date) -> list[dict]:
     """A board's plan gates, oldest first. Status is derived here so a gate can't read "due" after
     its date has passed: done once marked, missed when past due without that, otherwise due."""
     rows = (await s.execute(select(ScorecardGate).where(
-        ScorecardGate.tenant_id == tenant_id, ScorecardGate.business_id == business_id)
+        ScorecardGate.tenant_id == tenant_id,
+        ScorecardGate.business_id == business_id if business_id is not None else ScorecardGate.business_id.is_(None))
         .order_by(ScorecardGate.due_date, ScorecardGate.sort_order))).scalars().all()
     return [{"id": str(g.id), "due": g.due_date.isoformat(), "label": g.label, "owner": g.owner_name,
              "done_on": g.done_on.isoformat() if g.done_on else None,
@@ -259,7 +260,9 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         return default
 
     groups = (await s.execute(select(ScorecardGroup).where(
-        ScorecardGroup.tenant_id == tenant_id, ScorecardGroup.business_id == business_id,
+        ScorecardGroup.tenant_id == tenant_id,
+        # business_id None = the WORKSPACE board (Portfolio); a per-business board never sees its groups
+        ScorecardGroup.business_id == business_id if business_id is not None else ScorecardGroup.business_id.is_(None),
         ScorecardGroup.active.is_(True))
         .order_by(ScorecardGroup.sort_order))).scalars().all()
     metrics = (await s.execute(select(ScorecardMetric).where(

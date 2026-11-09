@@ -1274,7 +1274,12 @@ export default function CommandCenter() {
   let content;
   if (busy) content = <SkeletonDashboard />;
   else if (error && !data) content = <ErrorState onRetry={retry} />;
-  else if (activeView === "overview") content = <Overview data={data} onOpen={goTo} onDrill={onDrill} />;
+  // The Portfolio scorecard is the owners' Monday board, so only owners and admins get the sub-tabs
+  // (the server enforces the same); anyone else with the Portfolio tab sees the page as before.
+  else if (activeView === "overview") content = (user?.role === "owner" || user?.role === "admin")
+    ? <BrandScorecardTabs scope="portfolio" role={user?.role}
+        overview={<Overview data={data} onOpen={goTo} onDrill={onDrill} />} />
+    : <Overview data={data} onOpen={goTo} onDrill={onDrill} />;
   else if (activeView === "forum") content = forum.data
     // ForumShell, not BrandScorecardTabs: the Event sub-tab belongs to the Forum only, and
     // BrandScorecardTabs is shared with The Edge (below), which does not run these events.

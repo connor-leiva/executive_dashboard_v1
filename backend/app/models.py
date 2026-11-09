@@ -2343,7 +2343,9 @@ class ScorecardGroup(Base):
     __tablename__ = "scorecard_group"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
-    business_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("business.id"), index=True)
+    # NULL = a WORKSPACE board (the Portfolio scorecard), owned by no business. Every per-business board
+    # filters on its own business_id, so a workspace group can never leak onto one.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("business.id"), nullable=True, index=True)
     key: Mapped[str] = mapped_column(String(40))                  # davis | slc | utco | overall
     name: Mapped[str] = mapped_column(String(120))
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
@@ -2464,7 +2466,7 @@ class ShareLink(Base):
     __tablename__ = "share_link"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
-    scope: Mapped[str] = mapped_column(String(24))               # ulrg_scorecard | springb_scorecard | ulrg_team | sd_rep
+    scope: Mapped[str] = mapped_column(String(24))               # <board>_scorecard (ulrg|springb|sympli|portfolio) | ulrg_team | sd_rep
     scope_ref: Mapped[str | None] = mapped_column(String(160), nullable=True)  # team key | rep email (sd_rep)
     token: Mapped[str] = mapped_column(String(64), unique=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)

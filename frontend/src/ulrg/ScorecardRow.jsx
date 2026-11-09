@@ -8,6 +8,11 @@ import {
   W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
 } from "./l10tokens.jsx";
 
+// Dollar rows (the Portfolio board) run to six and seven figures: separators from 1,000, and a
+// compact 1.2M from a million, so the widest value still fits a week cell.
+const bigNum = (v) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
+  : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : v);
+
 export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle, onDrill, cumLabel }) {
   const cRaw = r.cumulative ? r.cumulative[wkey] : null;
   const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → not a cumulative row
@@ -138,7 +143,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               }}
             >
               <span style={{ ...NUM, fontSize: 12.5, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
-                {isNull ? "—" : rate ? `${v}%` : v}
+                {isNull ? "—" : rate ? `${v}%` : bigNum(v)}
               </span>
             </div>
           );

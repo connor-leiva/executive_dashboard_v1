@@ -98,7 +98,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
       // "Only what is off" keeps rows with no scoreable pace (snapshots / goal-0 / no data) visible,
       // as before — they aren't "off", so hiding them would falsely read as all-clear.
       const rows = onlyOff ? g.rows.filter((r) => { const a = cumAttain(r); return a == null || a < 100; }) : g.rows;
-      return { ...g, rows, off };
+      return { ...g, rows, off, total: g.rows.length };   // total: rows before "only what is off" filters
     });
   }, [data, wkey, onlyOff]);
 
@@ -223,7 +223,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                     <GroupBar group={g} width={totalW} off={g.off} />
                     {g.rows.length === 0 && (
                       <div style={{ display: "flex", borderBottom: `1px solid ${T.lineSoft}` }}>
-                        <div style={{ position: "sticky", left: 0, width: RAIL, flexShrink: 0, padding: "12px 16px", background: T.paper, fontSize: 12, color: T.good, borderRight: `1px solid ${T.line}` }}>Everything at or above goal.</div>
+                        <div style={{ position: "sticky", left: 0, width: RAIL, flexShrink: 0, padding: "12px 16px", background: T.paper, fontSize: 12, color: g.total ? T.good : T.muted, borderRight: `1px solid ${T.line}` }}>{g.total ? "Everything at or above goal." : "No numbers yet. Add them in Settings."}</div>
                         <div style={{ flex: 1, background: T.paper }} />
                       </div>
                     )}
