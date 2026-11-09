@@ -93,6 +93,16 @@ const GLYPHS = {
 
   // The fallback, and the Axcion mark's own motif reduced to two blades: a loop that has not
   // closed. It is what an unrecognised module gets, and it is right for a flywheel.
+  // A closed cycle with its direction marked: the referral flywheel turning.
+  cycle: () => (
+    <>
+      <path d="M26.5 13A11 11 0 0 0 7.2 8.5" />
+      <path d="M6 4v5.5h5.5" />
+      <path d="M5.5 19a11 11 0 0 0 19.3 4.5" />
+      <path d="M26 28v-5.5h-5.5" />
+    </>
+  ),
+
   loop: () => (
     <>
       <path d="M9 6a11 11 0 0 0 0 20" />
@@ -118,7 +128,7 @@ const BY_MODULE = {
   binder: "binder",
   ai_employees: "agents",
   ads: "campaigns",
-  flywheel: "loop",
+  flywheel: "cycle",
   onboarding: "onboarding",
 };
 

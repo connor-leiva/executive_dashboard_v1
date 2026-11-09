@@ -99,6 +99,14 @@ async def test_login_and_dashboard_shape():
     assert sum(a["refs"] for a in fw["referrers"]) == fw["captured"]   # invariant
     assert {s["label"]: s["value"] for s in d["scorecards"]}["Loans Funded"] == "14"
 
+    # Each tile names the system its figure was read from, in the source list's own names.
+    source = {s["label"]: s["source"] for s in d["scorecards"]}
+    assert source["Combined Profit"] == "QuickBooks"
+    assert source["Closed Units"] == source["Under Contract"] == "Sisu"
+    assert source["Loans Funded"] == "Arive"
+    assert source["Attach Rate"] == "Arive"
+    assert source["Active Members"] == "Go High Level"
+
 
 async def test_metric_detail_units_closed():
     token = await _client_token()

@@ -119,7 +119,6 @@ export default function Assistant({ period = "mtd" }) {
         .asst-dot { width: 6px; height: 6px; border-radius: 99px; background: ${T.meadow}; display: inline-block; animation: asst-blink 1.3s infinite both; }
         .asst-chip:hover { border-color: ${T.meadow}; color: ${T.meadow}; }
         .asst-send:not(:disabled):hover { filter: brightness(1.06); }
-        .asst-fab:hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgba(0,46,44,.30); }
       `}</style>
 
       {/* floating launcher */}

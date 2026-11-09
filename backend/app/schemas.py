@@ -199,6 +199,10 @@ class Scorecard(BaseModel):
     sub: str | None = None
     business_key: str          # drives the dot color on the frontend
     key: str | None = None     # metric key for the audit drawer (drill-down)
+    # Where the figure came from, in the same display names as the source list
+    # (_source_statuses): "QuickBooks", "Sisu", "Transactions", "Arive", "Go High Level".
+    # None when the figure is a seeded placeholder or there is nothing to show.
+    source: str | None = None
 
 
 class FlywheelAgent(BaseModel):

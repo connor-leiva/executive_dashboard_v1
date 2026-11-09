@@ -884,6 +884,7 @@ def _scorecards(
     producing, total_agents, sympli_funded, sympli_volume, attach_rate, members, have_financials,
     members_sub="Members", re_key="ulrg", jv_key="sympli", member_tab="forum",
     attach_sub="Attach rate", gci_undefined=False,
+    production_source=None, loans_source=None, members_source=None, attach_source=None,
 ) -> list[Scorecard]:
     """The portfolio strip.
 
@@ -892,24 +893,36 @@ def _scorecards(
     on every tenant's dashboard pointed at businesses named ulrg/sympli/forum — so for anyone
     else the drills resolved to a business that does not exist. Passed in, they name whichever
     businesses this tenant actually has.
+
+    `source` names the system each figure was read from, so the tile can say so. It is passed in
+    rather than assumed: a SkySlope brokerage's closings are not Sisu's, and a seeded placeholder
+    came from no system and gets no source at all.
     """
     return [
         Scorecard(
             label="Combined Profit",
             value=_compact_usd(portfolio_noi) if have_financials else "—",
             sub=f"{portfolio_margin}% margin" if have_financials else "awaiting QuickBooks",
-            business_key="portfolio", key="combined_profit"),
+            business_key="portfolio", key="combined_profit",
+            source="QuickBooks" if have_financials else None),
         # A SkySlope brokerage has no GCI field yet (decision 9): a gap, not $0 earned.
         Scorecard(label="Total GCI", value="—" if gci_undefined else _compact_usd(ulrg_gci),
-                  sub="needs a GCI definition" if gci_undefined else "this period", business_key=re_key, key="gci"),
-        Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key=re_key, key="units_closed"),
+                  sub="needs a GCI definition" if gci_undefined else "this period", business_key=re_key, key="gci",
+                  source=None if gci_undefined else production_source),
+        Scorecard(label="Closed Units", value=str(ulrg_closed), sub="this period", business_key=re_key,
+                  key="units_closed", source=production_source),
         Scorecard(label="Under Contract", value=str(ulrg_pending),
-                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key=re_key, key="pending"),
-        Scorecard(label="Agents Producing", value=str(producing), sub=f"of {total_agents}", business_key=re_key, key="agents_producing"),
+                  sub=f"{_compact_usd(ulrg_pipeline)} pipeline", business_key=re_key, key="pending",
+                  source=production_source),
+        Scorecard(label="Agents Producing", value=str(producing), sub=f"of {total_agents}", business_key=re_key,
+                  key="agents_producing", source=production_source),
         Scorecard(label="Loans Funded", value=sympli_funded or "—",
-                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key=jv_key, key="funded_loans"),
-        Scorecard(label="Attach Rate", value=attach_rate or "—", sub=attach_sub, business_key=jv_key),
-        Scorecard(label="Active Members", value=members or "—", sub=members_sub, business_key=member_tab, key="active_members"),
+                  sub=f"{sympli_volume} volume" if sympli_volume else None, business_key=jv_key, key="funded_loans",
+                  source=loans_source if sympli_funded else None),
+        Scorecard(label="Attach Rate", value=attach_rate or "—", sub=attach_sub, business_key=jv_key,
+                  source=attach_source if attach_rate else None),
+        Scorecard(label="Active Members", value=members or "—", sub=members_sub, business_key=member_tab,
+                  key="active_members", source=members_source if members else None),
     ]
 
 
@@ -932,6 +945,8 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         # Generic until the membership entity names its own first program (below). "The Forum"
         # is one tenant's program name and was the default for everybody.
         "members": None, "members_sub": "Members",
+        # Which system each tile's figure was read from (display names, as _source_statuses).
+        "production_source": None, "loans_source": None, "members_source": None,
     }
 
     for b in businesses:
@@ -979,7 +994,9 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                     funnel = None
             sc.update(ulrg_gci=gci, ulrg_closed=closed, ulrg_pending=pending,
                       ulrg_pipeline=pipeline, producing=producing, total_agents=total,
-                      gci_undefined=txn_source == "skyslope")
+                      gci_undefined=txn_source == "skyslope",
+                      # SkySlope under its neutral name, as everywhere else on screen.
+                      production_source="Transactions" if txn_source == "skyslope" else "Sisu")
         else:
             ops = _ops_from_config(b)
             funnel = [FunnelRow(**f) for f in cfg.get("funnel", [])] if cfg.get("funnel") else None
@@ -1005,6 +1022,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                     pipeline_cells = await _arive_pipeline_cells(s, tenant_id, b.id, start, end)
                     sc["sympli_funded"] = str(ak["funded_count"])
                     sc["sympli_volume"] = _compact_usd(ak["funded_volume"]) if ak["funded_volume"] else None
+                    sc["loans_source"] = "Arive"
                 else:                                      # not synced → seeded placeholders
                     sc["sympli_funded"] = scc.get("funded")
                     sc["sympli_volume"] = scc.get("volume")
@@ -1033,6 +1051,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
                                sub="monthly subscriptions", key="mrr"),
                     ]
                     sc["members"] = str(k["members"])
+                    sc["members_source"] = "Go High Level"
                 else:                       # not synced yet — keep seeded placeholders
                     for t in ops:
                         if t.label == "Active Members":
@@ -1242,6 +1261,8 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
         sympli_funded=sc["sympli_funded"], sympli_volume=sc["sympli_volume"],
         attach_rate=attach, members=sc["members"], have_financials=have_financials,
         members_sub=sc["members_sub"], gci_undefined=bool(sc.get("gci_undefined")),
+        production_source=sc["production_source"], loans_source=sc["loans_source"],
+        members_source=sc["members_source"], attach_source="Arive" if attach else None,
         # Name this tenant's own businesses on the tiles, so each drill lands somewhere real.
         # Fall back to the literals only when the tenant has no business of that kind — the
         # tile shows "—" in that case anyway, and the key is never followed.

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useFinancials } from "./useFinancials.js";
-import { SpringSignature, HeroMark, heroCss } from "./Brand.jsx";
+import { SpringSignature, heroCss } from "./Brand.jsx";
 
 /* ULRG + Team — three-lens Financials (Live / Projection / Booked).
    Design source of truth: ulrg-financial-focus.jsx. Wired to the live API via
@@ -48,7 +48,7 @@ function PL({ rows, onDrill }) {
             onClick={clickable ? () => onDrill(r.key) : undefined}
             role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
             onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onDrill(r.key); } } : undefined}>
-            <span className="pll">{r.l}{r.est && <em className="est">est</em>}{clickable && <span className="drill">↗</span>}</span>
+            <span className="pll">{r.l}{r.est && <em className="est">Est</em>}{clickable && <span className="drill">↗</span>}</span>
             <span className="plv">{money(r.v)}</span>
           </div>
         );
@@ -157,7 +157,6 @@ function Loaded({ data, businessName, businessKey, active, setActive, onDrill })
 
       {/* hero */}
       <div className="hero">
-        <HeroMark height={42} right={24} />
         <div className="feat" key={act}>
           <div className="eyebrow" style={{ color: L.dAccent }}>
             <span className={`edot ${L.live ? "live" : ""}`} style={{ background: L.dAccent, color: L.dAccent }} />
@@ -242,9 +241,9 @@ const FIN_CSS = `
     ${heroCss("meadow")}
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
   .fin-root .feat { min-height:104px; }
-  .fin-root .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; display:inline-flex; align-items:center; gap:8px; }
+  .fin-root .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:8px; }
   .fin-root .eyebrow .edot { width:8px; height:8px; border-radius:99px; }
-  .fin-root .eyebrow .etag { color:${C.onDarkMute}; font-weight:500; letter-spacing:0; text-transform:none; font-size:12px; }
+  .fin-root .eyebrow .etag { color:${C.onDarkMute}; font-weight:500; font-size:12px; }
   .fin-root .hprofit { font-family:var(--font-display); font-size:44px; font-weight:600; letter-spacing:-.025em; color:${C.onDark}; line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; }
   .fin-root .hdesc { font-size:13px; color:${C.onDarkMute}; }
   .fin-root .traj { margin-top:20px; }
@@ -268,7 +267,7 @@ const FIN_CSS = `
   .fin-root .seg-flag { font-size:12px; font-weight:600; color:${C.dBooked}; margin-top:4px; display:block; }
   .fin-root .card { background:${C.surface}; border:1px solid ${C.hair}; border-top:none; border-radius:0 0 18px 18px; padding:24px 28px; box-shadow:0 12px 30px rgba(0,46,44,.06); }
   .fin-root .fc-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px; }
-  .fin-root .fc-label { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; }
+  .fin-root .fc-label { font-family:var(--font-display); font-size:12px; font-weight:600; }
   .fin-root .fc-tag { font-size:12px; color:${C.muted}; margin-top:4px; }
   .fin-root .fc-units { font-size:12px; color:${C.muted}; }
   .fin-root .flag { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:${C.amber}; background:${C.amberBg}; border-radius:6px; padding:3px 9px; }
@@ -291,7 +290,7 @@ const FIN_CSS = `
   .fin-root .plr.clk:focus-visible { outline:2px solid ${C.dProj}; outline-offset:-2px; }
   .fin-root .drill { color:${C.muted}; font-size:12px; margin-left:6px; }
   .fin-root .plr.clk:hover .drill { color:${C.teal}; }
-  .fin-root .est { font-style:normal; font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${C.muted}; border:1px solid ${C.hair}; border-radius:3px; padding:1px 4px; margin-left:6px; }
+  .fin-root .est { font-style:normal; font-size:12px; font-weight:600; color:${C.muted}; border:1px solid ${C.hair}; border-radius:3px; padding:1px 4px; margin-left:6px; }
   .fin-root .sl { padding:2px 0 10px; }
   .fin-root .sl-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; gap:2px; }
   .fin-root .sl-closed { background:${C.teal}; border-radius:5px 0 0 5px; }

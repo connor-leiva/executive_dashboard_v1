@@ -7,7 +7,7 @@
    cash collected is a demoted line. The settings drawer PUTs config and refetches. */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { T, alpha, usd } from "./theme.js";
-import { SpringSignature, HeroMark, heroCss } from "./Brand.jsx";
+import { SpringSignature, heroCss } from "./Brand.jsx";
 import { putJSON, postJSON, getJSON } from "./api.js";
 
 /* Every number on the tab is a drill target. A context carries the opener so any nested
@@ -648,10 +648,10 @@ function fmtLong(sec) {
   return m ? `${m} min ${s % 60} sec` : `${s} sec`;
 }
 
-const MONO = { fontVariantNumeric: "tabular-nums", letterSpacing: 0 };
+const MONO = { fontVariantNumeric: "tabular-nums" };
 const MICRO = {
-  fontSize: 12, fontWeight: 600, letterSpacing: 0,
-  textTransform: "none", color: T.muted,
+  fontSize: 12, fontWeight: 600,
+  color: T.muted,
 };
 
 /* Side-by-side needs ~900px to hold a watchable video AND a readable transcript. Below that
@@ -804,7 +804,7 @@ function Transport({ videoRef, at, dur, chapters, playing, onToggle }) {
             {fmtClock(at)} / {fmtClock(dur)}
           </span>
           {chapterNow && (
-            <span style={{ fontSize: 12, letterSpacing: 0, textTransform: "none",
+            <span style={{ fontSize: 12,
                            color: T.muted, minWidth: 0, overflow: "hidden",
                            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chapterNow}</span>
           )}
@@ -1163,8 +1163,8 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                           <span style={{ fontSize: 13, fontWeight: 600,
                                          color: s.is_host ? T.ink : T.meadowInk }}>{s.speaker}</span>
                           {s.tag && (
-                            <span style={{ fontSize: 12, letterSpacing: 0,
-                                           textTransform: "none", color: T.muted,
+                            <span style={{ fontSize: 12,
+                                           color: T.muted,
                                            padding: "2px 6px", border: `1px solid ${T.line}`,
                                            borderRadius: 5 }}>{s.tag}</span>
                           )}
@@ -1412,7 +1412,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .shift-num .of { font-size:13px; font-weight:500; color:${T.muted}; margin-left:8px; letter-spacing:0; }
         .bcl .shift-sub { font-size:12px; color:${T.slate}; margin-top:7px; }
         .bcl .shift-stats { display:flex; gap:20px; margin-top:15px; flex-wrap:wrap; }
-        .bcl .sh-stat-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; }
+        .bcl .sh-stat-l { font-size:12px; font-weight:600; color:${T.muted}; }
         .bcl .sh-stat-v { font-family:var(--font-display); font-size:15px; font-weight:600; color:${T.ink}; margin-top:3px; font-variant-numeric:tabular-nums; }
         .bcl .sh-stat-v.behind { color:${T.petalDeep}; }
         .bcl .sh-stat-v.good { color:${T.meadow}; }
@@ -1423,7 +1423,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .shift-foot { font-size:12px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
         .bcl .shift-src { margin-top:16px; padding-top:14px; border-top:1px solid ${T.line}; }
         .bcl .shift-src-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:9px; flex-wrap:wrap; gap:4px; }
-        .bcl .shift-src-title { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.slate}; }
+        .bcl .shift-src-title { font-size:12px; font-weight:600; color:${T.slate}; }
         .bcl .shift-src-sub { font-size:12px; color:${T.muted}; }
         .bcl .shift-src-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:${T.parchment}; }
         .bcl .shift-src-bar span { display:block; height:100%; transition:width .4s ease; }
@@ -1467,7 +1467,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .bcl .drx-tblwrap { overflow-x:auto; }
         .bcl .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .bcl .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .bcl .drx-tbl th { text-align:left; font-size:12px; font-weight:600; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .bcl .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${T.parchment}; color:${T.secondary}; }
         .bcl .drx-tbl tr.on td { background:${T.meadowBg}; color:${T.ink}; font-weight:600; }
         .bcl .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
@@ -1478,8 +1478,8 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
           ${heroCss("petal")}
           box-shadow:0 2px 6px ${alpha(T.evergreen, .10)}, 0 16px 38px ${alpha(T.evergreen, .12)}; }
-        .bcl .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0;
-          text-transform:none; display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }
+        .bcl .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600;
+          display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }
         .bcl .eyebrow .edot { width:8px; height:8px; border-radius:99px; background:${T.poppy}; }
         .bcl .hnum { font-family:var(--font-display); font-weight:600; letter-spacing:-.025em; color:${T.evergreen};
           line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; font-size:44px; display:flex; align-items:baseline; gap:12px; }
@@ -1507,7 +1507,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         .bcl .hstats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:22px; }
         .bcl .ms { background:${alpha(T.white, .5)}; border:1px solid ${alpha(T.evergreen, .1)}; border-radius:11px; padding:11px 13px; }
-        .bcl .ms-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.tertiary}; }
+        .bcl .ms-l { font-size:12px; font-weight:600; color:${T.tertiary}; }
         .bcl .ms-v { font-family:var(--font-display); font-size:19px; font-weight:600; color:${T.evergreen}; margin-top:5px;
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .bcl .ms-v.behind { color:${T.poppyText}; }
@@ -1518,12 +1518,12 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
           padding:22px 26px 24px; box-shadow:0 12px 30px ${alpha(T.evergreen, .06)}; }
 
         .bcl .fn-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:4px; }
-        .bcl .fn-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.ink}; }
+        .bcl .fn-title { font-family:var(--font-display); font-size:12px; font-weight:600; color:${T.ink}; }
         .bcl .fn-sub { font-size:12px; color:${T.muted}; }
         .bcl .fr { margin-bottom:13px; }
         .bcl .fr-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
         .bcl .fr-label { font-size:13px; font-weight:600; color:${T.secondary}; }
-        .bcl .fr-owner { font-style:normal; font-size:12px; font-weight:500; letter-spacing:0; text-transform:none;
+        .bcl .fr-owner { font-style:normal; font-size:12px; font-weight:500;
           color:${T.muted}; margin-left:8px; }
         .bcl .fr-n { font-family:var(--font-display); font-size:15px; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
         .bcl .fr-bar { height:8px; border-radius:5px; background:${T.parchment}; overflow:hidden; }
@@ -1549,7 +1549,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         .bcl .mom { margin-top:16px; }
         .bcl .mom-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; flex-wrap:wrap; gap:4px; }
-        .bcl .mom-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.ink}; }
+        .bcl .mom-title { font-family:var(--font-display); font-size:12px; font-weight:600; color:${T.ink}; }
         .bcl .mom-sub { font-size:12px; color:${T.muted}; }
         .bcl .mom-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px; }
         .bcl .mom-cell { background:${T.white}; border:1px solid ${T.line}; border-radius:11px; padding:12px 13px; }
@@ -1563,7 +1563,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         .bcl .cash { margin-top:18px; padding-top:16px; border-top:1px solid ${T.line}; }
         .bcl .cash-top { display:flex; justify-content:space-between; align-items:baseline; }
-        .bcl .cash-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.slate}; }
+        .bcl .cash-l { font-size:12px; font-weight:600; color:${T.slate}; }
         .bcl .cash-v { font-size:13px; color:${T.secondary}; } .bcl .cash-v b { font-family:var(--font-display); font-weight:600; color:${T.ink}; } .bcl .cash-v em { font-style:normal; color:${T.muted}; }
         .bcl .cash-bar { height:7px; border-radius:4px; background:${T.parchment}; overflow:hidden; margin:9px 0 7px; }
         .bcl .cash-fill { display:block; height:100%; background:${T.teal}; opacity:.55; border-radius:4px; }
@@ -1576,7 +1576,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .dr-title { font-family:var(--font-display); font-size:13px; font-weight:600; color:${T.ink}; }
         .bcl .dr-x { border:none; background:none; font-size:14px; color:${T.slate}; cursor:pointer; padding:2px 6px; }
         .bcl .dr-body { padding:18px 20px 22px; }
-        .bcl .dr-sec { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.petalDeep};
+        .bcl .dr-sec { font-size:12px; font-weight:600; color:${T.petalDeep};
           margin:18px 0 10px; } .bcl .dr-sec:first-child { margin-top:0; } .bcl .dr-sec .ro { font-weight:500; color:${T.muted}; text-transform:none; letter-spacing:0; font-style:normal; margin-left:8px; }
         .bcl .fld { display:block; margin-bottom:13px; }
         .bcl .fld-l { display:block; font-size:12px; font-weight:600; color:${T.secondary}; margin-bottom:5px; }
@@ -1595,7 +1595,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .map { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; }
         .bcl .map-row { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; border-bottom:1px solid ${T.parchment}; }
         .bcl .map-row:last-child { border-bottom:none; }
-        .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:12px; text-transform:none; letter-spacing:0; color:${T.muted}; margin-left:8px; }
+        .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:12px; color:${T.muted}; margin-left:8px; }
         .bcl .map-m { font-size:12px; color:${T.muted}; }
         .bcl .map-in { width:58%; flex:none; font-size:12px; padding:5px 9px; }
         .bcl .map-note { font-size:12px; color:${T.muted}; margin-top:8px; line-height:1.5; }
@@ -1654,7 +1654,6 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         {data.shift && <TheShift shift={data.shift} />}
 
         <div className="hero">
-          <HeroMark tone="dark" height={40} top={18} right={24} />
           <div className="eyebrow"><span className="edot" />{seatPrimary ? "Members enrolled · to goal" : "ARR added · to goal"}</div>
           <div className="hnum">
             <Num metric={seatPrimary ? "funnel.enrolled" : "enrolled.arr"}>{seatPrimary ? D.enrolledSeats : kMoney(D.enrolledArr)}</Num>

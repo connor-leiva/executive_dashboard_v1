@@ -10,7 +10,6 @@
  * rendering a placeholder that looks like a measurement.
  */
 import { C, mult, usd } from "./adsTokens.js";
-import { HeroMark } from "../Brand.jsx";
 
 /* THE TINTED `Icon` THAT LIVED HERE IS GONE, along with ICON_TINTS, tintId, rgb01 and the
  * IconFilters <defs> block that AdsView mounted for it.
@@ -122,7 +121,6 @@ export function Hero({ data, adCount }) {
       {/* Was an <img> at one customer's LOGOMARK — the bare circle, not the wordmark —
           hardcoded, at 30%, tinted by a CSS invert. The shared watermark instead: this
           workspace's own wordmark, at the treatment every other hero uses. */}
-      <HeroMark top={-6} right={0} />
       <div className="hgrid">
         <div className="hleft">
           <div className="eyebrow">From {usd(t.spend)} of spend</div>

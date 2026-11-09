@@ -154,8 +154,14 @@ async def test_the_tiles_light_up_with_gci_as_a_gap_and_a_neutral_source():
     await _load(w)
     async with SessionLocal() as s:
         for period in ("mtd", "ytd"):
-            area = (await build_dashboard(s, w["tenant"], period)).areas["main"]
+            dash = await build_dashboard(s, w["tenant"], period)
+            area = dash.areas["main"]
             tiles = {t.key: t for t in area.ops}
+            # The Portfolio strip names the same neutral source, and a GCI that is a gap has none.
+            strip = {c.key: c for c in dash.scorecards if c.key}
+            assert strip["units_closed"].source == strip["pending"].source == "Transactions"
+            assert strip["gci"].source is None
+            assert all(c.source != "SkySlope" for c in dash.scorecards)
             assert area.transactions_source == "skyslope" and area.sample is True
             assert area.sources == ["QuickBooks", "Transactions: sample"]
             assert "SkySlope" not in " ".join(area.sources)

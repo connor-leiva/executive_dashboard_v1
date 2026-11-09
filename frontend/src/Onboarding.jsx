@@ -58,7 +58,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, title, style }) {
 function Label({ children, style }) {
   return (
     <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
-                  letterSpacing: 0, textTransform: "none", color: T.muted, ...style }}>
+                  color: T.muted, ...style }}>
       {children}
     </div>
   );
@@ -625,16 +625,8 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
           </div>
           <div style={{ fontFamily: "var(--font-text)", fontSize: 14, lineHeight: 1.65,
                         color: T.slate, marginTop: 10, maxWidth: 620 }}>
-            A plan is a dated programme for one person — the days, the blocks within each day, the
-            outcome each block is meant to produce, and the scoreboard it is measured by. Once one
-            exists, whoever it belongs to works through it here and the numbers are the same ones
-            you see.
-          </div>
-          <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 14 }}>
-            Seed one with{" "}
-            <code style={{ background: T.page, borderRadius: 5, padding: "2px 6px" }}>
-              python -m scripts.seed_onboarding --tenant &lt;slug&gt; --spec &lt;plan.json&gt;
-            </code>
+            A plan sets out one person's first weeks, day by day, with what each block should
+            produce. An admin creates one in Settings, and it appears here for the person it belongs to.
           </div>
         </Card>
       </div>
@@ -705,7 +697,7 @@ export default function Onboarding({ data, loading, error, reload, apply, onPick
             ["Appointments", plan.totals.appointments]].map(([k, v]) => (
               <div key={k}>
                 <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
-                              letterSpacing: 0, textTransform: "none", opacity: 0.68 }}>{k}</div>
+                              opacity: 0.68 }}>{k}</div>
                 <div style={{ fontFamily: "var(--font-data)", fontSize: 19, fontWeight: 600,
                               fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{v}</div>
               </div>

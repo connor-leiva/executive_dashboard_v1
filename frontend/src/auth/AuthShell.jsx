@@ -21,8 +21,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { T, alpha } from "../theme.js";
 import { getJSON, API_BASE } from "../api.js";
-import { applyBrand } from "../palette.js";
-import { BrandSignature, setBrand, ribbedHero } from "../Brand.jsx";
+import { applyBrand, heroPlateStyle } from "../palette.js";
+import { BrandSignature, setBrand } from "../Brand.jsx";
 import { PoweredByAxcion } from "../brand/PoweredBy.jsx";
 import { AXCION_SITE } from "../brand/axcion.jsx";
 
@@ -48,7 +48,7 @@ function ShellCss() {
       .acu-auth .acu-input.acu-bad:focus { border-color: ${T.poppyText};
         box-shadow: 0 0 0 3px ${alpha(T.poppyText, 0.16)}; }
       .acu-auth .acu-primary { transition: filter .15s, transform .15s; }
-      .acu-auth .acu-primary:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+      .acu-auth .acu-primary:hover:not(:disabled) { filter: brightness(1.08); }
       .acu-auth .acu-primary:disabled { cursor: default; filter: brightness(.94); }
       .acu-auth .acu-quiet { transition: border-color .15s, background .15s; }
       .acu-auth .acu-quiet:hover { border-color: ${T.muted}; background: ${T.parchment}; }
@@ -84,7 +84,7 @@ function Plate({ chrome }) {
           file. */}
       <div aria-hidden style={{
         position: "absolute", inset: 0, backgroundSize: "cover", backgroundPosition: "center",
-        ...(hero ? { backgroundImage: `url(${hero})` } : ribbedHero("evergreen")),
+        ...(hero ? { backgroundImage: `url(${hero})` } : heroPlateStyle("evergreen")),
       }} />
       {/* Always, over whatever is underneath. A photo nobody vetted sits behind white text, and
           this is what keeps the logo legible on a bright one. */}

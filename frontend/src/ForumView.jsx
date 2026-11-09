@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { heroCss } from "./Brand.jsx";
 import { usd, signed } from "./theme.js";
 import { A } from "./forumIcons.js";
@@ -88,16 +88,11 @@ function Count({ to, fmt, prefix = "", suffix = "", duration }) {
   const v = useCountUp(to, duration);
   return <>{prefix}{fmt ? fmt(v) : Math.round(v).toLocaleString("en-US")}{suffix}</>;
 }
-function Glow({ className = "", tint = "rgba(97,131,94,.12)", children, style, ...rest }) {
-  const ref = useRef(null);
-  const onMove = (e) => {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty("--mx", `${e.clientX - r.left}px`);
-    el.style.setProperty("--my", `${e.clientY - r.top}px`);
-  };
-  return <div ref={ref} onMouseMove={onMove} className={`glow ${className}`}
-    style={{ "--glow": tint, ...style }} {...rest}>{children}</div>;
+/* A tile's surface. It used to carry a light that followed the cursor; hover is now a quiet edge
+   (.ptile:hover, .dcard:hover), so this is a plain block that keeps its call sites' shape.
+   `tint` is accepted and ignored for the same reason. */
+function Glow({ className = "", tint, children, style, ...rest }) {
+  return <div className={className} style={style} {...rest}>{children}</div>;
 }
 function Spark({ points, w = 66, h = 22, stroke = C.meadow, fill, fillId, pad = 2 }) {
   if (!points || points.length < 2) return null;
@@ -484,8 +479,8 @@ function CashFlowPanel({ b, open, onOpen }) {
                 <div className="cashcol-fill" style={{
                   height: open ? `${totalH}%` : 0,
                   background: m.is_projected ? C.parchment
-                    : m.mtd ? `linear-gradient(180deg, ${C.sprout}, ${C.mist})`
-                      : `linear-gradient(180deg, ${C.meadow}, ${C.evergreen})`,
+                    : m.mtd ? C.sprout
+                      : C.evergreen,
                   border: m.is_projected ? `1px dashed ${C.meadow}` : "none", boxSizing: "border-box",
                 }}>
                   {m.mtd && m.projected > 0 && <div style={{ height: `${100 - actShare}%`, background: C.parchment, borderBottom: `1px dashed ${C.meadow}`, boxSizing: "border-box", opacity: 0.85 }} />}
@@ -496,7 +491,7 @@ function CashFlowPanel({ b, open, onOpen }) {
         })}
       </div>
       <div style={{ display: "flex", gap: 16, fontFamily: "var(--font-text)", fontSize: 12, color: C.muted, marginBottom: 10, flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: `linear-gradient(180deg, ${C.meadow}, ${C.evergreen})` }} />Actual</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.evergreen }} />Actual</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.parchment, border: `1px dashed ${C.meadow}`, boxSizing: "border-box" }} />Projected from active subscriptions</span>
       </div>
       <div style={{ borderTop: `1px solid ${C.hair}`, paddingTop: 11, fontFamily: "var(--font-text)", fontSize: 12, color: C.slate }}>
@@ -571,7 +566,7 @@ const CSS = `
     --sh-lift:0 8px 16px rgba(0,46,44,.09), 0 26px 52px rgba(0,46,44,.11);
     --hl:inset 0 1px 0 rgba(255,255,255,.65); }
   .fe * { box-sizing:border-box; }
-  .fe .wrap { max-width:1060px; margin:0 auto; }
+  .fe .wrap { max-width:none; margin:0; }
   .fe-head { display:flex; align-items:center; gap:14px; margin-bottom:18px; }
   .fe-bar { width:4px; height:30px; border-radius:2px; background:linear-gradient(180deg,${C.meadow},${C.evergreen}); }
   .fe-title { font-family:var(--font-display); font-size:23px; font-weight:600; letter-spacing:-.015em; color:${C.ink}; }
@@ -585,21 +580,15 @@ const CSS = `
   @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
   .enter { animation:rise .55s cubic-bezier(.22,1,.36,1) both; }
 
-  .glow { position:relative; isolation:isolate; }
-  .glow::before { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
-    background:radial-gradient(180px circle at var(--mx,50%) var(--my,50%), var(--glow), transparent 62%); opacity:0; transition:opacity .3s ease; z-index:0; }
-  .glow:hover::before { opacity:1; }
-  .glow > * { position:relative; z-index:1; }
-  .lift { transition:transform .3s cubic-bezier(.34,1.25,.64,1), box-shadow .3s ease; }
-  .lift:hover { transform:translateY(-3px); }
-  .lift:active { transform:translateY(-1px) scale(.995); }
+  .lift { transition:background-color .15s cubic-bezier(.22,1,.36,1), border-color .15s cubic-bezier(.22,1,.36,1), color .15s cubic-bezier(.22,1,.36,1), transform .12s cubic-bezier(.22,1,.36,1); }
+  .lift:active { transform:scale(.98); }
 
   /* Three stacked layers -- a radial bloom, an 118deg pinstripe and a diagonal ramp -- were
      imitating the ribbed gradient the brand ships. heroCss serves the real one. */
   .hero { border-radius:20px; padding:22px 24px; overflow:hidden; color:${C.heroText}; display:flex; flex-direction:column;
     ${heroCss("evergreen")}
     box-shadow:0 10px 24px rgba(0,33,31,.28), 0 30px 64px rgba(0,33,31,.32), inset 0 1px 0 rgba(255,255,255,.10); border:1px solid rgba(0,33,31,.5); }
-  .hero-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; color:rgba(217,232,225,.8); margin-bottom:16px; }
+  .hero-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; color:rgba(217,232,225,.8); margin-bottom:16px; }
   .hero-dot { width:6px; height:6px; border-radius:99px; background:${C.mistDeep}; box-shadow:0 0 0 3px rgba(103,165,170,.28); animation:breathe 2.4s ease-in-out infinite; }
   .hero-range { margin-left:auto; font-family:var(--font-text); font-weight:600; font-size:12px; color:rgba(217,232,225,.6); background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); border-radius:99px; padding:3px 11px; }
   .hero-body { display:grid; grid-template-columns:minmax(0,1.22fr) minmax(0,1fr); gap:22px; flex:1; align-items:stretch; }
@@ -646,7 +635,7 @@ const CSS = `
   @media (max-width:900px){ .topgrid{ grid-template-columns:1fr; } }
   .lens { font-family:var(--font-text); font-size:12px; font-weight:600; color:${C.slate}; background:${C.mist}66; border:1px solid ${C.hair}; border-radius:99px; padding:2px 8px; margin-left:8px; }
   .fin { position:relative; } .fin::before { content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px; border-radius:0 3px 3px 0; background:linear-gradient(180deg,${C.evergreen},${C.meadow}); }
-  .kick { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; color:${C.slate}; margin-bottom:14px; }
+  .kick { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; color:${C.slate}; margin-bottom:14px; }
   .kb { width:3px; height:13px; border-radius:2px; background:${C.evergreen}; } .kb-m { background:${C.meadow}; }
   .src { margin-left:auto; font-family:var(--font-text); font-size:12px; font-weight:600; color:${C.slate}; background:${C.parchment}; border:1px solid ${C.hair}; border-radius:6px; padding:2px 8px; }
   .pnl-card { padding:20px 22px 20px 26px; }
@@ -661,13 +650,13 @@ const CSS = `
 
   .pulse { position:relative; background:linear-gradient(180deg,#fff,${C.parchment}); border:1px solid ${C.hair}; border-radius:16px; padding:15px 18px 18px 22px; margin-bottom:18px; box-shadow:var(--sh-rest), var(--hl); }
   .pulse::before { content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px; border-radius:0 3px 3px 0; background:linear-gradient(180deg,${C.meadow},${C.sprout}); }
-  .pulse-head { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; color:${C.slate}; margin-bottom:14px; }
+  .pulse-head { display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:12px; font-weight:600; color:${C.slate}; margin-bottom:14px; }
   .pulse-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
   @media (max-width:820px){ .pulse-grid{ grid-template-columns:1fr 1fr; } }
   @media (max-width:520px){ .pulse-grid{ grid-template-columns:1fr; } }
   .ptile { background:#fff; border:1px solid ${C.hair}; border-radius:12px; padding:13px 14px; box-shadow:var(--sh-rest), var(--hl); cursor:default; }
   .ptile.click { cursor:pointer; }
-  .ptile:hover { box-shadow:var(--sh-lift), var(--hl); border-color:#E3D9C9; }
+  .ptile:hover { border-color:#E3D9C9; }
   .ptile-top { display:flex; align-items:center; gap:8px; margin-bottom:11px; }
   .ptile-label { font-family:var(--font-text); font-size:12px; color:${C.slate}; font-weight:600; }
   .ptile-row { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; }
@@ -686,7 +675,6 @@ const CSS = `
   .sec-head { display:flex; align-items:center; gap:13px; width:100%; background:none; border:none; padding:16px 20px; cursor:pointer; text-align:left; border-radius:16px; transition:background .25s ease; }
   .sec-head:hover { background:linear-gradient(180deg,#fff, ${C.parchment}88); }
   .chip { display:inline-flex; align-items:center; justify-content:center; border-radius:10px; flex-shrink:0; transition:transform .3s cubic-bezier(.34,1.4,.64,1); }
-  .sec-head:hover .chip { transform:scale(1.06); }
   .sec-title { font-family:var(--font-display); font-size:16px; font-weight:600; color:${C.ink}; letter-spacing:-.01em; white-space:nowrap; }
   .sec-sum { font-family:var(--font-text); font-size:13px; color:${C.muted}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sec-watch { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-text); font-size:12px; font-weight:600; color:${C.flagText}; background:${C.flagBg}; border-radius:7px; padding:3px 9px; white-space:nowrap; }
@@ -700,8 +688,8 @@ const CSS = `
   .live-dot { width:6px; height:6px; border-radius:99px; background:${C.meadow}; animation:breathe 2.2s ease-in-out infinite; }
 
   .deck { display:grid; gap:10px; }
-  .dcard { background:linear-gradient(160deg,#fff,${C.parchment}); border:1px solid ${C.hair}; border-radius:12px; padding:12px 14px 13px; cursor:pointer; text-align:left; overflow:hidden; box-shadow:var(--sh-rest); transition:transform .28s cubic-bezier(.34,1.25,.64,1), box-shadow .28s ease, background .25s ease; }
-  .dcard.off:hover { transform:translateY(-3px); box-shadow:var(--sh-lift); }
+  .dcard { background:linear-gradient(160deg,#fff,${C.parchment}); border:1px solid ${C.hair}; border-radius:12px; padding:12px 14px 13px; cursor:pointer; text-align:left; overflow:hidden; box-shadow:var(--sh-rest); transition:border-color .15s cubic-bezier(.22,1,.36,1), background-color .15s cubic-bezier(.22,1,.36,1); }
+  .dcard.off:hover { border-color:${C.sprout}; }
   .dcard.on { background:#fff; border-radius:12px 12px 0 0; border-bottom-color:#fff; box-shadow:var(--sh-raise); }
   .dcard-accent { position:absolute; top:0; left:0; right:0; height:3px; border-radius:3px 3px 0 0; z-index:2; }
   .dhead { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
@@ -715,7 +703,7 @@ const CSS = `
 
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
   @media (max-width:640px){ .cols{ grid-template-columns:1fr; } }
-  .colhead { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; color:${C.slate}; margin-bottom:8px; }
+  .colhead { font-family:var(--font-display); font-size:12px; font-weight:600; color:${C.slate}; margin-bottom:8px; }
   .row { display:flex; align-items:baseline; gap:10px; padding:7px 0; font-family:var(--font-text); font-size:13px; color:${C.body}; border-top:1px solid ${C.parchment}; }
   .row span:first-child { flex:1; }
   .row b { font-family:var(--font-display); font-weight:600; color:${C.ink}; font-variant-numeric:tabular-nums; }
@@ -739,7 +727,7 @@ const CSS = `
   .cashcol-v { font-family:var(--font-display); font-size:12px; font-weight:600; color:${C.ink};
     min-height:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cashcol-track { width:100%; max-width:44px; flex:1; display:flex; align-items:flex-end; background:${C.parchment}; border-radius:7px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,46,44,.05); }
-  .cashcol-fill { width:100%; border-radius:7px 7px 0 0; transition:height .8s cubic-bezier(.22,1,.36,1); box-shadow:inset 0 1px 0 rgba(255,255,255,.3); overflow:hidden; }
+  .cashcol-fill { width:100%; border-radius:3px 3px 0 0; transition:height .5s cubic-bezier(.22,1,.36,1); overflow:hidden; }
   .cashcol:hover .cashcol-fill { filter:brightness(.94); }
   .cashcol-m { font-family:var(--font-text); font-size:12px; color:${C.muted};
     max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -758,7 +746,7 @@ const CSS = `
   .fe .fvRow { transition:background .15s ease; }
   .fe .fvRow:hover { background:${C.parchment}; }
   .fe .ptile { transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-  .fe .ptile:hover { transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,46,44,.09); border-color:${C.sprout}; }
+  .fe .ptile:hover { border-color:${C.sprout}; }
   .fe .oproster { transition:filter .15s ease; }
   .fe .oproster:hover { filter:brightness(1.12); }
   .opgrid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
@@ -964,7 +952,7 @@ function GrowthChart({ g }) {
 function GKpi({ label, value, valColor = C.ink, sub }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 15px", border: `1px solid ${C.hair}`, borderRadius: 12, background: C.parchment }}>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</div>
       <div style={{ ...opBig, fontSize: 24, color: valColor, marginTop: 4 }}>{value}</div>
       <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted, marginTop: 3 }}>{sub}</div>
     </div>
@@ -974,7 +962,7 @@ function GrowthBlock({ g }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: C.muted }}>Growth</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.muted }}>Growth</span>
         <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>active members · trailing 12 months</span>
       </div>
       <div className="opgrowgrid">
@@ -1020,7 +1008,7 @@ function RenewalRow({ r }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{ width: 7, height: 7, borderRadius: 99, background: m.dot, border: m.tone === "act" ? `1px solid ${C.amber}` : "none", flexShrink: 0 }} />
         <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
-        {r.first && <span title="First renewal, higher churn risk" style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: C.amber, background: C.flagBg, borderRadius: 4, padding: "1px 5px" }}>1ST</span>}
+        {r.first && <span title="First renewal, higher churn risk" style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.amber, background: C.flagBg, borderRadius: 4, padding: "1px 5px" }}>1ST</span>}
       </div>
       <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: m.val, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{kc(r.v)}</span>
       <span style={{ display: "flex", alignItems: "center", gap: 6, justifySelf: "start" }}>
@@ -1047,7 +1035,7 @@ function RenewalQueue({ rn }) {
       <div style={{ padding: "15px 16px 14px" }}>
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <div>
-            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: C.ink }}>Renewals · Next 90 Days</span>
+            <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.ink }}>Renewals · Next 90 Days</span>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
               <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{kc(rn.book)}</span>
               <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>across {rn.count} members</span>
@@ -1087,7 +1075,7 @@ function RecruitingPanel({ r }) {
   return (
     <div style={{ border: `1px solid ${C.hair}`, borderRadius: 14, background: C.surface, padding: "15px 16px 16px", display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: C.ink }}>Recruiting · Pipeline</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.ink }}>Recruiting · Pipeline</span>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5 }}>
           <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.total}</span>
           <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}>in pipeline</span>
@@ -1140,7 +1128,7 @@ function RenewalCalendar({ cal }) {
           );
         })}
       </div>
-      <div style={{ marginTop: 10, fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}><span style={{ color: C.meadow, fontWeight: 600 }}>Shaded</span> = inside the 90-day window.</div>
+      <div style={{ marginTop: 28, fontFamily: "var(--font-text)", fontSize: 12, color: C.muted }}><span style={{ color: C.meadow, fontWeight: 600 }}>Shaded</span> = inside the 90-day window</div>
     </div>
   );
 }
@@ -1170,7 +1158,7 @@ function RecoverPanel({ recover, action, onOpen }) {
     </div>
   );
 }
-const OpCtxLabel = ({ children }) => <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: C.muted, marginBottom: 9 }}>{children}</div>;
+const OpCtxLabel = ({ children }) => <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 9 }}>{children}</div>;
 function MembersGrowthBody({ mg, recruiting, onOpen }) {
   const pay = mg.pay || {};
   return (

@@ -12,8 +12,7 @@ import { Select, Tabs } from "./controls.jsx";
 import Money from "./Money.jsx";
 import { fmtMonth } from "./words.js";
 
-const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
-                  textTransform: "none" };
+const EYEBROW = { fontFamily: F.num, fontSize: 12 };
 
 /** The dark band: which entities carry shared cost, and which month is on screen. */
 export function DarkBar({ businesses, entity, onEntity, month, months, onMonth }) {

@@ -27,7 +27,7 @@ import { useAiEmployees } from "./useAiEmployees.js";
 import Onboarding from "./Onboarding.jsx";
 import { useOnboarding } from "./useOnboarding.js";
 import Assistant from "./Assistant.jsx";
-import { SpringSignature, setBrand, ribbedHero, Icon , HeroMark} from "./Brand.jsx";
+import { SpringSignature, setBrand, ribbedHero, Icon } from "./Brand.jsx";
 import { ProductIcon, iconFor } from "./brand/productIcons.jsx";
 import { applyBrand, applyType } from "./palette.js";
 import { PoweredByAxcion } from "./brand/PoweredBy.jsx";
@@ -126,11 +126,34 @@ function Source({ name }) {
   );
 }
 
+/* Sentence case for labels that arrive Title Cased ("Combined Profit" -> "Combined profit"),
+   leaving acronyms (GCI, NOI) alone. */
+const sentence = (str) => String(str || "").split(" ")
+  .map((w, i) => (i === 0 || /^[A-Z0-9]{2,}$/.test(w) ? w : w.toLowerCase())).join(" ");
+
+/* The Portfolio strip's four figures, by metric key (services/metrics._scorecards). */
+const STRIP_KEYS = new Set(["combined_profit", "gci", "units_closed", "pending"]);
+
+/* Where a figure came from, as one muted tag in the data face. The name is the server's
+   (Scorecard.source), in the same words as the source list in the top bar: a client-side guess
+   would call a SkySlope brokerage's closings "Sisu", and SkySlope's own name is not ours to show.
+   No source, no tag: a seeded placeholder came from no system. */
+function SourceTag({ of, onDark }) {
+  if (!of) return null;
+  return (
+    <span style={{
+      fontFamily: "var(--font-data)", fontSize: 11, letterSpacing: "0.01em", lineHeight: "16px",
+      color: onDark ? T.onDarkMute : T.tertiary, padding: "0 6px", borderRadius: 4,
+      border: `1px solid ${onDark ? "rgba(239,240,236,0.14)" : T.line}`, whiteSpace: "nowrap",
+    }}>{of}</span>
+  );
+}
+
 function Eyebrow({ children, onDark }) {
   return (
     <div style={{
-      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
-      textTransform: "none", color: onDark ? T.poppy : T.poppyText,
+      fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500,
+      color: onDark ? T.onDarkMute : T.tertiary,
     }}>{children}</div>
   );
 }
@@ -139,7 +162,7 @@ function PanelLabel({ children, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
       <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.slate }}>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate }}>
         {children}
       </span>
     </div>
@@ -216,11 +239,11 @@ function OpTile({ d, onDrill }) {
   const clickable = Boolean(d.key) && Boolean(onDrill);
   const Tag = clickable ? "button" : "div";
   return (
-    <Tag onClick={clickable ? () => onDrill(d.key) : undefined} className={clickable ? "cc-card" : undefined}
+    <Tag onClick={clickable ? () => onDrill(d.key) : undefined} className={clickable ? "cc-card cc-optile" : undefined}
       style={{ display: "block", textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
         border: "none", background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, fontWeight: 500 }}>{d.label}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, fontWeight: 500 }}>{sentence(d.label)}</span>
         {clickable && <span style={{ marginLeft: "auto", fontSize: 12, color: T.muted }}>↗</span>}
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -371,62 +394,73 @@ function CompositionBar({ composition }) {
   if (!segs.length) return null;
   return (
     <div>
-      <div style={{ display: "flex", height: 42, borderRadius: 8, overflow: "hidden", gap: 3 }}>
+      <div style={{ display: "flex", height: 16, gap: 2 }}>
         {segs.map((s, i) => (
-          <div key={i} style={{ width: `${s.pct}%`, background: s.accent, display: "flex", alignItems: "center", paddingLeft: 12, minWidth: 54 }}>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: "#fff" }}>{Math.round(s.pct)}%</span>
-          </div>
+          <div key={i} style={{ width: `${s.pct}%`, background: s.accent,
+            borderRadius: i === 0 ? "4px 2px 2px 4px" : i === segs.length - 1 ? "2px 4px 4px 2px" : 2 }} />
         ))}
       </div>
-      <div style={{ display: "flex", gap: 22, marginTop: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px 24px", marginTop: 20 }}>
         {segs.map((s, i) => (
-          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: s.accent }} />
-            <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.onDark, fontWeight: 600 }}>{s.name}</span>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 13, color: s.accent, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{usd(s.revenue)}</span>
-          </span>
+          <div key={i} style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: s.accent, flexShrink: 0 }} />
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.onDarkMute }}>{s.name}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+              <span style={{ fontFamily: "var(--font-data)", fontSize: 20, fontWeight: 500, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>{usd(s.revenue)}</span>
+              <span style={{ fontFamily: "var(--font-data)", fontSize: 13, color: T.onDarkMute, fontVariantNumeric: "tabular-nums" }}>{Math.round(s.pct)}%</span>
+            </div>
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
-function AreaCard({ area, onOpen }) {
+/* A business card: revenue and NOI, then the business's own figures from the Portfolio strip
+   (agents producing, loans funded, active members), so each figure sits beside the business it
+   describes. The whole card opens that business's page, where every figure has its drill. */
+function AreaCard({ area, onOpen, figures = [] }) {
   const a = area;
   const hasRevenue = a.revenue != null;
+  const label = { fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary };
+  const figure = { fontFamily: "var(--font-data)", fontSize: 28, fontWeight: 500, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" };
   return (
-    <button onClick={() => onOpen(a.key)} className="cc-card" style={{
+    <button onClick={() => onOpen(a.key)} className="cc-card cc-area" style={{
       textAlign: "left", background: T.white, border: `1px solid ${T.line}`, borderTop: `3px solid ${a.accent}`,
-      borderRadius: 14, padding: 20, cursor: "pointer",
+      borderRadius: 14, padding: 24, cursor: "pointer", font: "inherit",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 20 }}>
         <div>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{a.name}</div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 2 }}>{a.tag}</div>
+          <div style={{ ...label, marginTop: 4 }}>{a.tag}</div>
         </div>
         <Dot status={a.status} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-        <div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginBottom: 3 }}>Revenue</div>
+      <div className="cc-area-split" style={{ "--cc-figs": figures.length }}>
+        <div className="cc-area-fig">
+          <div style={{ ...label, marginBottom: 8 }}>Revenue</div>
           {hasRevenue ? (
             <>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{usd(a.revenue)}</div>
-              <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 4 }}>
-                NOI <span style={{ color: a.ink, fontWeight: 600 }}>{signed(a.noi)}</span> · {a.margin}%
+              <div style={figure}>{usd(a.revenue)}</div>
+              <div style={{ ...label, marginTop: 8 }}>
+                NOI <span style={{ color: T.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{signed(a.noi)}</span> · {a.margin}% margin
               </div>
             </>
           ) : a.key === "becollective" ? (
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, maxWidth: 160, lineHeight: 1.4 }}>
-              Operational view coming · GHL segment configured
-            </div>
+            <div style={{ ...label, lineHeight: 1.5 }}>Operational view coming · GHL segment configured</div>
           ) : (
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, maxWidth: 150, lineHeight: 1.4 }}>
-              Connect QuickBooks for revenue
-            </div>
+            <div style={{ ...label, lineHeight: 1.5 }}>Connect QuickBooks for revenue</div>
           )}
         </div>
-        <Spark data={a.trend} color={a.accent} />
+        {figures.map((f) => (
+          <div key={f.key || f.label} className="cc-area-fig">
+            <div style={{ ...label, marginBottom: 8 }}>{sentence(f.label)}</div>
+            <div style={figure}>{f.value}</div>
+            {f.sub && <div style={{ ...label, marginTop: 8 }}>{f.sub}</div>}
+          </div>
+        ))}
       </div>
     </button>
   );
@@ -456,6 +490,20 @@ function Overview({ data, onOpen, onDrill }) {
   const orderedCards = preferredCards.length
     ? preferredCards
     : Object.values(areas || {}).filter(Boolean);
+  /* The strip keeps the four figures an owner reads first. Every other tile moves into the card
+     of the business it describes when that card is on this page, and stays in the strip when it
+     is not, so a tenant without that business still sees it and nothing is dropped. Keyed on the
+     metric key, which the platform defines; never on a tile's position or label. */
+  const cardKeys = new Set(orderedCards.map((a) => a.key));
+  const figuresFor = {};
+  const strip = [];
+  for (const sc of scorecards || []) {
+    if (!STRIP_KEYS.has(sc.key) && cardKeys.has(sc.business_key)) {
+      (figuresFor[sc.business_key] = figuresFor[sc.business_key] || []).push(sc);
+    } else {
+      strip.push(sc);
+    }
+  }
   const fwAvailable = fw.available !== false && buyerClosings != null;
   const { src: fwSource, partner: fwPartner } = fwNames(fw);
 
@@ -463,23 +511,22 @@ function Overview({ data, onOpen, onDrill }) {
   const anySample = Object.values(areas || {}).some((a) => a && a.sample);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {anySample && <SampleBanner />}
       {/* Hero */}
       <div style={{
-        position: "relative", overflow: "hidden", borderRadius: 16, padding: 28,
+        position: "relative", overflow: "hidden", borderRadius: 16, padding: 32,
         ...ribbedHero("evergreen"),
       }}>
-        <HeroMark />
         <Eyebrow onDark>Portfolio · {periodLabel}</Eyebrow>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 34, flexWrap: "wrap", margin: "16px 0 24px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 48, flexWrap: "wrap", margin: "16px 0 32px" }}>
           <div>
             <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.onDarkMute, marginBottom: 5 }}>Portfolio revenue · {(period?.label || "month to date").toLowerCase()}</div>
             {hasRevenue ? (
-              <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                <span style={{ fontFamily: "var(--font-display)", fontSize: 46, fontWeight: 600, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(portfolio.revenue)}</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 48, fontWeight: 500, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(portfolio.revenue)}</span>
                 {portfolio.mom != null && (
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: portfolio.mom < 0 ? T.petal : T.sprout, background: "rgba(184,204,184,0.14)", borderRadius: 6, padding: "3px 8px" }}>{portfolio.mom >= 0 ? "+" : ""}{portfolio.mom}% MoM</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: portfolio.mom < 0 ? T.petal : T.sprout, background: "rgba(239,240,236,0.08)", borderRadius: 6, padding: "4px 8px", whiteSpace: "nowrap" }}>{portfolio.mom >= 0 ? "+" : ""}{portfolio.mom}% vs last month</span>
                 )}
               </div>
             ) : (
@@ -490,7 +537,7 @@ function Overview({ data, onOpen, onDrill }) {
           </div>
           <div style={{ paddingBottom: 4 }}>
             <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.onDarkMute, marginBottom: 5 }}>Cash on hand</div>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>{portfolio.cash != null ? usd(portfolio.cash) : "—"}</span>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 28, fontWeight: 500, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>{portfolio.cash != null ? usd(portfolio.cash) : "—"}</span>
           </div>
         </div>
         <CompositionBar composition={portfolio.composition} />
@@ -498,7 +545,7 @@ function Overview({ data, onOpen, onDrill }) {
 
       {/* Scorecards */}
       <div>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "2px 2px 12px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "0 0 12px" }}>
           <Eyebrow>At a glance</Eyebrow>
           {/* Counted, not asserted: "all three" was true only for the tenant this was built for. */}
           <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
@@ -512,7 +559,7 @@ function Overview({ data, onOpen, onDrill }) {
           </span>
         </div>
         <div className="cc-score">
-          {scorecards.map((s, i) => {
+          {strip.map((s, i) => {
             const clickable = Boolean(s.key) && Boolean(onDrill);
             const Tag = clickable ? "button" : "div";
             return (
@@ -521,29 +568,28 @@ function Overview({ data, onOpen, onDrill }) {
                 style={{
                   textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
                   background: T.white, border: `1px solid ${T.line}`,
-                  borderRadius: 12, padding: "16px 16px", cursor: clickable ? "pointer" : "default",
+                  borderRadius: 14, padding: 20, cursor: clickable ? "pointer" : "default",
                 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 2, background: dotFor(s.business_key, areas) }} />
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, fontWeight: 500 }}>{s.label}</span>
-                  {clickable && <span style={{ marginLeft: "auto", fontSize: 12, color: T.muted }}>↗</span>}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, fontWeight: 500 }}>{sentence(s.label)}</span>
+                  <span style={{ marginLeft: "auto" }}><SourceTag of={s.source} /></span>
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 600, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
-                <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 6 }}>{s.sub}</div>
+                <div style={{ fontFamily: "var(--font-data)", fontSize: 32, fontWeight: 500, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+                <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, marginTop: 8 }}>{s.sub}</div>
               </Tag>
             );
           })}
         </div>
       </div>
 
-      {/* Business cards — equal, one row */}
+      {/* Business cards, two to a row */}
       <div className="cc-cards">
-        {orderedCards.map((a) => <AreaCard key={a.key} area={a} onOpen={onOpen} />)}
+        {orderedCards.map((a) => <AreaCard key={a.key} area={a} onOpen={onOpen} figures={figuresFor[a.key]} />)}
       </div>
 
       {/* Flywheel alert */}
       <button onClick={() => onOpen("flywheel")} className="cc-card" style={{
-        textAlign: "left", cursor: "pointer", background: T.evergreen, border: "none", borderRadius: 14, padding: 22,
+        textAlign: "left", cursor: "pointer", background: T.evergreen, border: "none", borderRadius: 14, padding: 24,
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -561,7 +607,7 @@ function Overview({ data, onOpen, onDrill }) {
         </div>
         <div style={{ textAlign: "right" }}>
           {fwAvailable && annualGap != null && (
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 600, color: T.poppy, fontVariantNumeric: "tabular-nums" }}>~{usd(annualGap)}</div>
+            <div style={{ fontFamily: "var(--font-data)", fontSize: 28, fontWeight: 500, color: T.onDark, fontVariantNumeric: "tabular-nums" }}>~{usd(annualGap)}</div>
           )}
           <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute }}>
             {fwAvailable ? "/yr unrealized · view flywheel →" : "view flywheel →"}
@@ -579,7 +625,7 @@ function Overview({ data, onOpen, onDrill }) {
 function LoanOfficers({ los, onDrill }) {
   const maxRev = Math.max(...los.map((l) => l.revenue), 1);
   const cell = (w) => ({ width: w, textAlign: "right", fontVariantNumeric: "tabular-nums" });
-  const head = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted };
+  const head = { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.muted };
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -842,7 +888,7 @@ function MoneyCard({ fw }) {
   return (
     <Card style={cardStyle}>
       <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginBottom: 8 }}>Revenue left on the table</div>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 38, fontWeight: 600, color: T.poppy, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(fw.gap_dollars ?? 0)}</div>
+      <div style={{ fontFamily: "var(--font-data)", fontSize: 40, fontWeight: 500, color: T.onDark, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{usd(fw.gap_dollars ?? 0)}</div>
       <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginTop: 8 }}>{label} at {fw.capture_pct ?? 0}% capture</div>
       <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.onDarkMute, marginTop: 14, lineHeight: 1.55 }}>
         {fw.lost ?? 0} uncaptured deals × {usd(share)} JV share per loan — revenue Spring already co-owns and isn't
@@ -989,7 +1035,7 @@ function Splash({ label, tone }) {
       <div style={{ textAlign: "center" }}>
         <SpringSignature tone="light" height={52} />
 
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.sprout, marginTop: 8, textTransform: "none" }}>Command Center</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.sprout, marginTop: 8 }}>Command Center</div>
         <div style={{ marginTop: 22, fontFamily: "var(--font-text)", fontSize: 14, color: tone === "error" ? T.petal : T.onDarkMute }}>{label}</div>
       </div>
     </div>
@@ -1320,12 +1366,16 @@ export default function CommandCenter() {
   return (
     <div style={{ background: T.parchment, minHeight: "100vh", fontFamily: "var(--font-text)" }}>
       <style>{`
-        .cc-card { transition: transform .15s ease, box-shadow .15s ease; }
-        .cc-card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,46,44,.10); }
-        .cc-nav { transition: background .12s ease; }
+        .cc-card { transition: background-color .15s cubic-bezier(0.22,1,0.36,1), border-color .15s cubic-bezier(0.22,1,0.36,1), transform .12s cubic-bezier(0.22,1,0.36,1); }
+        /* Hover is a quiet edge, never a lift. !important because each card sets its border inline. */
+        .cc-card:hover { border-color: ${T.sprout} !important; }
+        .cc-optile:hover { box-shadow: inset 0 0 0 1px ${T.sprout}; }
+        .cc-card:active { transform: scale(.98); }
+        .cc-nav { transition: background-color .15s cubic-bezier(0.22,1,0.36,1), color .15s cubic-bezier(0.22,1,0.36,1); }
+        .cc-nav:hover { background-color: rgba(239,240,236,0.06) !important; }
         .cc-nav:focus-visible, .cc-card:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
-        .cc-cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
-        .cc-score { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+        .cc-cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+        .cc-score { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
         .cc-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .cc-twocol { display: flex; gap: 18px; flex-wrap: wrap; align-items: stretch; }
         .cc-skel { background: linear-gradient(90deg, ${T.line} 25%, ${T.parchment} 50%, ${T.line} 75%); background-size: 800px 100%; animation: cc-shimmer 1.4s linear infinite; }
@@ -1335,7 +1385,16 @@ export default function CommandCenter() {
         .cc-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 190px; background: ${T.white}; border: 1px solid ${T.line}; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,46,44,.12); padding: 6px; }
         @media (max-width: 900px) { .cc-score { grid-template-columns: repeat(2, minmax(0,1fr)); } }
         @media (max-width: 820px) { .cc-cards { grid-template-columns: 1fr; } }
-        @media (max-width: 560px) { .cc-score { grid-template-columns: 1fr; } }
+        @media (max-width: 340px) { .cc-score { grid-template-columns: 1fr; } }
+        @media (max-width: 560px) { .cc-score { gap: 12px; } }
+        .cc-area { display: flex; flex-direction: column; }
+        .cc-area-split { display: grid; gap: 24px; align-items: end;
+          grid-template-columns: minmax(0, 1.25fr) repeat(var(--cc-figs, 0), minmax(0, 1fr)); }
+        .cc-area-fig + .cc-area-fig { border-left: 1px solid ${T.line}; padding-left: 24px; }
+        @media (max-width: 560px) {
+          .cc-area-split { grid-template-columns: 1fr; gap: 16px; }
+          .cc-area-fig + .cc-area-fig { border-left: 0; padding-left: 0; border-top: 1px solid ${T.line}; padding-top: 16px; }
+        }
         @media (prefers-reduced-motion: reduce) { .cc-card, .cc-nav { transition: none; } .cc-card:hover { transform: none; } .cc-skel { animation: none; } }
 
         /* ── shell ──────────────────────────────────────────────────────────────────────
@@ -1345,8 +1404,8 @@ export default function CommandCenter() {
            375px a fixed 224px rail leaves the content ~100px and nothing is usable. */
         .cc-shell { display: flex; min-height: 100vh; }
         .cc-rail {
-          width: 224px; flex-shrink: 0; background: ${T.evergreen};
-          padding: 24px 16px; display: flex; flex-direction: column;
+          width: 240px; flex-shrink: 0; background: ${T.evergreen};
+          padding: 24px 12px; display: flex; flex-direction: column;
           box-sizing: border-box;          /* no global reset — padding must not widen the rail */
         }
         .cc-scrim { display: none; }
@@ -1355,9 +1414,9 @@ export default function CommandCenter() {
           .cc-rail {
             position: fixed; inset: 0 auto 0 0; z-index: 60; width: min(268px, 82vw);
             overflow-y: auto; transform: translateX(-100%);
-            transition: transform .22s ease; box-shadow: 0 0 40px rgba(0,46,44,.28);
+            transition: transform .22s cubic-bezier(0.22,1,0.36,1);
           }
-          .cc-rail.open { transform: none; }
+          .cc-rail.open { transform: none; box-shadow: 0 0 40px rgba(0,46,44,.28); }
           .cc-scrim { display: block; position: fixed; inset: 0; z-index: 55;
                       background: rgba(0,46,44,.38); }
           .cc-burger { display: inline-flex; }
@@ -1369,19 +1428,19 @@ export default function CommandCenter() {
         {navOpen && <div className="cc-scrim" onClick={() => setNavOpen(false)} aria-hidden />}
         {/* Rail */}
         <aside className={`cc-rail${navOpen ? " open" : ""}`} aria-label="Sections">
-          <div style={{ padding: "0 8px 22px" }}>
+          <div style={{ padding: "0 12px 24px" }}>
             <SpringSignature tone="light" height={30} />
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, color: T.sprout, marginTop: 6, textTransform: "none" }}>Command Center</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 400, color: T.onDarkMute, marginTop: 4 }}>Command center</div>
           </div>
           {navItems.map((n) => {
             const active = activeView === n.k;
-            return (
+            return [n.divide && <div key={n.k + "-rule"} style={{ height: 1, background: "rgba(239,240,236,0.10)", margin: "12px 12px 0" }} />, (
               <button key={n.k} className="cc-nav" onClick={() => goTo(n.k)} style={{
                 display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                background: active ? "rgba(248,245,242,0.10)" : "transparent", border: "none",
-                borderLeft: active ? `3px solid ${T.poppy}` : "3px solid transparent", borderRadius: 8,
-                padding: "10px 10px", cursor: "pointer", marginTop: n.divide ? 14 : 2,
-                borderTop: n.divide ? "1px solid rgba(248,245,242,0.10)" : "none", paddingTop: n.divide ? 16 : 10,
+                background: active ? "rgba(239,240,236,0.10)" : "transparent", border: "none",
+                boxShadow: active ? "inset 0 1px 0 rgba(255,255,255,0.08)" : "none", borderRadius: 8,
+                height: 36, padding: "0 12px", cursor: "pointer", marginTop: n.divide ? 12 : 2,
+                position: "relative",
               }}>
                 {/* A PLATFORM MODULE GETS ITS MARK; A BUSINESS GETS ITS COLOUR.
                     Not a style preference — the two are different kinds of thing and the rail
@@ -1407,7 +1466,7 @@ export default function CommandCenter() {
                                    tone={active ? T.onDark : T.onDarkMute} />
                     : <span style={{ width: 8, height: 8, borderRadius: 2, background: n.dot }} />}
                 </span>
-                <span style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: active ? 600 : 500, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
+                <span style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: active ? 500 : 400, color: active ? T.onDark : T.onDarkMute }}>{n.label}</span>
                 {n.k === "ai_employees" && ai.data && ai.data.awaiting_total > 0 && (
                   <span style={{
                     marginLeft: "auto", minWidth: 18, textAlign: "center", fontFamily: "var(--font-text)",
@@ -1416,14 +1475,14 @@ export default function CommandCenter() {
                   }}>{ai.data.awaiting_total}</span>
                 )}
               </button>
-            );
+            )];
           })}
           <div style={{ flex: 1 }} />
           {usingSample && (
             <div style={{ padding: "0 8px" }}>
               <span style={{
-                display: "inline-block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600,
-                letterSpacing: 0, textTransform: "none", color: T.sprout,
+                display: "inline-block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 500,
+                color: T.onDarkMute,
                 background: "rgba(184,204,184,0.12)", border: "1px solid rgba(184,204,184,0.20)",
                 borderRadius: 5, padding: "3px 8px",
               }}>Sample data</span>
@@ -1468,11 +1527,11 @@ export default function CommandCenter() {
             }
           />
 
-          <div style={{ padding: 26, maxWidth: 1100 }}>{content}</div>
+          <div style={{ padding: "clamp(16px, 4vw, 32px)", maxWidth: 1440, boxSizing: "border-box" }}>{content}</div>
           {/* Attribution sits in the SHELL, not in each view, so it is present on every tab by
               construction — including tabs nobody has written yet. A footer added per page is a
               footer that is missing from the next one. */}
-          <div style={{ padding: "0 26px", maxWidth: 1100 }}><PoweredByAxcion align="flex-start" /></div>
+          <div style={{ padding: "0 32px 32px", maxWidth: 1440, boxSizing: "border-box" }}><PoweredByAxcion align="flex-start" /></div>
         </main>
       </div>
 

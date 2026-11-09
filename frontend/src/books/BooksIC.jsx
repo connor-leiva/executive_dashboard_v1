@@ -89,8 +89,8 @@ export default function BooksIC({ isCFO = false }) {
                 return (
                   <div key={r.id} style={{ display: "flex", gap: 11, padding: "11px 0",
                     borderTop: i ? `1px solid ${T.line}` : "none", alignItems: "flex-start" }}>
-                    <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, textTransform: "none",
-                      letterSpacing: 0, color: active ? T.meadowInk : T.muted,
+                    <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
+                      color: active ? T.meadowInk : T.muted,
                       background: active ? "rgba(97,131,94,0.1)" : T.parchment, borderRadius: 5, padding: "3px 8px",
                       flexShrink: 0, marginTop: 1 }}>{active ? "auto" : "off"}</span>
                     <div style={{ flex: 1 }}>
@@ -112,9 +112,9 @@ export default function BooksIC({ isCFO = false }) {
                 );
               })}
               <div style={{ display: "flex", gap: 11, padding: "11px 0", borderTop: `1px solid ${T.line}`, alignItems: "flex-start" }}>
-                <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, textTransform: "none",
-                  letterSpacing: 0, color: T.poppyText, background: "rgba(250,128,105,0.1)", borderRadius: 5,
-                  padding: "3px 8px", flexShrink: 0, marginTop: 1 }}>stops</span>
+                <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
+                  color: T.poppyText, background: "rgba(250,128,105,0.1)", borderRadius: 5,
+                  padding: "3px 8px", flexShrink: 0, marginTop: 1 }}>Stops</span>
                 <div>
                   <div style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>Everything else</div>
                   <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 2 }}>

@@ -114,7 +114,7 @@ function MonthlyReview({ review, isCFO }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <Eyebrow onDark>Claude's monthly review</Eyebrow>
         <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
-          color: done ? T.sprout : T.daffodilText, background: done ? "rgba(184,204,184,0.16)" : T.daffodil,
+          color: done ? T.sprout : T.daffodilText, background: done ? "rgba(184,204,184,0.16)" : T.daffodilBg,
           borderRadius: 6, padding: "3px 10px" }}>
           {done ? "Signed off" : "Draft · awaiting CFO sign-off"}</span>
       </div>
