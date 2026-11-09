@@ -1580,7 +1580,7 @@ function Onboarding({ state, setState }) {
   const toggle = (key) => setState((s) => ({ ...s, done: { ...(s.done || {}), [key]: !s.done?.[key] } }));
   return (
     <Page title="Your first 30 days" subtitle="Your first weeks, one step at a time">
-      <Panel title="First 30 Days">
+      <Panel title="First 30 days">
         <div className="ut-steps">
           {ONBOARDING.map((item, idx) => (
             <label key={item.key} className={`ut-step ${state.done?.[item.key] ? "done" : ""}`}>

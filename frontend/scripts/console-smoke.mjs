@@ -17,7 +17,7 @@ const loginUrl = process.env.LOGIN_URL || "http://127.0.0.1:8000/api/v1/auth/log
 const tenantHost = process.env.TENANT_HOST || "utah-life.axcion.io";
 const email = process.env.CONSOLE_EMAIL || "justin@utahliferealestate.com";
 const password = process.env.CONSOLE_PASSWORD || "password123";
-const expectedText = (process.env.SMOKE_EXPECT || "Overview|Setup Checklist|Recent Activity|People|Courses|SOPs")
+const expectedText = (process.env.SMOKE_EXPECT || "Overview|Setup checklist|Recent activity|People|Courses|SOPs")
   .split("|")
   .map((value) => value.trim())
   .filter(Boolean);

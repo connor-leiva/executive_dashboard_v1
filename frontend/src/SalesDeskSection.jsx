@@ -757,7 +757,7 @@ function CommissionsCard({ businessKey, isEditor, usingSample }) {
         <span className="sd-title">Commissions</span>
         <span className="sd-sub">
           cash collected this month, by rep
-          {data.closed && <span className="sd-closed">closed{data.closed_at ? ` · ${new Date(data.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</span>}
+          {data.closed && <span className="sd-closed">Closed{data.closed_at ? ` · ${new Date(data.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</span>}
         </span>
         <span className="sd-spacer" />
         <select className="sd-sel" value={period || ""} onChange={(e) => load(e.target.value)}>

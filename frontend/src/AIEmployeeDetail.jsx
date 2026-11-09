@@ -137,7 +137,7 @@ function TriggerBanner({ ctx, trigger }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         {trigger === "condition" && (
           <span className="ai-trigger" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
-            color: T.teal, background: "#E6F0F1", borderRadius: 4, padding: "2px 6px" }}>TRIGGER</span>)}
+            color: T.teal, background: "#E6F0F1", borderRadius: 4, padding: "2px 6px" }}>Trigger</span>)}
         <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>
           {ctx.source}{ctx.label ? ` · ${ctx.label}` : ""}</span>
       </div>
@@ -382,7 +382,7 @@ function ArtifactRow({ a, open, onToggle, onDismiss, onShip, canManage, pending,
         <Icon name={KIND_ICON[a.kind] || "spark"} size={14} color={T.muted} />
         <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, flex: 1, minWidth: 0 }}>{a.title}</span>
         {a.payload && a.payload.voiced && (
-          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>IN VOICE</span>
+          <span title="Rewritten to match the saved voice profile" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: LANE.Creative.c, background: LANE.Creative.bg, borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>In voice</span>
         )}
         {a.dest_label && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, flexShrink: 0 }}>{a.dest_label}</span>}
         {pending ? <span className="ai-spin" style={{ width: 14, height: 14, borderRadius: 99, border: `2px solid ${T.line}`, borderTopColor: T.teal, flexShrink: 0 }} />
@@ -524,7 +524,7 @@ function RosterPanel({ employeeId, roster, canManage, onChanged, onAudit }) {
       ) : roster.map((r) => (
         <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.line}` }}>
           <span style={{ fontFamily: MONO, fontSize: 12, color: T.ink, flexShrink: 0 }}>{r.handle}</span>
-          {r.in_launch && <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.teal, background: "#E6F0F1", borderRadius: 999, padding: "1px 7px" }}>IN LAUNCH</span>}
+          {r.in_launch && <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.teal, background: "#E6F0F1", borderRadius: 999, padding: "1px 7px" }}>In launch</span>}
           <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.why}</span>
           <span title="priority" style={{ fontFamily: MONO, fontSize: 12, color: T.slate, flexShrink: 0 }}>▲ {r.priority}</span>
           {canManage && onAudit && (
@@ -793,7 +793,7 @@ export default function AIEmployeeDetail({ employee, role, writebackEnvOpen, onB
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 8px" }}>
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>{employee.name} built the response</span>
                 {status === "awaiting_approval" && (
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>DRAFT MODE</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.daffodilText, background: T.daffodilBg, border: `1px solid #F0E3AC`, borderRadius: 6, padding: "2px 8px" }}>Draft mode</span>
                 )}
               </div>
               {artifacts.map((a) => (

@@ -85,7 +85,8 @@ function Cell({ code, label }) {
 function ObligationsMatrix({ kinds, groups, onOpen }) {
   const GroupHeader = ({ label, count }) => (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: T.meadowBg, borderTop: `1px solid ${T.line}` }}>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{label}</span>
+      {/* Group keys arrive lowercase ("operating", "holding"); this label used to be uppercased by CSS. */}
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary }}>{label ? label[0].toUpperCase() + label.slice(1) : label}</span>
       <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.meadow }}>· {count}</span>
     </div>
   );
@@ -454,7 +455,7 @@ function ObligationDetail({ o, usingSample, onPreview }) {
       <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, lineHeight: 1.5 }}>{o.status_reason}</div>
       {rel.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary, marginBottom: 4 }}>Related Documents</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.tertiary, marginBottom: 4 }}>Related documents</div>
           {rel.map((d) => (
             <button key={d.id} onClick={() => onPreview(d)} className="cc-nav" style={{
               width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", margin: "0 -6px",

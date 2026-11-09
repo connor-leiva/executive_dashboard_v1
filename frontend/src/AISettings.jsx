@@ -346,7 +346,7 @@ function MediaTile({ a, onDelete, onSave }) {
         {a.is_image
           ? <img src={fileUrl(a.url)} alt={a.title || a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6, color: T.muted }}>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600 }}>VIDEO</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600 }}>Video</span>
               <span style={{ fontFamily: "monospace", fontSize: 12, padding: "0 8px", textAlign: "center", wordBreak: "break-all" }}>{a.filename}</span>
             </div>}
         <button onClick={() => onDelete(a.id)} title="Delete" style={{ position: "absolute", top: 6, right: 6, width: 22, height: 22, borderRadius: 99, border: "none", background: "rgba(11,46,44,0.55)", color: "#fff", cursor: "pointer", fontSize: 13, lineHeight: 1 }}>×</button>

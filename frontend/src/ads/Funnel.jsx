@@ -197,15 +197,15 @@ export default function Funnel({ rungs, spend, onDrill }) {
                     ever have. */}
                 <div className={`fn-figs${r.value ? " has-value" : ""}`}
                      style={{ marginTop: 7 }}>
-                  <Fig label="count" value={compact(r.n)} />
+                  <Fig label="Count" value={compact(r.n)} />
                   {r.value ? (
                     <Fig label={r.key === "closed" ? "contracted" : "cash"}
                          value={usd(r.value, 0)} />
                   ) : null}
-                  <Fig label="from previous"
+                  <Fig label="From previous"
                        value={r.conversion === null || r.conversion === undefined
                          ? "—" : pct(r.conversion, 1)} />
-                  <Fig label="cost each"
+                  <Fig label="Cost each"
                        value={r.cost_per === null || r.cost_per === undefined
                          ? "—" : usd(r.cost_per, 0)} />
                 </div>
