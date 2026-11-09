@@ -138,7 +138,7 @@ export function rowsFromList(rows, short) {
 export function Legend() {
   return (
     <span style={{ display: "inline-flex", gap: 10, flexWrap: "wrap", alignItems: "center", fontFamily: F.body,
-                   fontSize: 11.5, fontWeight: 400, color: L.muted }}>
+                   fontSize: 12, fontWeight: 400, color: L.muted }}>
       <span><span className="cx-dot" />changed by the cleanup</span>
       <Pill tone="red">Needs you</Pill>
       <Pill tone="gold">Duplicate?</Pill>
@@ -149,11 +149,11 @@ export function Legend() {
 
 function ForCell({ r }) {
   const { ov } = useNames();
-  const struck = { fontSize: 11.5, color: L.ghost, textDecoration: "line-through" };
+  const struck = { fontSize: 12, color: L.ghost, textDecoration: "line-through" };
   if (r.change && (r.gone || r.transfer)) {           // moved off this line, or out of every company's results
     const said = changeLabel(r.change, ov).replace(/^→ /, "Moved to ");
     return (
-      <span className="cx-for" style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, lineHeight: 1.45 }}>
+      <span className="cx-for" style={{ fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.45 }}>
         <strong style={{ display: "block", color: L.accentInk, fontWeight: 600 }}>{said}</strong>
         <span style={struck}>For {(r.wasFor || r.forWho).join(", ")}{r.line ? ` · ${r.line}` : ""}</span>
       </span>
@@ -161,14 +161,14 @@ function ForCell({ r }) {
   }
   const name = (n) => <strong style={{ color: r.change ? L.accentInk : L.deep, fontWeight: 600 }}>{n}</strong>;
   const who = r.transfer ? name("Transfer")
-    : r.shared && !r.forWho.length ? <>For {name("Shared")} <span style={{ fontSize: 11.5, color: L.muted }}>(your splits)</span></>
-    : <>For {name(r.forWho.join(", ") || "—")}{r.shared ? <span style={{ fontSize: 11.5, color: L.muted }}> and shared</span> : null}</>;
+    : r.shared && !r.forWho.length ? <>For {name("Shared")} <span style={{ fontSize: 12, color: L.muted }}>(your splits)</span></>
+    : <>For {name(r.forWho.join(", ") || "—")}{r.shared ? <span style={{ fontSize: 12, color: L.muted }}> and shared</span> : null}</>;
   return (
-    <span className="cx-for" style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, lineHeight: 1.45 }}>
+    <span className="cx-for" style={{ fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.45 }}>
       <span style={{ display: "block" }}>{who}
         {r.change && r.wasFor && r.wasFor.join() !== r.forWho.join() ? (
           <span style={{ ...struck, marginLeft: 6 }}>{r.wasFor.join(", ")}</span>) : null}</span>
-      <span style={{ fontSize: 11.5, color: L.muted }}>{r.transfer ? "Not income or a cost" : r.line}</span>
+      <span style={{ fontSize: 12, color: L.muted }}>{r.transfer ? "Not income or a cost" : r.line}</span>
     </span>
   );
 }
@@ -183,10 +183,10 @@ function TxLine({ r, signed, open, onToggle }) {
     <div className="cx-row" onClick={onToggle} style={open ? { background: L.totalBand } : null}>
       <span className="cx-date" style={{ fontFamily: F.num, fontSize: 12, color: L.faint, paddingTop: 2,
                                         fontVariantNumeric: "tabular-nums" }}>{dayLabel(r.date)}</span>
-      <span className="cx-payee" style={{ fontFamily: F.body, fontSize: 13.5, lineHeight: 1.4 }}>
+      <span className="cx-payee" style={{ fontFamily: F.body, fontSize: 14, lineHeight: 1.4 }}>
         {r.status === "changed" ? <span className="cx-dot" title="The cleanup changed how this is booked" /> : null}
         <span style={{ fontWeight: 600, color: r.payee ? L.deep : L.muted }}>{r.payee || "Payee not recorded"}</span>
-        {r.paidLine ? <span style={{ display: "block", fontSize: 11.5, color: L.muted }}>{r.paidLine}</span> : null}
+        {r.paidLine ? <span style={{ display: "block", fontSize: 12, color: L.muted }}>{r.paidLine}</span> : null}
         {mark ? <span style={{ display: "block", marginTop: 4 }}>{mark}</span> : null}
       </span>
       <ForCell r={r} />
@@ -194,13 +194,13 @@ function TxLine({ r, signed, open, onToggle }) {
                                         overflowWrap: "anywhere" }}>{r.what}</span>
       <span className="cx-amt">
         {r.gone ? (
-          <span style={{ ...NUM, display: "block", fontSize: 13.5, fontWeight: 600, color: L.ghost,
+          <span style={{ ...NUM, display: "block", fontSize: 14, fontWeight: 600, color: L.ghost,
                          textDecoration: "line-through" }}>{cents(r.was)}</span>
         ) : (
-          <span style={{ ...NUM, display: "block", fontSize: 13.5, fontWeight: 600, color: inFlow ? L.accentInk : L.deep }}>
+          <span style={{ ...NUM, display: "block", fontSize: 14, fontWeight: 600, color: inFlow ? L.accentInk : L.deep }}>
             {inFlow ? "+" : ""}{cents(r.amount)}</span>
         )}
-        {r.full ? <span style={{ ...NUM, display: "block", fontSize: 11, color: L.muted, marginTop: 1 }}>
+        {r.full ? <span style={{ ...NUM, display: "block", fontSize: 12, color: L.muted, marginTop: 1 }}>
           of {cents(r.full)}</span> : null}
       </span>
       <button className="cx-dots" aria-label={`More about ${r.payee || "this transaction"}`} aria-expanded={open}
@@ -247,7 +247,7 @@ function TxCard({ r }) {
       {facts.length ? (
         <dl className="cx-kv">{facts.map(([k, v]) => <Detail key={k} label={k}>{v}</Detail>)}</dl>
       ) : (
-        <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+        <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 13, color: L.muted }}>
           Nothing more on file: the cleanup didn&rsquo;t change this one.</div>
       )}
       <ChangeArea r={r} />
@@ -296,11 +296,11 @@ export function TxList({ rows, signed, income, year, noun: nounOf }) {
           <div key={g.month ?? "none"}>
             <div className="cx-month">
               <span style={{ minWidth: 0 }}>
-                <span style={{ fontFamily: F.num, fontWeight: 700, color: L.deep, fontSize: 13 }}>
+                <span style={{ fontFamily: F.num, fontWeight: 600, color: L.deep, fontSize: 13 }}>
                   {g.month ? monthName(g.month, year) : "No date"}</span>
                 <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginLeft: 10 }}>{count}</span>
               </span>
-              {signed ? <span /> : <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: L.deep }}>
+              {signed ? <span /> : <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: L.deep }}>
                 {cents(g.rows.reduce((n, r) => n + r.amount, 0))}</span>}
               <span />
             </div>
@@ -328,7 +328,7 @@ const TX_CSS = `
   .cx-what { grid-area: what; min-width: 0; } .cx-amt { grid-area: amt; text-align: right; }
   .cx-dots, .cx-dots-h { grid-area: dots; }
   .cx-dots { width: 28px; height: 24px; border-radius: 7px; border: 0; background: transparent; color: ${L.ghost};
-    cursor: pointer; font-size: 17px; line-height: 1; padding: 0 0 4px; font-weight: 700; margin-top: -2px; }
+    cursor: pointer; font-size: 17px; line-height: 1; padding: 0 0 4px; font-weight: 600; margin-top: -2px; }
   .cx-row:hover .cx-dots, .cx-dots[aria-expanded="true"] { color: ${L.deep}; background: ${L.track}; }
   .cx-dots:focus-visible { outline: 2px solid ${L.accent}; outline-offset: 1px; }
   .cx-dot { display:inline-block; width: 6px; height: 6px; border-radius: 50%; background: ${L.flagRing}; margin-right: 7px;
@@ -339,7 +339,7 @@ const TX_CSS = `
   .cx-kv { display:grid; grid-template-columns: 150px minmax(0,1fr); gap: 7px 14px; margin: 10px 0 0; max-width: 880px; }
   .cx-acts { display:flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
   .cx-act { height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid ${L.pillEdge}; background: ${L.paper};
-    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    color: ${L.bodyDim}; font-family: ${F.body}; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   .cx-act:hover { border-color: ${L.accentMuted}; color: ${L.deep}; }
   .cx-act.on { background: ${L.deep}; border-color: ${L.deep}; color: ${L.onDeep}; }
   .cx-act.ghost { border-style: dashed; background: transparent; }

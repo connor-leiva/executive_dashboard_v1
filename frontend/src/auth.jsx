@@ -113,7 +113,7 @@ export function Login({ onLogin }) {
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 2 }}>
           {offerRemember ? <RememberMe checked={remember} onChange={setRemember} /> : null}
           <a href="/forgot-password" style={{
-            marginLeft: "auto", fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 500,
+            marginLeft: "auto", fontFamily: "var(--font-text)", fontSize: 14, fontWeight: 500,
             color: T.poppy, textDecoration: "none",
           }} onClick={(e) => { e.preventDefault(); nav("/forgot-password"); }}>Forgot password?</a>
         </div>

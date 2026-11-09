@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { patchJSON, putJSON, postJSON, getJSON, uploadFile, fileUrl } from "../api.js";
 import { C, FD, FB, FM } from "./scorecardMath.js";
 
-const _label = { fontFamily: FM, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted, marginBottom: 8 };
+const _label = { fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.muted, marginBottom: 8 };
 const _field = { fontFamily: FB, fontSize: 13, color: C.ink, background: C.parchment, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "6px 9px" };
-const _btn = { fontFamily: FM, fontSize: 11.5, borderRadius: 8, padding: "6px 12px", cursor: "pointer", border: `1px solid ${C.hair}`, color: C.slate, background: "none" };
-const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 9.5, letterSpacing: ".08em", textTransform: "uppercase", color: C.muted };
+const _btn = { fontFamily: FM, fontSize: 12, borderRadius: 8, padding: "6px 12px", cursor: "pointer", border: `1px solid ${C.hair}`, color: C.slate, background: "none" };
+const _colHdr = { width: 92, textAlign: "right", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.muted };
 
 export default function ScorecardSettings({ groups, scope = "ulrg", onClose, onChanged }) {
   const gs = groups || [];
@@ -119,7 +119,7 @@ function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
       <div style={_label}>Measurables · add, rename or remove</div>
-      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginBottom: 8 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginBottom: 8 }}>
         Add a measurable to an office (starts manual — set its goal in Goals). Removing hides a row and keeps its history.
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -145,17 +145,17 @@ function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
         {rows.map((r, i) => (
           <div key={r.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ flex: "0 0 92px", fontFamily: FM, fontSize: 10.5, letterSpacing: ".05em", textTransform: "uppercase", color: C.slate }}>{r.group}</span>
+            <span style={{ flex: "0 0 92px", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color: C.slate }}>{r.group}</span>
             <input value={r.name} aria-label="Measurable name"
                    onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, name: e.target.value, dirty: true } : x))}
                    style={{ ..._field, flex: "1 1 auto" }} />
             {confirmId === r.metric_id ? (
               <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                 <button onClick={() => remove(r.metric_id)} disabled={busy === r.metric_id} aria-label={`Confirm remove ${r.name}`}
-                        style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.poppy, borderColor: C.poppy }}>
+                        style={{ ..._btn, padding: "4px 9px", fontSize: 12, color: C.poppy, borderColor: C.poppy }}>
                   {busy === r.metric_id ? "…" : "Remove"}
                 </button>
-                <button onClick={() => setConfirmId(null)} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.muted }}>Cancel</button>
+                <button onClick={() => setConfirmId(null)} style={{ ..._btn, padding: "4px 9px", fontSize: 12, color: C.muted }}>Cancel</button>
               </span>
             ) : (
               <button onClick={() => setConfirmId(r.metric_id)} aria-label={`Remove ${r.name}`} title="Remove this row"
@@ -182,7 +182,7 @@ function _blankSpec(ds) {
            filters: [], aggregate: { fn: "count" }, attribution: ds.attribution[0] };
 }
 const _specSummary = (s) => `${s.source}.${s.dataset} · by ${s.date_field} · ${s.filters?.length || 0} filter(s) · ${s.aggregate?.fn || "count"}${s.attribution === "office" ? " · per office" : ""}`;
-const _pill = (bg, fg) => ({ fontFamily: FM, fontSize: 9.5, letterSpacing: ".06em", textTransform: "uppercase", padding: "2px 7px", borderRadius: 99, background: bg, color: fg });
+const _pill = (bg, fg) => ({ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", padding: "2px 7px", borderRadius: 99, background: bg, color: fg });
 
 function RoutingEditor({ scope = "ulrg", onChanged }) {
   const [catalog, setCatalog] = useState(null);
@@ -202,7 +202,7 @@ function RoutingEditor({ scope = "ulrg", onChanged }) {
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
       <div style={_label}>Auto-sync routing · what feeds each measurable</div>
-      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginBottom: 10 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginBottom: 10 }}>
         Point a measurable at a data source and filters. The number doesn’t change until the next sync; preview first to see it matches.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -214,9 +214,9 @@ function RoutingEditor({ scope = "ulrg", onChanged }) {
             <div key={m.metric_id} style={{ border: `1px solid ${C.hair}`, borderRadius: 8, background: open ? C.parchment : "none" }}>
               <div onClick={() => setOpenId(open ? null : m.metric_id)} role="button" aria-expanded={open}
                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer" }}>
-                <span style={{ color: C.muted, fontFamily: FM, fontSize: 11, width: 12 }}>{open ? "▾" : "▸"}</span>
-                <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
-                  <span style={{ color: C.muted, fontSize: 11 }}>{m.group} · </span>{m.name}
+                <span style={{ color: C.muted, fontFamily: FM, fontSize: 12, width: 12 }}>{open ? "▾" : "▸"}</span>
+                <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 13, color: C.body }}>
+                  <span style={{ color: C.muted, fontSize: 12 }}>{m.group} · </span>{m.name}
                 </span>
                 <span style={tag}>{label}</span>
               </div>
@@ -313,7 +313,7 @@ function MetricRouting({ catalog, m, onSaved }) {
             <button onClick={() => rmFilter(i)} aria-label="Remove filter" style={{ ..._icon, fontSize: 16 }}>×</button>
           </div>
         ))}
-        <button onClick={addFilter} style={{ ..._btn, alignSelf: "flex-start", padding: "4px 10px", fontSize: 11 }}>+ Add filter</button>
+        <button onClick={addFilter} style={{ ..._btn, alignSelf: "flex-start", padding: "4px 10px", fontSize: 12 }}>+ Add filter</button>
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -334,7 +334,7 @@ function MetricRouting({ catalog, m, onSaved }) {
         </>}
       </div>
 
-      <div style={{ fontFamily: FM, fontSize: 10.5, color: C.muted }}>{_specSummary(spec)}</div>
+      <div style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>{_specSummary(spec)}</div>
 
       {preview && (
         <div style={{ background: C.surface, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "8px 10px" }}>
@@ -345,7 +345,7 @@ function MetricRouting({ catalog, m, onSaved }) {
                   <span style={{ ..._label, margin: 0 }}>Preview · last {preview.weeks.length} weeks</span>
                   {preview.has_current && <span style={allMatch ? _pill(C.meadow, C.meadowInk) : _pill("#fbe3df", C.poppy)}>{allMatch ? "matches current ✓" : "differs from current"}</span>}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, fontFamily: FM, fontSize: 11.5 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, fontFamily: FM, fontSize: 12 }}>
                   <div style={{ display: "flex", color: C.muted }}>
                     <span style={{ flex: "1 1 auto" }}>week</span>
                     <span style={{ width: 70, textAlign: "right" }}>this spec</span>
@@ -430,7 +430,7 @@ function GoalsEditor({ scope = "ulrg", onChanged }) {
       <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ ..._field, minWidth: 220 }}>
         {periods.map((p) => <option key={p.key} value={p.key}>{p.key} ({p.start} → {p.end})</option>)}
       </select>
-      <div style={{ fontFamily: FB, fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
         <b style={{ color: C.slate }}>Weekly</b> colours each week's cell. <b style={{ color: C.slate }}>Cumulative</b> is the
         whole-period total (e.g. 130 homes/quarter); the running total tracks toward it. Leave cumulative blank to track vs weekly × weeks.
       </div>
@@ -447,9 +447,9 @@ function GoalsEditor({ scope = "ulrg", onChanged }) {
               const upd = (k, v) => setGoals(goals.map((x) => x.metric_id === g.metric_id ? { ...x, [k]: v } : x));
               return (
                 <div key={g.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 12.5, color: C.body }}>
-                    <span style={{ color: C.muted, fontSize: 11 }}>{g.group} · </span>{g.name}
-                    {g.type === "rate" && <span style={{ color: C.muted, fontSize: 11 }}> (%)</span>}
+                  <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 13, color: C.body }}>
+                    <span style={{ color: C.muted, fontSize: 12 }}>{g.group} · </span>{g.name}
+                    {g.type === "rate" && <span style={{ color: C.muted, fontSize: 12 }}> (%)</span>}
                   </span>
                   <input type="number" step="0.1" value={g.goal} aria-label={`${g.name} weekly goal`}
                          onChange={(e) => upd("goal", e.target.value)}
@@ -563,8 +563,8 @@ function OfficeRow({ g, canUp, canDown, onMove, onChanged }) {
       <button onClick={() => onMove(1)} disabled={!canDown} title="Move down" aria-label={`Move ${g.name} down`} style={{ ..._icon, opacity: canDown ? 1 : .3 }}>↓</button>
       {confirm
         ? <span style={{ display: "flex", gap: 4 }}>
-            <button onClick={remove} aria-label={`Confirm remove ${g.name}`} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.poppy, borderColor: C.poppy }}>Remove</button>
-            <button onClick={() => setConfirm(false)} style={{ ..._btn, padding: "4px 9px", fontSize: 11, color: C.muted }}>Cancel</button>
+            <button onClick={remove} aria-label={`Confirm remove ${g.name}`} style={{ ..._btn, padding: "4px 9px", fontSize: 12, color: C.poppy, borderColor: C.poppy }}>Remove</button>
+            <button onClick={() => setConfirm(false)} style={{ ..._btn, padding: "4px 9px", fontSize: 12, color: C.muted }}>Cancel</button>
           </span>
         : <button onClick={() => setConfirm(true)} title="Remove office" aria-label={`Remove office ${g.name}`} style={{ ..._icon, fontSize: 17 }}>×</button>}
     </div>

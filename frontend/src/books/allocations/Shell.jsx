@@ -12,8 +12,8 @@ import { Select, Tabs } from "./controls.jsx";
 import Money from "./Money.jsx";
 import { fmtMonth } from "./words.js";
 
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase" };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none" };
 
 /** The dark band: which entities carry shared cost, and which month is on screen. */
 export function DarkBar({ businesses, entity, onEntity, month, months, onMonth }) {
@@ -67,7 +67,7 @@ function Item({ onClick, label, amount }) {
                      background: "transparent", border: "none", padding: 0 }}>
       <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", flex: "0 0 auto",
                                  border: `2px solid ${L.flagRing}` }} />
-      <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>{label}</span>
+      <span style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>{label}</span>
       {amount != null && <Money v={amount} size={12.5} weight={600} tone={L.deep} />}
     </button>
   );

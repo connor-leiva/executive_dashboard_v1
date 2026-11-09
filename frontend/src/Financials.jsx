@@ -242,18 +242,18 @@ const FIN_CSS = `
     ${heroCss("meadow")}
     box-shadow:0 2px 6px rgba(0,46,44,.12), 0 18px 40px rgba(0,46,44,.13); }
   .fin-root .feat { min-height:104px; }
-  .fin-root .eyebrow { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; }
+  .fin-root .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; display:inline-flex; align-items:center; gap:8px; }
   .fin-root .eyebrow .edot { width:8px; height:8px; border-radius:99px; }
-  .fin-root .eyebrow .etag { color:${C.onDarkMute}; font-weight:500; letter-spacing:.02em; text-transform:none; font-size:12px; }
-  .fin-root .hprofit { font-family:var(--font-display); font-size:44px; font-weight:700; letter-spacing:-.025em; color:${C.onDark}; line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; }
-  .fin-root .hdesc { font-size:12.5px; color:${C.onDarkMute}; }
+  .fin-root .eyebrow .etag { color:${C.onDarkMute}; font-weight:500; letter-spacing:0; text-transform:none; font-size:12px; }
+  .fin-root .hprofit { font-family:var(--font-display); font-size:44px; font-weight:600; letter-spacing:-.025em; color:${C.onDark}; line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; }
+  .fin-root .hdesc { font-size:13px; color:${C.onDarkMute}; }
   .fin-root .traj { margin-top:20px; }
   .fin-root .traj-track { position:relative; height:9px; border-radius:6px; overflow:hidden; background:rgba(244,239,231,.14); }
   .fin-root .traj-forecast { position:absolute; inset:0; background:rgba(95,191,196,.34); }
   .fin-root .traj-live { position:absolute; left:0; top:0; bottom:0; background:${C.dLive}; border-radius:6px 0 0 6px; }
   .fin-root .traj-tick { position:absolute; top:-3px; bottom:-3px; width:2px; background:${C.onDark}; box-shadow:0 0 0 2px rgba(0,46,44,.5); }
   .fin-root .traj-legend { display:flex; gap:20px; margin-top:11px; flex-wrap:wrap; }
-  .fin-root .tl { font-size:11.5px; color:${C.onDarkMute}; display:inline-flex; align-items:center; gap:6px; }
+  .fin-root .tl { font-size:12px; color:${C.onDarkMute}; display:inline-flex; align-items:center; gap:6px; }
   .fin-root .tl b { color:${C.onDarkMute}; font-weight:600; font-family:var(--font-display); }
   .fin-root .tl.on { color:${C.onDark}; } .fin-root .tl.on b { color:${C.onDark}; }
   .fin-root .tl-dot { width:7px; height:7px; border-radius:99px; }
@@ -262,41 +262,41 @@ const FIN_CSS = `
   .fin-root .seg:hover { background:rgba(244,239,231,.11); }
   .fin-root .seg.on { background:rgba(244,239,231,.14); border-color:rgba(244,239,231,.28); }
   .fin-root .seg.on::after { content:""; position:absolute; left:13px; right:13px; bottom:-1px; height:2px; border-radius:2px; background:var(--da); }
-  .fin-root .seg-name { font-size:11.5px; font-weight:600; color:${C.onDark}; display:flex; align-items:center; gap:6px; }
+  .fin-root .seg-name { font-size:12px; font-weight:600; color:${C.onDark}; display:flex; align-items:center; gap:6px; }
   .fin-root .seg-dot { width:7px; height:7px; border-radius:99px; }
-  .fin-root .seg-v { font-family:var(--font-display); font-size:18px; font-weight:700; color:${C.onDark}; margin-top:6px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; display:block; }
-  .fin-root .seg-flag { font-size:9.5px; font-weight:600; color:${C.dBooked}; margin-top:4px; display:block; }
+  .fin-root .seg-v { font-family:var(--font-display); font-size:18px; font-weight:600; color:${C.onDark}; margin-top:6px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; display:block; }
+  .fin-root .seg-flag { font-size:12px; font-weight:600; color:${C.dBooked}; margin-top:4px; display:block; }
   .fin-root .card { background:${C.surface}; border:1px solid ${C.hair}; border-top:none; border-radius:0 0 18px 18px; padding:24px 28px; box-shadow:0 12px 30px rgba(0,46,44,.06); }
   .fin-root .fc-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px; }
-  .fin-root .fc-label { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+  .fin-root .fc-label { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; }
   .fin-root .fc-tag { font-size:12px; color:${C.muted}; margin-top:4px; }
   .fin-root .fc-units { font-size:12px; color:${C.muted}; }
-  .fin-root .flag { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; color:${C.amber}; background:${C.amberBg}; border-radius:6px; padding:3px 9px; }
+  .fin-root .flag { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:${C.amber}; background:${C.amberBg}; border-radius:6px; padding:3px 9px; }
   .fin-root .flag-dot { width:5px; height:5px; border-radius:99px; background:${C.amber}; }
   .fin-root .pl { margin-top:8px; }
   .fin-root .plr { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; }
-  .fin-root .pll { font-size:12.5px; color:${C.body}; }
-  .fin-root .plv { font-family:var(--font-display); font-size:13.5px; font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
+  .fin-root .pll { font-size:13px; color:${C.body}; }
+  .fin-root .plv { font-family:var(--font-display); font-size:14px; font-weight:500; color:${C.ink}; font-variant-numeric:tabular-nums; }
   .fin-root .plr.ded .pll, .fin-root .plr.ded .plv { color:${C.slate}; font-weight:400; }
   .fin-root .plr.sub { border-top:1px solid ${C.hair}; margin-top:2px; padding-top:11px; }
   .fin-root .plr.sub .pll, .fin-root .plr.sub .plv { font-weight:600; }
   .fin-root .plr.tot { border-top:2px solid ${C.ink}; margin-top:4px; padding-top:12px; }
-  .fin-root .plr.tot .pll { font-weight:700; font-size:13px; } .fin-root .plr.tot .plv { font-weight:700; font-size:17px; }
+  .fin-root .plr.tot .pll { font-weight:600; font-size:13px; } .fin-root .plr.tot .plv { font-weight:600; font-size:17px; }
   .fin-root .plr.share { margin-top:8px; padding:9px 11px; border-radius:9px; background:${C.tealBg}; }
   .fin-root .plr.share .pll { color:${C.teal}; font-weight:600; }
   .fin-root .plr.share .pll::before { content:"↳ "; color:${C.teal}; opacity:.7; }
-  .fin-root .plr.share .plv { color:${C.teal}; font-weight:700; }
+  .fin-root .plr.share .plv { color:${C.teal}; font-weight:600; }
   .fin-root .plr.clk { cursor:pointer; margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:8px; }
   .fin-root .plr.clk:hover { background:${C.page}; }
   .fin-root .plr.clk:focus-visible { outline:2px solid ${C.dProj}; outline-offset:-2px; }
-  .fin-root .drill { color:${C.muted}; font-size:11px; margin-left:6px; }
+  .fin-root .drill { color:${C.muted}; font-size:12px; margin-left:6px; }
   .fin-root .plr.clk:hover .drill { color:${C.teal}; }
-  .fin-root .est { font-style:normal; font-size:9px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:${C.muted}; border:1px solid ${C.hair}; border-radius:3px; padding:1px 4px; margin-left:6px; }
+  .fin-root .est { font-style:normal; font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${C.muted}; border:1px solid ${C.hair}; border-radius:3px; padding:1px 4px; margin-left:6px; }
   .fin-root .sl { padding:2px 0 10px; }
   .fin-root .sl-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; gap:2px; }
   .fin-root .sl-closed { background:${C.teal}; border-radius:5px 0 0 5px; }
   .fin-root .sl-pending { background:${C.teal}; opacity:.28; border-radius:0 5px 5px 0; }
-  .fin-root .sl-cap { display:flex; justify-content:space-between; margin-top:8px; font-size:11px; color:${C.muted}; flex-wrap:wrap; gap:6px; }
+  .fin-root .sl-cap { display:flex; justify-content:space-between; margin-top:8px; font-size:12px; color:${C.muted}; flex-wrap:wrap; gap:6px; }
   .fin-root .sl-cap b { color:${C.body}; font-weight:600; font-family:var(--font-display); }
   .fin-root .sl-dot { width:7px; height:7px; border-radius:2px; display:inline-block; margin-right:6px; font-style:normal; }
   .fin-root .sl-dot.solid { background:${C.teal}; }

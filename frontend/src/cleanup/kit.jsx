@@ -44,7 +44,7 @@ export function Pill({ children, tone = "gold", title }) {
   const t = { red: [L.lossBg, L.loss, L.lossEdge], gold: [L.flagBg, L.flagInk, L.flagEdge],
               green: [L.accentBg, L.accentInk, L.accentEdge], blue: [L.infoBg, L.infoInk, L.infoEdge] }[tone];
   return (
-    <span title={title} style={{ display: "inline-block", fontFamily: F.body, fontSize: 11, fontWeight: 600,
+    <span title={title} style={{ display: "inline-block", fontFamily: F.body, fontSize: 12, fontWeight: 600,
       padding: "1px 8px", borderRadius: 999, border: `1px solid ${t[2]}`, background: t[0], color: t[1],
       whiteSpace: "nowrap", lineHeight: 1.5 }}>{children}</span>
   );
@@ -71,8 +71,8 @@ export const share = (f) => `${(Number(f || 0) * 100).toFixed(1).replace(/\.0$/,
 
 export const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
                      whiteSpace: "nowrap" };
-export const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                         textTransform: "uppercase", color: L.faint };
+export const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                         textTransform: "none", color: L.faint };
 export const BODY = { fontFamily: F.body, fontSize: 13, color: L.body, lineHeight: 1.5 };
 
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -103,7 +103,7 @@ export function Toggle({ on, children, onClick, disabled, title }) {
   return (
     <button onClick={onClick} disabled={disabled} title={title} aria-pressed={on} style={{
       height: 28, padding: "0 11px", borderRadius: 8, cursor: disabled ? "default" : "pointer",
-      fontFamily: F.body, fontSize: 12.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap",
+      fontFamily: F.body, fontSize: 13, fontWeight: on ? 600 : 500, whiteSpace: "nowrap",
       border: `1px solid ${on ? L.deep : L.pillEdge}`, background: on ? L.deep : L.paper,
       color: on ? L.onDeep : L.bodyDim, opacity: disabled && !on ? 0.55 : 1,
     }}>{children}</button>
@@ -119,7 +119,7 @@ export function Seg({ options, value, onChange, disabled }) {
         <button key={String(v)} onClick={() => !disabled && v !== value && onChange(v)} disabled={disabled}
           aria-pressed={v === value} style={{
             height: 32, padding: "0 15px", border: 0, borderRadius: 8,
-            cursor: disabled ? "default" : "pointer", fontFamily: F.body, fontSize: 13.5,
+            cursor: disabled ? "default" : "pointer", fontFamily: F.body, fontSize: 14,
             fontWeight: v === value ? 600 : 500, whiteSpace: "nowrap",
             background: v === value ? L.deep : "transparent", color: v === value ? L.onDeep : L.bodyDim,
             boxShadow: v === value ? `0 2px 6px -3px ${alpha(L.deep, 0.65)}` : "none",
@@ -145,7 +145,7 @@ export function Bar({ label, children, right }) {
       <span style={{ ...EYEBROW, color: L.onDeepEyebrow, flex: "none" }}>{label}</span>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0 }}>{children}</div>
       <div style={{ flex: 1 }} />
-      {right ? <span style={{ fontFamily: F.num, fontSize: 11, color: L.onDeepEyebrow, whiteSpace: "nowrap" }}>
+      {right ? <span style={{ fontFamily: F.num, fontSize: 12, color: L.onDeepEyebrow, whiteSpace: "nowrap" }}>
         {right}</span> : null}
     </div>
   );
@@ -166,7 +166,7 @@ export function Sheet({ children, style, title, right }) {
       {title ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", padding: "12px 18px",
                       background: L.colHead, borderBottom: `1px solid ${L.ruleHeader}` }}>
-          <span style={{ fontFamily: F.num, fontSize: 14.5, fontWeight: 700, color: L.deep, letterSpacing: ".01em" }}>
+          <span style={{ fontFamily: F.num, fontSize: 14, fontWeight: 600, color: L.deep, letterSpacing: 0 }}>
             {title}</span>
           <div style={{ flex: 1 }} />
           {right}
@@ -181,7 +181,7 @@ export function Sheet({ children, style, title, right }) {
 export function OkPill({ ok, children, title }) {
   return (
     <span title={title} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 11px",
-      borderRadius: 999, whiteSpace: "nowrap", fontFamily: F.body, fontSize: 12.5, fontWeight: 500,
+      borderRadius: 999, whiteSpace: "nowrap", fontFamily: F.body, fontSize: 13, fontWeight: 500,
       background: ok ? L.accentBg : L.flagBg, color: ok ? L.accentInk : L.flagInk }}>
       <span aria-hidden="true" style={ok
         ? { width: 6, height: 6, borderRadius: "50%", background: L.accent }
@@ -192,7 +192,7 @@ export function OkPill({ ok, children, title }) {
 }
 
 export function Foot({ children, style }) {
-  return <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.ghost, lineHeight: 1.55, textWrap: "pretty",
+  return <div style={{ fontFamily: F.body, fontSize: 13, color: L.ghost, lineHeight: 1.55, textWrap: "pretty",
                        ...style }}>{children}</div>;
 }
 
@@ -200,7 +200,7 @@ export function Button({ children, onClick, disabled, primary, title, type = "bu
   return (
     <button type={type} onClick={onClick} disabled={disabled} title={title} style={{
       height: 30, padding: "0 13px", borderRadius: 8, cursor: disabled ? "default" : "pointer",
-      fontFamily: F.body, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
+      fontFamily: F.body, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
       border: `1px solid ${primary ? L.deep : L.pillEdge}`, background: primary ? L.deep : L.paper,
       color: primary ? L.onDeep : L.bodyDim, opacity: disabled ? 0.55 : 1,
     }}>{children}</button>
@@ -236,12 +236,12 @@ export function NumberField({ value, onSave, disabled, prefix, suffix, width = 9
   };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-      {prefix ? <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>{prefix}</span> : null}
+      {prefix ? <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>{prefix}</span> : null}
       <input type="number" value={draft} step={step} disabled={disabled} aria-label={label}
              onChange={(e) => setDraft(e.target.value)} onBlur={commit}
              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
              style={{ ...inputStyle, width, textAlign: "right" }} />
-      {suffix ? <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>{suffix}</span> : null}
+      {suffix ? <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>{suffix}</span> : null}
     </span>
   );
 }

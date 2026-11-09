@@ -20,7 +20,7 @@ function Row({ r }) {
         {flag && <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%",
                        border: `2px solid ${L.flagRing}`, boxSizing: "border-box", marginRight: 7 }} />}
         {r.account}
-        {r.type ? <span style={{ color: L.muted, fontSize: 11.5 }}> · {r.type}</span> : null}
+        {r.type ? <span style={{ color: L.muted, fontSize: 12 }}> · {r.type}</span> : null}
         {flag && <span style={{ display: "block", color: L.flagInk, fontSize: 12 }}>{r.note}</span>}
       </span>
       <span className="cb-qbo" style={{ ...NUM, fontSize: 13, color: L.muted }}>{cents(r.qbo)}</span>
@@ -35,11 +35,11 @@ function Total({ label, v, strong }) {
   return (
     <div className="cb-row" style={{ ...GRID, padding: "11px 18px", background: L.totalBand,
                                      borderTop: strong ? `1.5px solid ${L.deep}` : `1px solid ${L.ruleInner}` }}>
-      <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 700, color: L.deep }}>{label}</span>
+      <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600, color: L.deep }}>{label}</span>
       <span className="cb-qbo" style={{ ...NUM, fontSize: 14, fontWeight: 600, color: L.bodyDim }}>{cents(v.qbo)}</span>
       <span className="cb-chg" style={{ ...NUM, fontSize: 14, fontWeight: 600, color: L.flagInk }}>
         {Math.abs(v.corrections) < 0.005 ? "–" : cents(v.corrections)}</span>
-      <span style={{ ...NUM, fontSize: 15, fontWeight: 700, color: L.deep }}>{cents(v.corrected)}</span>
+      <span style={{ ...NUM, fontSize: 15, fontWeight: 600, color: L.deep }}>{cents(v.corrected)}</span>
     </div>
   );
 }
@@ -60,7 +60,7 @@ export default function CleanupBalance({ ov, rev }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <OkPill ok={d.balanced.qbo}>{d.balanced.qbo ? "Balances as booked" : "Doesn't balance as booked"}</OkPill>
               <OkPill ok={d.balanced.corrected}>{d.balanced.corrected ? "Balances corrected" : "Doesn't balance corrected"}</OkPill>
-              {notes > 0 && <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+              {notes > 0 && <span style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
                 {notes} {notes === 1 ? "account needs" : "accounts need"} setting up or fixing in QuickBooks</span>}
             </div>
             <Sheet>
@@ -74,7 +74,7 @@ export default function CleanupBalance({ ov, rev }) {
               {d.sections.map((s) => (
                 <div key={s.key}>
                   <div style={{ padding: "11px 18px", background: L.sectionBand, borderTop: `1px solid ${L.ruleSection}`,
-                                borderBottom: `1px solid ${L.ruleInner}`, fontFamily: F.num, fontSize: 15, fontWeight: 700,
+                                borderBottom: `1px solid ${L.ruleInner}`, fontFamily: F.num, fontSize: 15, fontWeight: 600,
                                 color: L.deep }}>{s.label}</div>
                   {s.rows.map((r) => <Row key={r.account} r={r} />)}
                   <Total label={`Total ${s.label.toLowerCase()}`} v={s.total} />

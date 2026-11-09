@@ -22,8 +22,8 @@ import { Button, Input, Select } from "./controls.jsx";
 import Money from "./Money.jsx";
 import { fmtMonth } from "./words.js";
 
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none", color: L.faint };
 
 /* A row is answered in ONE of two ways, chosen per subject:
      percent  - every cell is a percent and they come to 100
@@ -164,7 +164,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
   if (!isCFO) return null;
   if (split && !rows.length) {
     return (
-      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, padding: "4px 2px" }}>
+      <div style={{ fontFamily: F.body, fontSize: 13, color: L.body, padding: "4px 2px" }}>
         No rule reads this driver this month, so there is nobody to answer for. A driven rule
         names the person it is about, and this form follows that list.
       </div>
@@ -185,7 +185,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
           <span style={{ ...EYEBROW, display: "block", marginBottom: 4 }}>
             {driver.label}
           </span>
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted,
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted,
                          display: "block", maxWidth: "58ch", lineHeight: 1.5 }}>
             {split
               ? "One row per person, one column per entity."
@@ -196,14 +196,14 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
         </span>
         <span style={{ display: "flex", gap: 10, alignItems: "center", flex: "0 0 auto" }}>
           {blocker ? (
-            <span style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600,
+            <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600,
                            color: L.flagInk, background: L.flagBg,
                            border: `1px solid ${L.flagEdge}`, borderRadius: 6,
                            padding: "3px 9px" }}>
               {answeredCount} of {rows.length} answered
             </span>
           ) : (
-            <span style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600,
+            <span style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600,
                            color: L.accentInk, background: L.accentBg,
                            borderRadius: 6, padding: "3px 9px" }}>
               Ready to commit
@@ -247,14 +247,14 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
                             `minmax(0,1fr) repeat(${cols.length}, 88px) 184px`,
                           padding: "11px 16px" }}>
               <span style={{ minWidth: 0 }}>
-                <span style={{ fontFamily: F.body, fontSize: 13.5, fontWeight: 500,
+                <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 500,
                                color: L.deep, display: "block" }}>
                   {r.name || driver.label}
                 </span>
                 {/* WHAT THIS ROW MOVES, from the server. Both lines, because 6.3 asks for
                     the dollars and the mockup shows the mode: the mockup wins on look and
                     this document wins on data (principle 8), so the row carries each. */}
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.faint,
+                <span style={{ fontFamily: F.body, fontSize: 12, color: L.faint,
                                display: "block", lineHeight: 1.45 }}>
                   {MODES.find(([k]) => k === m)?.[1]}
                   {r.rules?.length
@@ -277,7 +277,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
                   <span key={b.id} style={{ display: "flex", gap: 3, alignItems: "center",
                                             justifyContent: "flex-end" }}>
                     <span className="al-mx-cell-label"
-                          style={{ fontFamily: F.body, fontSize: 11, color: L.faint,
+                          style={{ fontFamily: F.body, fontSize: 12, color: L.faint,
                                    flex: "1 1 auto", minWidth: 0 }}>{b.name}</span>
                     {m === "mixed" && split && (
                       <Select size="card" width={54} ariaLabel={`How ${r.name} ${b.name}`}
@@ -303,7 +303,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
                   <Select size="card" width={112} ariaLabel={`How ${r.name} is answered`}
                           value={m} onChange={(v) => setMode(r.name, v)} options={MODES} />
                 )}
-                <span style={{ fontFamily: F.num, fontSize: 12, fontWeight: 700,
+                <span style={{ fontFamily: F.num, fontSize: 12, fontWeight: 600,
                                padding: "4px 10px", borderRadius: 999, whiteSpace: "nowrap",
                                background: st.kind === "ok" || st.kind === "rest"
                                  ? L.accentBg : L.flagBg,
@@ -325,7 +325,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
                     marginTop: 10, padding: "2px 2px 0" }}>
         {blocker && (
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
             {blocker}
           </span>
         )}
@@ -337,7 +337,7 @@ export default function DriverMatrix({ driver, month, businesses, subjects, pref
           </Button>
         )}
         {err && (
-          <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>{err}</span>
+          <span style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>{err}</span>
         )}
       </div>
     </div>

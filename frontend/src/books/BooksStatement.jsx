@@ -43,8 +43,8 @@ const ratioOf = (n, revenue) => (revenue > 0 ? n / revenue : 0);
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none", color: L.faint };
 
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -91,14 +91,14 @@ function Composition({ line, mode }) {
     <div style={{ marginBottom: 16 }}>
       <div style={EYEBROW}>How this number is made</div>
       <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-        <div style={{ display: "flex", gap: 12, fontFamily: F.body, fontSize: 12.5 }}>
+        <div style={{ display: "flex", gap: 12, fontFamily: F.body, fontSize: 13 }}>
           <span style={{ flex: 1, color: L.bodyDim }}>
             This entity&rsquo;s own activity{shownIsBooked ? here : null}</span>
           <span style={{ ...NUM, color: L.deep, minWidth: 110 }}>{money(line.as_booked)}</span>
         </div>
         {(line.contributions || []).map((c, i) => (
           <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-            <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 12.5,
+            <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 13,
                            color: L.bodyDim }}>
               {/* The word, not only the sign: direction must never rest on a minus alone. */}
               <strong style={{ color: L.deep }}>
@@ -113,7 +113,7 @@ function Composition({ line, mode }) {
                 {c.je_ref ? ` · ${c.je_ref}` : ""}
               </span>
             </span>
-            <span style={{ ...NUM, fontSize: 12.5, color: L.flagInk, minWidth: 110 }}>
+            <span style={{ ...NUM, fontSize: 13, color: L.flagInk, minWidth: 110 }}>
               {money(c.amount)}</span>
             {/* An APPLIED row carries the rule that produced it (ALLOCATION-RULES-SPEC 7.5).
                 Which version matters as much as which rule: a split that changed in April means
@@ -123,7 +123,7 @@ function Composition({ line, mode }) {
                 Observed rows have no `rule` and render exactly as they always have. */}
             {c.rule && (
               <span style={{ flexBasis: "100%", marginTop: 2, paddingLeft: 2 }}>
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                display: "block" }}>
                   {c.rule.pool_name} v{c.rule.version}
                   {c.rule.tier ? ` · Tier ${c.rule.tier}` : ""}
@@ -134,7 +134,7 @@ function Composition({ line, mode }) {
                     : ""}
                 </span>
                 {c.rule.rationale && (
-                  <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.bodyDim,
+                  <span style={{ fontFamily: F.body, fontSize: 12, color: L.bodyDim,
                                  display: "block", marginTop: 2, maxWidth: 560 }}>
                     {c.rule.rationale}
                   </span>
@@ -143,7 +143,7 @@ function Composition({ line, mode }) {
                     months it links to the Drivers view instead: ten months of values inlined
                     on a statement line is a table nobody asked for. */}
                 {c.driver && c.driver.values && (
-                  <span style={{ fontFamily: F.body, fontSize: 11, color: L.muted,
+                  <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                  display: "block", marginTop: 2 }}>
                     {c.driver.label}
                     {c.driver.values.map((v, j) => (
@@ -157,10 +157,10 @@ function Composition({ line, mode }) {
         ))}
         <div style={{ display: "flex", gap: 12, borderTop: `1px solid ${L.ruleInner}`,
                       paddingTop: 6 }}>
-          <span style={{ flex: 1, fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
+          <span style={{ flex: 1, fontFamily: F.body, fontSize: 13, fontWeight: 600,
                          color: L.deep }}>
             As allocated{shownIsBooked ? null : here}</span>
-          <span style={{ ...NUM, fontSize: 12.5, fontWeight: 700, color: L.deep, minWidth: 110 }}>
+          <span style={{ ...NUM, fontSize: 13, fontWeight: 600, color: L.deep, minWidth: 110 }}>
             {money(line.as_allocated)}</span>
         </div>
       </div>
@@ -175,12 +175,12 @@ function LineDetail({ line, businessId, period, mode }) {
     businessId, line.standard_account_id, period);
 
   if (loading) {
-    return <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+    return <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
       Loading the transactions behind this line…</div>;
   }
   if (error) {
     return (
-      <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.flagInk }}>
+      <div style={{ fontFamily: F.body, fontSize: 13, color: L.flagInk }}>
         Couldn&rsquo;t load the detail.{" "}
         <button onClick={retry} style={{ height: 24, padding: "0 10px", borderRadius: 8,
           cursor: "pointer", fontFamily: F.body, fontSize: 12,
@@ -203,7 +203,7 @@ function LineDetail({ line, businessId, period, mode }) {
           {(data.accounts || []).map((a) => (
             <div key={a.qbo_account_id} style={{ display: "flex", gap: 12, alignItems: "baseline",
               padding: "4px 0", flexWrap: "wrap" }}>
-              <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 12.5,
+              <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 13,
                              color: L.body, overflowWrap: "anywhere" }}>
                 {a.fqn}
                 <span style={{ color: L.muted }}>
@@ -211,7 +211,7 @@ function LineDetail({ line, businessId, period, mode }) {
                   {" · "}{a.transactions} {a.transactions === 1 ? "txn" : "txns"}
                 </span>
               </span>
-              <span style={{ ...NUM, fontSize: 12.5, color: L.deep, minWidth: 110 }}>
+              <span style={{ ...NUM, fontSize: 13, color: L.deep, minWidth: 110 }}>
                 {money(a.amount)}</span>
             </div>
           ))}
@@ -222,23 +222,23 @@ function LineDetail({ line, businessId, period, mode }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline",
                       gap: 12, flexWrap: "wrap" }}>
           <span style={EYEBROW}>Transactions</span>
-          <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost }}>
+          <span style={{ fontFamily: F.body, fontSize: 12, color: L.ghost }}>
             biggest first{data.truncated ? ` · ${data.truncated} more not shown` : ""}
           </span>
         </div>
         <div style={{ marginTop: 6, maxHeight: 320, overflowY: "auto" }}>
           {(data.transactions || []).length === 0 && (
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, padding: "6px 0" }}>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted, padding: "6px 0" }}>
               No transactions in this window.
             </div>
           )}
           {(data.transactions || []).map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "baseline",
               padding: "5px 0", borderTop: `1px solid ${L.ruleLine}`, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: F.num, fontSize: 11.5, color: L.ghost,
+              <span style={{ fontFamily: F.num, fontSize: 12, color: L.ghost,
                              fontVariantNumeric: "tabular-nums", width: 76, flexShrink: 0 }}>
                 {t.date}</span>
-              <span style={{ flex: 1, minWidth: 180, fontFamily: F.body, fontSize: 12.5,
+              <span style={{ flex: 1, minWidth: 180, fontFamily: F.body, fontSize: 13,
                              color: L.body, overflowWrap: "anywhere" }}>
                 {t.payee || t.qbo_type}
                 {t.memo ? <span style={{ color: L.muted }}> · {t.memo}</span> : null}
@@ -248,12 +248,12 @@ function LineDetail({ line, businessId, period, mode }) {
                   <span style={{ color: L.flagInk }}> · multi-line, shown at full amount</span>
                 )}
               </span>
-              <span style={{ ...NUM, fontSize: 12.5, color: L.deep, minWidth: 96 }}>
+              <span style={{ ...NUM, fontSize: 13, color: L.deep, minWidth: 96 }}>
                 {money(t.amount)}</span>
               {t.qbo_url && (
                 <a href={t.qbo_url} target="_blank" rel="noreferrer"
                    onClick={(e) => e.stopPropagation()}
-                   style={{ fontFamily: F.body, fontSize: 11.5, fontWeight: 600,
+                   style={{ fontFamily: F.body, fontSize: 12, fontWeight: 600,
                             color: L.accentInk, textDecoration: "none", flexShrink: 0 }}>Open ↗</a>
               )}
             </div>
@@ -316,14 +316,14 @@ function SectionRow({ label, count, open, total, pct, onToggle }) {
           borderTop: `4.5px solid transparent`, borderBottom: `4.5px solid transparent`,
           borderLeft: `6px solid ${L.faint}`,
           transform: open ? "rotate(90deg)" : "none", transformOrigin: "35% 50%" }} />
-        <span style={{ fontFamily: F.num, fontSize: 15.5, fontWeight: 700, letterSpacing: ".02em",
+        <span style={{ fontFamily: F.num, fontSize: 16, fontWeight: 600, letterSpacing: 0,
                        color: L.deep }}>{label}</span>
-        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.ghost,
+        <span style={{ fontFamily: F.body, fontSize: 12, color: L.ghost,
                        whiteSpace: "nowrap" }}>{count}</span>
       </span>
       {/* A collapsed section still has to show what it is worth, or collapsing hides the
           number instead of the detail. */}
-      <span style={{ ...NUM, fontSize: 16, fontWeight: 700, color: L.deep,
+      <span style={{ ...NUM, fontSize: 16, fontWeight: 600, color: L.deep,
                      letterSpacing: "-.02em" }}>{open ? "" : money(total)}</span>
       <span className="st-pct" style={{ ...NUM, fontSize: 12, fontWeight: 500, color: L.muted }}>
         {open ? "" : pct}</span>
@@ -374,7 +374,7 @@ function LineRow({ line, revenue, open, onToggle, businessId, period, mode }) {
           {/* Name and note are ONE run so the ellipsis can eat the note before the name, and
               so neither can shove the money column off a narrow screen. The share reads only
               on the allocated basis, where it is the share of the number actually shown. */}
-          <span style={{ fontFamily: F.body, fontSize: 13.5, color: L.body, whiteSpace: "nowrap",
+          <span style={{ fontFamily: F.body, fontSize: 14, color: L.body, whiteSpace: "nowrap",
                          overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
             {line.name}
             {on && (
@@ -392,7 +392,7 @@ function LineRow({ line, revenue, open, onToggle, businessId, period, mode }) {
             borderLeft: `5px solid ${L.code}`,
             transform: open ? "rotate(90deg)" : "none", transformOrigin: "35% 50%" }} />
         </span>
-        <span style={{ ...NUM, fontSize: 13.5, fontWeight: on ? 600 : 400,
+        <span style={{ ...NUM, fontSize: 14, fontWeight: on ? 600 : 400,
                        color: on ? L.deep : L.body }}>{money(line.amount)}</span>
         <span className="st-pct" style={{ ...NUM, fontSize: 12,
                                           color: on ? L.flagInk : L.ghost }}>
@@ -424,7 +424,7 @@ function TotalRow({ label, value, pct, tone }) {
       <span style={{ fontFamily: F.body, fontSize: big ? 16 : strong ? 15 : 14,
         fontWeight: big || strong ? 700 : 600, letterSpacing: "-.01em",
         color: big ? L.onDeep : strong ? L.deep : L.bodyDim }}>{label}</span>
-      <span style={{ ...NUM, fontSize: big ? 22 : strong ? 17 : 15, fontWeight: 700,
+      <span style={{ ...NUM, fontSize: big ? 22 : strong ? 17 : 15, fontWeight: 600,
         letterSpacing: "-.02em",
         color: big ? L.paper : strong ? L.deep : L.body }}>{money(value)}</span>
       <span className="st-pct" style={{ ...NUM, fontSize: 12, fontWeight: 500,
@@ -444,24 +444,24 @@ function Blocked({ detail }) {
         <div style={{ ...EYEBROW, color: L.flagInk }}>
           {unmapped ? "Not rendered — accounts have nowhere to go"
                     : "Not rendered — the mapped total does not tie"}</div>
-        <div style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, marginTop: 8,
+        <div style={{ fontFamily: F.body, fontSize: 14, color: L.deep, marginTop: 8,
                       lineHeight: 1.5 }}>{detail.message}</div>
         {unmapped && (detail.accounts || []).length > 0 && (
           <div style={{ marginTop: 12 }}>
             {detail.accounts.slice(0, 12).map((a) => (
               <div key={a.qbo_account_id} style={{ display: "flex", gap: 12, padding: "4px 0",
                 borderTop: `1px solid ${alpha(L.flagRing, 0.35)}`, flexWrap: "wrap" }}>
-                <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 12.5,
+                <span style={{ flex: 1, minWidth: 200, fontFamily: F.body, fontSize: 13,
                                color: L.body, overflowWrap: "anywhere" }}>
                   {a.fqn} <span style={{ color: L.flagInk }}>· {a.reason}</span></span>
-                <span style={{ ...NUM, fontSize: 12.5, color: L.deep }}>{money(a.amount)}</span>
+                <span style={{ ...NUM, fontSize: 13, color: L.deep }}>{money(a.amount)}</span>
               </div>
             ))}
             {detail.accounts.length > 12 && (
               <div style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk, marginTop: 6 }}>
                 …and {detail.accounts.length - 12} more.</div>
             )}
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim, marginTop: 10 }}>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.bodyDim, marginTop: 10 }}>
               Map them on the Mapping tab and this statement renders.
             </div>
           </div>
@@ -601,7 +601,7 @@ export default function BooksStatement({ period = "mtd" }) {
             ))}
           </div>
           <div style={{ flex: 1 }} />
-          <span style={{ fontFamily: F.num, fontSize: 11, color: L.onDeepEyebrow,
+          <span style={{ fontFamily: F.num, fontSize: 12, color: L.onDeepEyebrow,
                          whiteSpace: "nowrap" }}>{d ? periodLabel(d.period) : ""}</span>
         </div>
 
@@ -618,7 +618,7 @@ export default function BooksStatement({ period = "mtd" }) {
                   {[["As allocated", "allocated"], ["As booked", "booked"]].map(([label, v]) => (
                     <button key={v} onClick={() => setMode(v)} style={{
                       height: 32, padding: "0 15px", border: 0, borderRadius: 8, cursor: "pointer",
-                      fontFamily: F.body, fontSize: 13.5, fontWeight: mode === v ? 600 : 500,
+                      fontFamily: F.body, fontSize: 14, fontWeight: mode === v ? 600 : 500,
                       whiteSpace: "nowrap",
                       background: mode === v ? L.deep : "transparent",
                       color: mode === v ? L.onDeep : L.bodyDim,
@@ -638,7 +638,7 @@ export default function BooksStatement({ period = "mtd" }) {
                       return (
                         <button key={label} onClick={() => setThreshold(v)} style={{
                           height: 28, padding: "0 11px", borderRadius: 8, cursor: "pointer",
-                          fontFamily: F.body, fontSize: 12.5, fontWeight: on ? 600 : 500,
+                          fontFamily: F.body, fontSize: 13, fontWeight: on ? 600 : 500,
                           border: `1px solid ${on ? L.deep : L.pillEdge}`,
                           background: on ? L.deep : L.paper,
                           color: on ? L.onDeep : L.bodyDim,
@@ -649,7 +649,7 @@ export default function BooksStatement({ period = "mtd" }) {
                 </div>
                 <button onClick={toggleAll} style={{
                   height: 28, padding: "0 12px", borderRadius: 8, cursor: "pointer",
-                  fontFamily: F.body, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap",
+                  fontFamily: F.body, fontSize: 13, fontWeight: 500, whiteSpace: "nowrap",
                   display: "flex", alignItems: "center", gap: 7,
                   border: `1px solid ${L.pillEdge}`, background: L.paper, color: L.bodyDim,
                 }}>
@@ -662,7 +662,7 @@ export default function BooksStatement({ period = "mtd" }) {
                 </button>
                 <div style={{ flex: 1 }} />
                 <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 11px",
-                  borderRadius: 999, whiteSpace: "nowrap", fontFamily: F.body, fontSize: 12.5,
+                  borderRadius: 999, whiteSpace: "nowrap", fontFamily: F.body, fontSize: 13,
                   fontWeight: 500,
                   background: d.tie_out.delta === 0 ? L.accentBg : L.flagBg,
                   color: d.tie_out.delta === 0 ? L.accentInk : L.flagInk }}>
@@ -671,7 +671,7 @@ export default function BooksStatement({ period = "mtd" }) {
                   Ties to QuickBooks · delta {cents(d.tie_out.delta)} of{" "}
                   {money(d.tie_out.gross)}
                 </span>
-                <span style={{ fontFamily: F.num, fontSize: 11, color: L.ghost,
+                <span style={{ fontFamily: F.num, fontSize: 12, color: L.ghost,
                                whiteSpace: "nowrap" }}>
                   {flaggedCount} composed {flaggedCount === 1 ? "line" : "lines"}
                   {d.period.books_closed ? " · books closed" : ""}
@@ -698,7 +698,7 @@ export default function BooksStatement({ period = "mtd" }) {
                           <div style={{ width: `${Math.min(Math.max(s.ratio, 0), 1) * 100}%`,
                             height: "100%", borderRadius: 999, background: s.tone }} />
                         </div>
-                        <span style={{ fontFamily: F.num, fontSize: 11, color: L.faint,
+                        <span style={{ fontFamily: F.num, fontSize: 12, color: L.faint,
                                        flex: "none" }}>{s.pct}</span>
                       </div>
                     </div>
@@ -719,7 +719,7 @@ export default function BooksStatement({ period = "mtd" }) {
                   {rows}
                 </div>
 
-                <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.ghost,
+                <div style={{ fontFamily: F.body, fontSize: 13, color: L.ghost,
                               lineHeight: 1.55, textWrap: "pretty" }}>
                   {d.mode === "allocated"
                     ? `Shown as allocated. As booked, net income is ${money(d.net_income_booked)}`
@@ -735,7 +735,7 @@ export default function BooksStatement({ period = "mtd" }) {
                     <div style={{ marginTop: 8 }}>
                       {d.exclusions.map((x) => (
                         <div key={x.qbo_account_id} style={{ display: "flex", gap: 12,
-                          fontFamily: F.body, fontSize: 12.5, padding: "5px 0",
+                          fontFamily: F.body, fontSize: 13, padding: "5px 0",
                           flexWrap: "wrap" }}>
                           <span style={{ flex: 1, minWidth: 180, color: L.body }}>
                             {x.fqn} <span style={{ color: L.muted }}>· {x.reason}</span></span>

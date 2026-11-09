@@ -39,7 +39,7 @@ function Btn({ onClick, children, tone, disabled, title }) {
 }
 
 const inputStyle = {
-  fontFamily: FONT, fontSize: 12.5, color: C.ink, background: C.surface,
+  fontFamily: FONT, fontSize: 13, color: C.ink, background: C.surface,
   border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px", minWidth: 0, width: "100%",
 };
 
@@ -74,7 +74,7 @@ function RuleRow({ rule, index, count, onChange, onRemove, onMove }) {
         ? "Add the next word to the group name, so one rule can produce several groups"
         : "Only applies to a starts-with rule"}
              style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: FONT,
-                      fontSize: 11.5, color: rule.match === "prefix" ? C.slate : C.muted,
+                      fontSize: 12, color: rule.match === "prefix" ? C.slate : C.muted,
                       whiteSpace: "nowrap" }}>
         <input type="checkbox" checked={!!rule.split} disabled={rule.match !== "prefix"}
                onChange={(e) => set({ split: e.target.checked })} />
@@ -230,7 +230,7 @@ export default function GroupingRules({ account, onSaved }) {
         <Btn onClick={() => setOpen((o) => !o)}>
           {open ? "Close grouping rules" : "Edit grouping rules"}
         </Btn>
-        <span style={{ fontFamily: FONT, fontSize: 11.5, color: C.muted }}>
+        <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>
           {usingDefaults ? "Using the built-in rules." : "Using this workspace's own rules."}
           {unmatched > 0 && ` ${unmatched} campaign${unmatched === 1 ? "" : "s"} in Other.`}
         </span>
@@ -249,7 +249,7 @@ export default function GroupingRules({ account, onSaved }) {
           <div style={{ fontFamily: HEAD, fontSize: 13, fontWeight: 600, color: C.ink }}>
             Rules
           </div>
-          <p style={{ fontFamily: FONT, fontSize: 11.5, color: C.slate, margin: "4px 0 8px",
+          <p style={{ fontFamily: FONT, fontSize: 12, color: C.slate, margin: "4px 0 8px",
                       lineHeight: 1.5 }}>
             Checked top to bottom; the first one that matches wins. Anything matching nothing
             falls to Other, which is counted rather than hidden.
@@ -292,14 +292,14 @@ export default function GroupingRules({ account, onSaved }) {
                         marginTop: 18 }}>
             What this would do
           </div>
-          <p style={{ fontFamily: FONT, fontSize: 11.5, color: C.slate, margin: "4px 0 10px" }}>
+          <p style={{ fontFamily: FONT, fontSize: 12, color: C.slate, margin: "4px 0 10px" }}>
             Live, and not saved until you press Save.
           </p>
 
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
             {ordered.map(([g, v]) => (
               <span key={g}
-                    style={{ fontFamily: FONT, fontSize: 11.5, borderRadius: 999,
+                    style={{ fontFamily: FONT, fontSize: 12, borderRadius: 999,
                              padding: "3px 10px",
                              color: g === "Other" ? C.warnInk : C.slate,
                              background: g === "Other" ? C.warnBg : C.surface2,
@@ -318,7 +318,7 @@ export default function GroupingRules({ account, onSaved }) {
                 <span title={c.name}
                       style={{ fontFamily: FONT, fontSize: 12, color: C.ink, overflow: "hidden",
                                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                <span style={{ fontFamily: FONT, fontSize: 11.5,
+                <span style={{ fontFamily: FONT, fontSize: 12,
                                color: c.group === "Other" ? C.warnInk : C.slate,
                                overflow: "hidden", textOverflow: "ellipsis",
                                whiteSpace: "nowrap" }}>{c.group}</span>

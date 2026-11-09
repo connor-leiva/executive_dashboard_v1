@@ -30,8 +30,8 @@ export const CHAR_BY_LABEL = Object.fromEntries(
 
 export function Eyebrow({ children, onDark }) {
   return (
-    <span style={{ fontFamily: font.head, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em",
-                   textTransform: "uppercase", color: onDark ? T.onDarkMute : T.secondary }}>{children}</span>
+    <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                   textTransform: "none", color: onDark ? T.onDarkMute : T.secondary }}>{children}</span>
   );
 }
 
@@ -47,7 +47,7 @@ export function EntityChip({ k }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <span style={{ width: 8, height: 8, borderRadius: 2, background: e.dot }} />
-      <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600, color: T.secondary }}>{e.label}</span>
+      <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, color: T.secondary }}>{e.label}</span>
     </span>
   );
 }
@@ -56,11 +56,11 @@ export function EntityChip({ k }) {
 export function Delta({ v, pv, inverse }) {
   if (pv === undefined || pv === null || pv === 0) return null;
   const pct = ((v - pv) / Math.abs(pv)) * 100;
-  if (Math.abs(pct) < 0.5) return <span style={{ fontFamily: font.body, fontSize: 10.5, color: T.muted }}>flat</span>;
+  if (Math.abs(pct) < 0.5) return <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>flat</span>;
   const up = pct > 0;
   const good = inverse ? !up : up;
   return (
-    <span style={{ fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: good ? T.meadowInk : T.poppyText }}>
+    <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, color: good ? T.meadowInk : T.poppyText }}>
       {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%</span>
   );
 }
@@ -72,7 +72,7 @@ const TONES = {
 export function Pill({ tone = "muted", children }) {
   const t = TONES[tone] || TONES.muted;
   return (
-    <span style={{ fontFamily: font.body, fontSize: 11, fontWeight: 700, borderRadius: 999,
+    <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, borderRadius: 999,
                    padding: "3px 10px", background: t.bg, color: t.fg, whiteSpace: "nowrap" }}>{children}</span>
   );
 }
@@ -92,8 +92,8 @@ export function Field({ label, value }) {
 export function QboLink({ url, entity }) {
   if (!url) return null;
   return (
-    <a href={url} target="_blank" rel="noreferrer" style={{ fontFamily: font.body, fontSize: 11.5,
-      fontWeight: 700, color: T.teal, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+    <a href={url} target="_blank" rel="noreferrer" style={{ fontFamily: font.body, fontSize: 12,
+      fontWeight: 600, color: T.teal, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
       Open in QuickBooks{entity ? ` · ${ent(entity).label}` : ""} ↗</a>
   );
 }
@@ -123,7 +123,7 @@ export function StatePanel({ loading, error, retry, empty, emptyTitle, emptyMsg,
     return (
       <Card style={{ textAlign: "center", padding: 40 }}>
         <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary }}>Couldn't load this view.</div>
-        <button onClick={retry} style={{ marginTop: 12, fontFamily: font.body, fontSize: 12.5, fontWeight: 600,
+        <button onClick={retry} style={{ marginTop: 12, fontFamily: font.body, fontSize: 13, fontWeight: 600,
           color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8,
           padding: "6px 14px", cursor: "pointer" }}>Retry</button>
       </Card>

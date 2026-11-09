@@ -24,7 +24,7 @@ function Btn({ kind = "ghost", children, onClick, disabled, type = "button" }) {
   }[kind];
   return (
     <button type={type} onClick={onClick} disabled={disabled} className="cc-nav" style={{
-      fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+      fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, borderRadius: 8,
       padding: "8px 14px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, ...styles,
     }}>{children}</button>
   );
@@ -34,14 +34,14 @@ function Avatar({ name, color, size = 42 }) {
     <div style={{
       width: size, height: size, borderRadius: 11, flexShrink: 0, background: color || T.teal,
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "var(--font-display)", fontSize: size * 0.42, fontWeight: 700, color: T.onDark,
+      fontFamily: "var(--font-display)", fontSize: size * 0.42, fontWeight: 600, color: T.onDark,
     }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
   );
 }
 function StatusDot({ status }) {
   const active = status === "active";
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 11.5, color: active ? T.tertiary : T.muted }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-text)", fontSize: 12, color: active ? T.tertiary : T.muted }}>
       <span className={active ? "ai-pulse" : ""} style={{ width: 8, height: 8, borderRadius: 99, background: active ? T.meadow : T.muted, flexShrink: 0 }} />
       {active ? "Active" : "Paused"}
     </span>
@@ -51,7 +51,7 @@ function AwaitingPill({ n }) {
   // DRAFT-state indicator → daffodil family (per §6 mapping). Not an action control.
   return (
     <span style={{
-      fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 700, borderRadius: 6,
+      fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, borderRadius: 6,
       padding: "3px 9px", color: T.daffodilText, background: T.daffodilBg,
     }}>{n} awaiting approval</span>
   );
@@ -69,7 +69,7 @@ function RunChip({ status }) {
   };
   const [c, bg, label] = map[status] || [T.slate, T.parchment, status];
   return (
-    <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em",
+    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
       color: c, background: bg, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>{label}</span>
   );
 }
@@ -106,8 +106,8 @@ function EmployeeCard({ e, onOpen }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {e.awaiting_approval > 0
           ? <AwaitingPill n={e.awaiting_approval} />
-          : <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>Nothing awaiting approval</span>}
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          : <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>Nothing awaiting approval</span>}
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, display: "inline-flex", alignItems: "center", gap: 5 }}>
           <Icon name="sync" size={12} color={T.muted} />{nextLabel}
         </span>
       </div>
@@ -119,7 +119,7 @@ function EmployeeCard({ e, onOpen }) {
             <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {last.summary || "No summary"}
             </span>
-            {last.created_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, flexShrink: 0, marginLeft: "auto" }}>{relativeTime(last.created_at)}</span>}
+            {last.created_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, flexShrink: 0, marginLeft: "auto" }}>{relativeTime(last.created_at)}</span>}
           </div>
         ) : (
           <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, fontStyle: "italic" }}>No runs yet</span>
@@ -140,7 +140,7 @@ function EmptyState({ canManage, onAdd }) {
         <ProductIcon name={iconFor("ai_employees")} size={24} tone={T.teal} />
       </div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, color: T.ink }}>Hire Your First AI Employee</div>
-      <p style={{ fontFamily: "var(--font-text)", fontSize: 13.5, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 430 }}>
+      <p style={{ fontFamily: "var(--font-text)", fontSize: 14, lineHeight: 1.55, color: T.slate, margin: "10px auto 20px", maxWidth: 430 }}>
         An AI employee runs skills on a schedule (or when a metric crosses a line), drafts the
         work — audits, briefs, strategy, creative, attribution — and hands it to you for approval.
         Nothing ships without your sign-off. Start with a Social Media Manager.
@@ -154,7 +154,7 @@ function EmptyState({ canManage, onAdd }) {
 
 /* ── create modal ────────────────────────────────────────────── */
 function labelStyle() {
-  return { fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
+  return { fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.tertiary, marginBottom: 5, display: "block" };
 }
 function inputStyle() {
   return { width: "100%", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white,
@@ -257,7 +257,7 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <ProductIcon name={iconFor("ai_employees")} size={24} tone={T.meadow} />
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: T.ink }}>AI Employees</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink }}>AI Employees</div>
           </div>
           <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, marginTop: 3 }}>
             Configured agents that draft work for your approval. Nothing ships without a human sign-off.
@@ -270,7 +270,7 @@ export default function AIEmployees({ data, loading, error, reload, role }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.daffodilBg, border: `1px solid ${T.line}`,
           borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
           <Icon name="notification" size={14} color={T.daffodilText} />
-          <span style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.daffodilText }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.daffodilText }}>
             {data.awaiting_total} artifact{data.awaiting_total === 1 ? "" : "s"} awaiting your approval across your employees.
           </span>
         </div>

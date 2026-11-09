@@ -23,7 +23,7 @@ export const CTL = { fontFamily: F.body, cursor: "pointer", outline: "none" };
 
 const SIZES = {
   toolbar: { height: 34, radius: 9, padding: "0 13px", fontSize: 13 },
-  card: { height: 31, radius: 8, padding: "0 12px", fontSize: 12.5 },
+  card: { height: 31, radius: 8, padding: "0 12px", fontSize: 13 },
 };
 
 /** Primary (filled), secondary (outlined) or quiet (text). `size` is toolbar or card. */
@@ -56,7 +56,7 @@ export function Chip({ on, children, onClick, title }) {
   return (
     <button type="button" onClick={onClick} title={title} className="al-ctl al-chip"
             aria-pressed={!!on}
-            style={{ ...CTL, height: 30, borderRadius: 8, padding: "0 11px", fontSize: 12.5,
+            style={{ ...CTL, height: 30, borderRadius: 8, padding: "0 11px", fontSize: 13,
                      fontWeight: on ? 600 : 500,
                      background: on ? L.deep : L.paper,
                      border: `1px solid ${on ? L.deep : L.pillEdge}`,
@@ -155,7 +155,7 @@ export function Skeleton({ rows = 3 }) {
 export function SavedBand({ children, onUndo }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px",
-                  background: L.accentBg, fontFamily: F.body, fontSize: 12.5,
+                  background: L.accentBg, fontFamily: F.body, fontSize: 13,
                   color: L.accentInk }}>
       <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%",
                                  background: L.accent, flex: "0 0 auto" }} />

@@ -156,7 +156,7 @@ function CallSearch({ businessKey, tz, usingSample }) {
         <input value={q} onChange={(e) => setQ(e.target.value)}
                placeholder="Search what was said on any call…"
                style={{
-                 fontFamily: "var(--font-text)", fontSize: 12.5, padding: "7px 11px",
+                 fontFamily: "var(--font-text)", fontSize: 13, padding: "7px 11px",
                  border: `1px solid ${T.line}`, borderRadius: 9, color: T.ink,
                  background: T.white, width: 250, maxWidth: "52vw", boxSizing: "border-box",
                }} />
@@ -186,9 +186,9 @@ function CallSearch({ businessKey, tz, usingSample }) {
                 <div key={c.call_id} style={{
                   padding: "10px 2px", borderBottom: `1px solid ${alpha(T.line, 0.5)}`,
                 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>
                     {c.contact}
-                    <span style={{ fontWeight: 500, color: T.muted, marginLeft: 7, fontSize: 11 }}>
+                    <span style={{ fontWeight: 500, color: T.muted, marginLeft: 7, fontSize: 12 }}>
                       {c.when_iso
                         ? new Intl.DateTimeFormat("en-US", {
                             timeZone: tz || undefined, month: "short", day: "numeric",
@@ -203,9 +203,9 @@ function CallSearch({ businessKey, tz, usingSample }) {
                     <div key={i} style={{ marginTop: 6, paddingLeft: 2 }}>
                       <WatchLink businessKey={businessKey} callId={c.call_id} startAt={h.start}
                                  title={recordingTitle(c.contact, c.when_iso, tz)}>
-                        <span style={{ fontSize: 11, color: T.tertiary,
+                        <span style={{ fontSize: 12, color: T.tertiary,
                                        fontVariantNumeric: "tabular-nums" }}>{fmtHit(h.start)}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6,
+                        <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 6,
                                        color: h.is_host ? T.evergreen : T.teal }}>{h.speaker}</span>
                       </WatchLink>
                       <div style={{ fontSize: 12, color: T.slate, lineHeight: 1.45, marginTop: 1 }}>
@@ -259,39 +259,39 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-ctx-h { font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.01em; }
         .sd-ctx-s { font-size:12px; color:${T.muted}; }
         .sd-spacer { flex:1; }
-        .sd-pill { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600;
+        .sd-pill { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600;
           border-radius:99px; padding:5px 12px; color:${T.meadow}; background:${T.meadowBg}; border:1px solid ${alpha(T.meadow, .28)}; }
         .sd-pill .pdot { width:7px; height:7px; border-radius:99px; background:${T.meadow}; }
         .sd-sample { color:${T.amber}; background:${T.amberBg}; border:1px solid ${alpha(T.amber, .28)};
-          font-size:11px; border-radius:8px; padding:6px 11px; margin-bottom:14px; }
+          font-size:12px; border-radius:8px; padding:6px 11px; margin-bottom:14px; }
 
         .sd-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; margin-bottom:14px; }
         .sd-kpi { background:${T.white}; border:1px solid ${T.line}; border-radius:13px; padding:13px 15px; }
-        .sd-kpi-l { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:${T.tertiary}; }
-        .sd-kpi-v { font-family:var(--font-display); font-size:24px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+        .sd-kpi-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.tertiary}; }
+        .sd-kpi-v { font-family:var(--font-display); font-size:24px; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums; }
         .sd-kpi-v.good { color:${T.meadow}; } .sd-kpi-v.warn { color:${T.amber}; }
-        .sd-kpi-s { font-size:10.5px; color:${T.muted}; margin-top:2px; }
+        .sd-kpi-s { font-size:12px; color:${T.muted}; margin-top:2px; }
 
         .sd-card { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px 16px;
           box-shadow:0 12px 30px ${alpha(T.evergreen, .05)}; margin-bottom:14px; }
         .sd-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
-        .sd-title { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
-        .sd-sub { font-size:11px; color:${T.muted}; }
-        .sd-clear { border:none; background:none; font:inherit; font-size:11px; font-weight:600; color:${T.petalDeep}; cursor:pointer; padding:0; }
+        .sd-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; }
+        .sd-sub { font-size:12px; color:${T.muted}; }
+        .sd-clear { border:none; background:none; font:inherit; font-size:12px; font-weight:600; color:${T.petalDeep}; cursor:pointer; padding:0; }
 
         .sd-tblwrap { overflow-x:auto; }
         .sd-cards { display:none; }
         /* Commissions */
         .sd-comm .sd-sel { font:inherit; font-size:12px; color:${T.ink}; border:1px solid ${T.line};
           border-radius:8px; padding:5px 8px; background:${T.white}; }
-        .sd-closed { margin-left:8px; font-size:10.5px; font-weight:700; letter-spacing:.06em;
-          text-transform:uppercase; color:${T.meadowInk}; background:${T.meadowBg};
+        .sd-closed { margin-left:8px; font-size:12px; font-weight:600; letter-spacing:0;
+          text-transform:none; color:${T.meadowInk}; background:${T.meadowBg};
           border-radius:999px; padding:2px 8px; }
         .sd-ctot { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; margin:12px 0 14px; }
         .sd-ctot > div { border:1px solid ${T.line}; border-radius:12px; padding:10px 12px;
           display:flex; flex-direction:column; gap:3px; min-width:0; }
-        .sd-ctot .l { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:${T.muted}; }
-        .sd-ctot .v { font-family:var(--font-display); font-size:18px; font-weight:700; color:${T.ink};
+        .sd-ctot .l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; }
+        .sd-ctot .v { font-family:var(--font-display); font-size:18px; font-weight:600; color:${T.ink};
           font-variant-numeric:tabular-nums; }
         /* NOT .sd-tblwrap - that one is display:none on phones, which would hide the whole
            commission table rather than let it scroll. */
@@ -307,45 +307,45 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-cdet > summary { font-size:12px; color:${T.teal}; cursor:pointer; }
         .sd-cact { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px;
           padding-top:12px; border-top:1px solid ${T.line}; }
-        .sd-confirm { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:12.5px; color:${T.slate}; }
+        .sd-confirm { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:13px; color:${T.slate}; }
         .sd-cerr { margin-top:10px; font-size:12px; color:${T.poppyText}; }
-        .sd-cnote { margin-top:12px; font-size:11px; color:${T.muted}; line-height:1.5; }
+        .sd-cnote { margin-top:12px; font-size:12px; color:${T.muted}; line-height:1.5; }
         @media (max-width:760px) { .sd-ctot { grid-template-columns:repeat(2, minmax(0,1fr)); } }
         .sd-c { border:1px solid ${T.line}; border-radius:12px; padding:11px 12px; margin-bottom:9px; }
         .sd-c.sel { border-color:${T.petalDeep}; background:${alpha(T.petal, .07)}; }
         .sd-c-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
-        .sd-c-name { flex:1; min-width:0; text-align:left; font:inherit; font-size:13.5px; font-weight:600;
+        .sd-c-name { flex:1; min-width:0; text-align:left; font:inherit; font-size:14px; font-weight:600;
           color:${T.ink}; background:none; border:none; padding:0; cursor:pointer; }
-        .sd-c-more { flex:none; font:inherit; font-size:11px; font-weight:600; color:${T.petalDeep};
+        .sd-c-more { flex:none; font:inherit; font-size:12px; font-weight:600; color:${T.petalDeep};
           background:none; border:none; padding:6px 2px; cursor:pointer; min-height:34px; }
         .sd-c-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
         .sd-c-grid.more { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:10px;
           padding-top:10px; border-top:1px solid ${alpha(T.line, .7)}; }
         .sd-c-stat { min-width:0; }
-        .sd-c-l { display:block; font-size:9.5px; font-weight:700; letter-spacing:.07em;
-          text-transform:uppercase; color:${T.tertiary}; }
-        .sd-c-v { display:block; font-family:var(--font-display); font-size:17px; font-weight:700;
+        .sd-c-l { display:block; font-size:12px; font-weight:600; letter-spacing:0;
+          text-transform:none; color:${T.tertiary}; }
+        .sd-c-v { display:block; font-family:var(--font-display); font-size:17px; font-weight:600;
           margin-top:2px; font-variant-numeric:tabular-nums; color:${T.ink}; }
-        .sd-c-foot { font-size:10.5px; color:${T.tertiary}; line-height:1.5; margin-top:4px; }
+        .sd-c-foot { font-size:12px; color:${T.tertiary}; line-height:1.5; margin-top:4px; }
         @media (max-width:700px) {
           .sd-tblwrap { display:none; }      /* 12 columns never read well on a phone */
           .sd-cards { display:block; }
         }
         .sd-tbl { width:100%; border-collapse:collapse; }
-        .sd-tbl th { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:${T.muted};
+        .sd-tbl th { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted};
           text-align:right; padding:6px 7px; border-bottom:1px solid ${T.line}; white-space:nowrap; }
         .sd-tbl th:first-child { text-align:left; }
-        .sd-tbl td { font-size:12.5px; padding:9px 7px; border-bottom:1px solid ${alpha(T.line, .5)}; text-align:right;
+        .sd-tbl td { font-size:13px; padding:9px 7px; border-bottom:1px solid ${alpha(T.line, .5)}; text-align:right;
           font-variant-numeric:tabular-nums; color:${T.secondary}; }
         .sd-tbl td:first-child { text-align:left; font-weight:600; color:${T.ink}; }
         .sd-tbl tr.sel td { background:${alpha(T.line, .5)}; }
         .sd-tbl tr.click { cursor:pointer; } .sd-tbl tr.click:hover td { background:${alpha(T.line, .5)}; }
-        .sd-tbl td .em { font-family:var(--font-display); font-weight:700; color:${T.ink}; }
-        .rate { font-weight:700; } .rate.good { color:${T.meadow}; } .rate.warn { color:${T.amber}; }
-        .flagchip { display:inline-block; margin-left:7px; font-size:9.5px; font-weight:700; color:${T.amber};
+        .sd-tbl td .em { font-family:var(--font-display); font-weight:600; color:${T.ink}; }
+        .rate { font-weight:600; } .rate.good { color:${T.meadow}; } .rate.warn { color:${T.amber}; }
+        .flagchip { display:inline-block; margin-left:7px; font-size:12px; font-weight:600; color:${T.amber};
           background:${T.amberBg}; border-radius:5px; padding:2px 6px; }
-        .rawmail { font-family:'Courier New',monospace; font-size:11px; color:${T.tertiary}; font-weight:500; }
-        .sd-tfoot td { border-bottom:none; color:${T.tertiary}; font-size:11px; padding-top:10px; text-align:left; }
+        .rawmail { font-family:'Courier New',monospace; font-size:12px; color:${T.tertiary}; font-weight:500; }
+        .sd-tfoot td { border-bottom:none; color:${T.tertiary}; font-size:12px; padding-top:10px; text-align:left; }
 
         .sd-rec { margin-left:6px; font-size:12px; text-decoration:none; color:${T.teal}; }
         .sd-rec.wait { color:${T.amber}; cursor:default; }
@@ -356,26 +356,26 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         .sd-scroll::-webkit-scrollbar-track { background:transparent; }
         .sd-lr { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid ${alpha(T.line, .5)}; }
         .sd-lr:last-child { border-bottom:none; }
-        .sd-lr-t { font-size:11px; color:${T.muted}; width:118px; flex:none; }
-        .sd-lr-who { font-size:12.5px; font-weight:600; color:${T.ink}; flex:1; min-width:0; }
-        .sd-lr-who em { font-style:normal; font-weight:500; color:${T.muted}; font-size:11px; margin-left:7px; }
-        .sd-oc { font-size:10.5px; font-weight:700; flex:none; width:76px; text-align:right; }
+        .sd-lr-t { font-size:12px; color:${T.muted}; width:118px; flex:none; }
+        .sd-lr-who { font-size:13px; font-weight:600; color:${T.ink}; flex:1; min-width:0; }
+        .sd-lr-who em { font-style:normal; font-weight:500; color:${T.muted}; font-size:12px; margin-left:7px; }
+        .sd-oc { font-size:12px; font-weight:600; flex:none; width:76px; text-align:right; }
         .sd-oc.good { color:${T.meadow}; } .sd-oc.warn { color:${T.amber}; } .sd-oc.pend { color:${T.muted}; } .sd-oc.flag { color:${T.petalDeep}; }
-        .sd-nsd { font-size:10.5px; color:${T.muted}; flex:none; }
-        .sd-nst { font-size:9.5px; font-weight:700; flex:none; border-radius:5px; padding:2px 7px; }
+        .sd-nsd { font-size:12px; color:${T.muted}; flex:none; }
+        .sd-nst { font-size:12px; font-weight:600; flex:none; border-radius:5px; padding:2px 7px; }
         .sd-nst.yes { color:${T.meadow}; background:${T.meadowBg}; }
         .sd-nst.no { color:${T.amber}; background:${T.amberBg}; }
 
         .sd-mix { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; }
         .sd-mixcell { border:1px solid ${T.line}; border-radius:11px; padding:11px 13px; }
-        .sd-mix-t { font-size:11.5px; font-weight:700; color:${T.ink}; }
-        .sd-mix-n { font-family:var(--font-display); font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
-        .sd-mix-s { font-size:10.5px; color:${T.muted}; margin-top:2px; line-height:1.4; }
-        .prov { display:inline-block; font-size:9px; font-weight:700; color:${T.amber}; background:${T.amberBg};
+        .sd-mix-t { font-size:12px; font-weight:600; color:${T.ink}; }
+        .sd-mix-n { font-family:var(--font-display); font-size:20px; font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
+        .sd-mix-s { font-size:12px; color:${T.muted}; margin-top:2px; line-height:1.4; }
+        .prov { display:inline-block; font-size:12px; font-weight:600; color:${T.amber}; background:${T.amberBg};
           border-radius:4px; padding:1px 5px; margin-left:5px; }
         .sd-bar { display:flex; height:8px; border-radius:5px; overflow:hidden; margin:12px 0 8px; background:${alpha(T.line, .5)}; }
         .sd-bar span { display:block; height:100%; }
-        .sd-mixfoot { font-size:11px; color:${T.tertiary}; } .sd-mixfoot b { font-family:var(--font-display); color:${T.ink}; }
+        .sd-mixfoot { font-size:12px; color:${T.tertiary}; } .sd-mixfoot b { font-family:var(--font-display); color:${T.ink}; }
 
         /* Data Health IS an .sd-card - it just wears an amber border. Everything about its
            box (shadow, radius, padding, margin) comes from .sd-card so the two cards stacked
@@ -388,11 +388,11 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
         /* line-height matters here: Poppins at 17px defaults to a ~26px box beside a 15px
            label, and on a shared baseline the number visibly floats above the text it
            belongs to. min-width, not width, so a three-digit count doesn't break the column. */
-        .sd-hn { font-family:var(--font-display); font-size:17px; font-weight:700; line-height:1.2;
+        .sd-hn { font-family:var(--font-display); font-size:17px; font-weight:600; line-height:1.2;
           color:${T.amber}; min-width:26px; flex:none; text-align:right; }
-        .sd-hl { font-size:12.5px; font-weight:600; color:${T.ink}; line-height:1.35; }
-        .sd-hint { display:block; font-size:11px; color:${T.muted}; margin-top:3px; line-height:1.45; }
-        .sd-empty { font-size:12.5px; color:${T.muted}; padding:10px 2px; }
+        .sd-hl { font-size:13px; font-weight:600; color:${T.ink}; line-height:1.35; }
+        .sd-hint { display:block; font-size:12px; color:${T.muted}; margin-top:3px; line-height:1.45; }
+        .sd-empty { font-size:13px; color:${T.muted}; padding:10px 2px; }
 
         .sd-root .num { cursor:pointer; border-radius:3px; box-shadow:inset 0 -1px 0 ${alpha(T.muted, 0)}; }
         .sd-root .num:hover { box-shadow:inset 0 -1.5px 0 currentColor; }
@@ -403,29 +403,29 @@ export default function SalesDeskSection({ data, usingSample, role, businessKey 
           box-shadow:-24px 0 60px ${alpha(T.evergreen, .18)}; }
         .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; }
-        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
+        .drx-title { font-family:var(--font-display); font-size:14px; font-weight:600; color:${T.ink}; }
         .drx-x { border:none; background:none; font-size:15px; color:${T.tertiary}; cursor:pointer; }
         .drx-body { padding:18px 20px; overflow-y:auto; }
-        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:700; color:${T.ink};
+        .drx-val { font-family:var(--font-display); font-size:30px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
         .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
-        .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px;
+        .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:13px;
           border-bottom:1px solid ${alpha(T.line, .5)}; }
         .drx-step:last-child { border-bottom:none; }
         .drx-step span { color:${T.secondary}; } .drx-step b { color:${T.ink}; font-family:var(--font-display);
           font-weight:600; text-align:right; }
-        .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal};
+        .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:${T.teal};
           background:${alpha(T.teal, .07)}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
-        .drx-note, .drx-note2 { font-size:11.5px; color:${T.muted}; line-height:1.5; }
-        .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .drx-note, .drx-note2 { font-size:12px; color:${T.muted}; line-height:1.5; }
+        .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .drx-tblwrap { overflow-x:auto; }
         .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em;
-          text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0;
+          text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${alpha(T.line, .5)}; color:${T.secondary}; }
         .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
-        .sd-foot { font-size:11px; color:${T.muted}; margin-top:16px; line-height:1.6; } .sd-foot b { color:${T.tertiary}; }
+        .sd-foot { font-size:12px; color:${T.muted}; margin-top:16px; line-height:1.6; } .sd-foot b { color:${T.tertiary}; }
         @media (max-width:760px){ .sd-kpis, .sd-mix { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
           .sd-cols { grid-template-columns:minmax(0,1fr); } }
       `}</style>
@@ -928,22 +928,22 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
           align-items:flex-start; justify-content:center; padding:64px 16px; z-index:60; }
         .sd-box { background:${T.white}; border:1px solid ${T.line}; border-radius:16px; padding:18px 20px;
           width:100%; max-width:520px; max-height:80vh; overflow:auto; box-shadow:0 24px 60px ${alpha(T.evergreen, .18)}; }
-        .sd-needs { font-size:11.5px; color:${T.amber}; background:${T.amberBg};
+        .sd-needs { font-size:12px; color:${T.amber}; background:${T.amberBg};
           border:1px solid ${alpha(T.amber, .28)}; border-radius:9px; padding:8px 11px; margin-bottom:10px; line-height:1.45; }
         .sd-rrow { display:flex; align-items:center; gap:10px; padding:8px 0 2px; }
         .sd-rrow2 { border-bottom:1px solid ${alpha(T.line, .5)}; padding-bottom:6px; }
         .sd-rrow2:last-of-type { border-bottom:none; }
         .sd-rrow2.needs .sd-input { border-color:${alpha(T.amber, .55)}; }
-        .sd-sharerow { font-size:10.5px; color:${T.muted}; padding-left:2px; }
+        .sd-sharerow { font-size:12px; color:${T.muted}; padding-left:2px; }
         .sd-sharerow .sd-clear.warn { color:${T.amber}; }
         .sd-rmail { flex:1; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
         .sd-rmail .rawmail { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .sd-input { font:inherit; font-size:12.5px; color:${T.ink}; border:1px solid ${T.line}; border-radius:8px;
+        .sd-input { font:inherit; font-size:13px; color:${T.ink}; border:1px solid ${T.line}; border-radius:8px;
           padding:6px 9px; width:190px; flex:none; background:${T.white}; }
         .sd-input:focus { outline:none; border-color:${T.petalDeep}; }
-        .sd-active { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
+        .sd-active { font-size:12px; color:${T.tertiary}; display:flex; align-items:center; gap:5px; flex:none; }
         .sd-active.off { opacity:.4; }
-        .sd-rate { font-size:11px; color:${T.tertiary}; display:flex; align-items:center; gap:3px; flex:none; }
+        .sd-rate { font-size:12px; color:${T.tertiary}; display:flex; align-items:center; gap:3px; flex:none; }
         .sd-rate.off { opacity:.4; }
         .sd-input.rate { width:58px; text-align:right; }
         @media (pointer: coarse), (max-width:700px) {
@@ -952,7 +952,7 @@ function RepRosterDrawer({ businessKey, usingSample, onClose, onSaved }) {
           .sd-input { width:100%; }
           .sd-input.rate { width:76px; }      /* the rate stays small - it is two digits */
         }
-        .sd-btn { font:inherit; font-size:12px; font-weight:700; border:none; border-radius:9px; padding:8px 15px;
+        .sd-btn { font:inherit; font-size:12px; font-weight:600; border:none; border-radius:9px; padding:8px 15px;
           background:${T.evergreen}; color:${T.onDark}; cursor:pointer; }
         .sd-btn:disabled { opacity:.5; cursor:default; }
         .sd-btn.ghost { background:transparent; color:${T.tertiary}; border:1px solid ${T.line}; }

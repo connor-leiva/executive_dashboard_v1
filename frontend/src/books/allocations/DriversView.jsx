@@ -20,8 +20,8 @@ import { useAllocDriverMonth } from "../useBooks.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none", color: L.faint };
 
 
 function Entity({ id, businesses }) {
@@ -30,7 +30,7 @@ function Entity({ id, businesses }) {
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
       <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", flex: "0 0 auto",
                                  background: b?.accent || L.faint }} />
-      <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.body, overflow: "hidden",
+      <span style={{ fontFamily: F.body, fontSize: 13, color: L.body, overflow: "hidden",
                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {b?.name || "Unknown entity"}
       </span>
@@ -45,14 +45,14 @@ function ValueRow({ v, meta, businesses }) {
                   gap: 10, alignItems: "center", padding: "9px 14px",
                   borderBottom: `1px solid ${L.ruleLine}` }}>
       <Entity id={v.business_id} businesses={businesses} />
-      <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+      <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
         {valueKindLabel(meta, v.value_kind)}
       </span>
       {/* THE PERCENT, not the stored fraction. A committed 70% read back as "0.7000" is
           the same mismatch the input had, in the other direction: a reader comparing the
           screen with what they typed sees a different number (6.3, 7.6). `pct` comes from
           the server; the browser does not divide. */}
-      <span style={{ ...NUM, fontSize: 12.5, color: L.body }}>
+      <span style={{ ...NUM, fontSize: 13, color: L.body }}>
         {v.value_kind === "remainder" ? "the rest"
           : v.value_kind === "share" ? `${v.pct ?? ""}%`
           : v.value}
@@ -61,7 +61,7 @@ function ValueRow({ v, meta, businesses }) {
   );
 }
 
-const FIELD = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 12.5,
+const FIELD = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", fontSize: 13,
                 color: L.deep, background: L.paper, border: `1px solid ${L.cardEdge}`,
                 borderRadius: 8, padding: "5px 8px", textAlign: "right", width: "100%",
                 minWidth: 0 };
@@ -103,14 +103,14 @@ function DriverCard({ driver, meta, businesses, isCFO, month }) {
               <span style={{ ...EYEBROW, display: "block", marginBottom: 3 }}>
                 {driver.label}
               </span>
-              <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted,
+              <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted,
                              display: "block" }}>
                 {driver.kind === "split"
                   ? "One row per person, one column per entity."
                   : "One row, one column per entity."}
               </span>
             </span>
-            <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.bodyDim }}>
+            <span style={{ fontFamily: F.body, fontSize: 13, color: L.bodyDim }}>
               {fmtMonth(month)}
             </span>
           </div>
@@ -135,13 +135,13 @@ function DriverCard({ driver, meta, businesses, isCFO, month }) {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10,
                         padding: "9px 14px", background: L.totalBand,
                         borderBottom: `1px solid ${L.ruleLine}` }}>
-            <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.body }}>
+            <span style={{ fontFamily: F.body, fontSize: 12, color: L.body }}>
               Committed {commit.committed_at ? fmtDay(commit.committed_at.slice(0, 10)) : ""}
               {commit.committed_by?.name ? ` by ${commit.committed_by.name}` : ""}
             </span>
             <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={{ fontFamily: F.num, fontSize: 10, letterSpacing: ".08em",
-                             textTransform: "uppercase", color: L.deep }}>
+              <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                             textTransform: "none", color: L.deep }}>
                 {commit.is_current ? "Current" : "Superseded"}
               </span>
               {/* Reopens the matrix seeded with what is committed, and saves a NEW commit
@@ -188,10 +188,10 @@ export default function DriversView({ data, isCFO, businesses, refresh, month,
     return (
       <div style={{ background: L.card, border: `1px solid ${L.cardEdge}`, borderRadius: 14,
                     padding: 28, textAlign: "center" }}>
-        <div style={{ fontFamily: F.body, fontSize: 13.5, color: L.deep, fontWeight: 600 }}>
+        <div style={{ fontFamily: F.body, fontSize: 14, color: L.deep, fontWeight: 600 }}>
           No drivers defined.
         </div>
-        <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted, marginTop: 6 }}>
+        <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted, marginTop: 6 }}>
           A driver is a question answered once a month, such as how a person split their time or
           how many members each entity had. A Tier 3 rule reads one to decide its split.
         </div>

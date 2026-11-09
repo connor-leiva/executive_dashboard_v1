@@ -53,7 +53,7 @@ export const CUM = C_ACTUAL + C_PACE + C_TREND + C_GAP + C_REC; // 444
 export const WK = 58;
 export const ROW_H = 52;
 
-export const LBL = { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.085em", textTransform: "uppercase", color: T.faint };
+export const LBL = { fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.faint };
 
 export const TONE = {
   good: { fg: T.good, bg: T.goodBg },
@@ -142,10 +142,10 @@ export function StatusTag({ verdict }) {
   return (
     <span
       style={{
-        fontSize: 8,
+        fontSize: 12,
         fontWeight: 600,
-        letterSpacing: "0.02em",
-        textTransform: "uppercase",
+        letterSpacing: 0,
+        textTransform: "none",
         color: t.fg,
         background: s.kind === "good" ? t.bg : "transparent",
         border: `1px solid ${s.kind === "good" ? "transparent" : t.fg}`,

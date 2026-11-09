@@ -77,7 +77,7 @@ export function LaunchEmpty({ businessKey = "springb", onCreated }) {
       <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="the shift"
         style={{ width: "100%", border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px",
           fontFamily: "inherit", fontSize: 13, color: T.ink, background: T.white, boxSizing: "border-box" }} />
-      <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
+      <div style={{ fontSize: 12, color: T.muted, marginTop: 5 }}>
         Contacts with this tag are counted as registrants (live). Until the tag syncs, a manual seed of 175 shows.
       </div>
       {err && <div style={{ fontSize: 12, color: T.poppyText, marginTop: 12 }}>{err}</div>}
@@ -648,10 +648,10 @@ function fmtLong(sec) {
   return m ? `${m} min ${s % 60} sec` : `${s} sec`;
 }
 
-const MONO = { fontVariantNumeric: "tabular-nums", letterSpacing: ".02em" };
+const MONO = { fontVariantNumeric: "tabular-nums", letterSpacing: 0 };
 const MICRO = {
-  fontSize: 10.5, fontWeight: 700, letterSpacing: ".14em",
-  textTransform: "uppercase", color: T.muted,
+  fontSize: 12, fontWeight: 600, letterSpacing: 0,
+  textTransform: "none", color: T.muted,
 };
 
 /* Side-by-side needs ~900px to hold a watchable video AND a readable transcript. Below that
@@ -680,7 +680,7 @@ function RuleLabel({ children, note }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <span style={MICRO}>{children}</span>
       <div style={{ flex: 1, height: 1, background: T.line }} />
-      {note && <span style={{ fontSize: 12.5, color: T.muted }}>{note}</span>}
+      {note && <span style={{ fontSize: 13, color: T.muted }}>{note}</span>}
     </div>
   );
 }
@@ -723,12 +723,12 @@ function Chapters({ chapters, at, onSeek }) {
               background: on ? T.meadowBg : T.white, padding: "9px 12px", cursor: "pointer",
               fontFamily: "var(--font-text)",
             }}>
-              <span style={{ ...MONO, fontSize: 11.5, color: T.muted, width: 38, flex: "none" }}>
+              <span style={{ ...MONO, fontSize: 12, color: T.muted, width: 38, flex: "none" }}>
                 {fmtClock(c.start)}
               </span>
               <span style={{ width: 3, height: 18, borderRadius: 2, flex: "none",
                              background: on ? T.meadow : T.line }} />
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, color: T.ink,
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: T.ink,
                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {c.title}
               </span>
@@ -800,11 +800,11 @@ function Transport({ videoRef, at, dur, chapters, playing, onToggle }) {
           ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <span style={{ ...MONO, fontSize: 11.5, color: T.tertiary }}>
+          <span style={{ ...MONO, fontSize: 12, color: T.tertiary }}>
             {fmtClock(at)} / {fmtClock(dur)}
           </span>
           {chapterNow && (
-            <span style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase",
+            <span style={{ fontSize: 12, letterSpacing: 0, textTransform: "none",
                            color: T.muted, minWidth: 0, overflow: "hidden",
                            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chapterNow}</span>
           )}
@@ -812,7 +812,7 @@ function Transport({ videoRef, at, dur, chapters, playing, onToggle }) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 7, flex: "none" }}>
-        <button onClick={cycleRate} style={{ ...btn, ...MONO, fontSize: 11.5, color: T.secondary }}>
+        <button onClick={cycleRate} style={{ ...btn, ...MONO, fontSize: 12, color: T.secondary }}>
           {rate}×
         </button>
         <button onClick={toggleMute} aria-label="Mute" style={{ ...btn, width: 30, padding: 0 }}>
@@ -967,11 +967,11 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                       background: T.white, borderBottom: `1px solid ${T.line}`, flex: "none" }}>
           <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700,
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600,
                              color: T.ink, letterSpacing: "-.02em" }}>{heading}</span>
               {meta?.outcome && (
                 <span style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 9px",
-                               borderRadius: 999, background: T.meadowBg, fontSize: 11.5,
+                               borderRadius: 999, background: T.meadowBg, fontSize: 12,
                                fontWeight: 600, color: T.meadowInk }}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.meadow }} />
                   {meta.outcome}
@@ -979,12 +979,12 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
               )}
               {meta?.payment_type && (
                 <span style={{ padding: "3px 9px", borderRadius: 999, background: T.page,
-                               fontSize: 11.5, fontWeight: 500, color: T.tertiary }}>
+                               fontSize: 12, fontWeight: 500, color: T.tertiary }}>
                   {meta.payment_type}{meta.payment_acv ? ` · ${usd(meta.payment_acv)}` : ""}
                 </span>
               )}
             </div>
-            <div style={{ ...MONO, fontSize: 11.5, color: T.muted }}>{sub}</div>
+            <div style={{ ...MONO, fontSize: 12, color: T.muted }}>{sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
             <button style={hdrBtn} onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
@@ -1022,12 +1022,12 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                        style={{ width: "100%", maxHeight: "56vh", display: "block", cursor: "pointer" }} />
               )}
               {!url && !err && (
-                <div style={{ color: T.onDark, fontSize: 12.5, padding: 70, textAlign: "center" }}>
+                <div style={{ color: T.onDark, fontSize: 13, padding: 70, textAlign: "center" }}>
                   Loading recording…
                 </div>
               )}
               {err && (
-                <div style={{ color: T.onDark, fontSize: 12.5, padding: 70, textAlign: "center" }}>
+                <div style={{ color: T.onDark, fontSize: 13, padding: 70, textAlign: "center" }}>
                   {err}
                 </div>
               )}
@@ -1054,7 +1054,7 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                           width: `${w}%`, background: v.is_host ? T.evergreen : T.sprout,
                           display: "flex", alignItems: "center",
                           justifyContent: v.is_host ? "flex-end" : "flex-start",
-                          padding: "0 12px", fontSize: 12.5, fontWeight: 600,
+                          padding: "0 12px", fontSize: 13, fontWeight: 600,
                           color: v.is_host ? T.onDark : T.secondary,
                           whiteSpace: "nowrap", overflow: "hidden",
                         }}>{w >= 14 ? `${name.split(" ")[0]} ${Math.round(w)}%` : ""}</div>
@@ -1079,8 +1079,8 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                         border: `1px solid ${T.line}`, borderRadius: 12, background: T.parchment,
                         padding: "12px 14px", display: "flex", flexDirection: "column", gap: 3,
                       }}>
-                        <div style={{ ...MICRO, fontSize: 10 }}>{c.label}</div>
-                        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700,
+                        <div style={{ ...MICRO, fontSize: 12 }}>{c.label}</div>
+                        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600,
                                       color: T.ink, letterSpacing: "-.02em" }}>{c.value}</div>
                         <div style={{ fontSize: 12, color: T.muted }}>{c.note}</div>
                       </div>
@@ -1107,9 +1107,9 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                   <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this call"
                          style={{ flex: 1, minWidth: 0, border: 0, outline: "none",
                                   background: "transparent", fontFamily: "var(--font-text)",
-                                  fontSize: 13.5, color: T.ink }} />
+                                  fontSize: 14, color: T.ink }} />
                   {needle && (
-                    <span style={{ ...MONO, fontSize: 11, color: T.muted, flex: "none" }}>
+                    <span style={{ ...MONO, fontSize: 12, color: T.muted, flex: "none" }}>
                       {shown.length} hit{shown.length === 1 ? "" : "s"}
                     </span>
                   )}
@@ -1120,7 +1120,7 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                     return (
                       <button key={n} onClick={() => setWho(n)} style={{
                         height: 28, padding: "0 11px", border: 0, borderRadius: 999,
-                        cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 12.5,
+                        cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 13,
                         fontWeight: on ? 600 : 500, whiteSpace: "nowrap",
                         background: on ? T.evergreen : T.page,
                         color: on ? T.onDark : T.tertiary,
@@ -1131,7 +1131,7 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                   {(needle || who !== "all") && (
                     <button onClick={() => { setQ(""); setWho("all"); }} style={{
                       border: 0, background: "transparent", padding: 0, cursor: "pointer",
-                      fontFamily: "var(--font-text)", fontSize: 12.5, color: T.teal,
+                      fontFamily: "var(--font-text)", fontSize: 13, color: T.teal,
                       textDecoration: "underline", textUnderlineOffset: 3,
                     }}>Reset</button>
                   )}
@@ -1152,7 +1152,7 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                          }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
                                     gap: 5, flex: "none", width: 44 }}>
-                        <span style={{ ...MONO, fontSize: 11, color: T.muted }}>{fmtClock(s.start)}</span>
+                        <span style={{ ...MONO, fontSize: 12, color: T.muted }}>{fmtClock(s.start)}</span>
                         <span style={{ width: 3, flex: 1, minHeight: 14, borderRadius: 2,
                                        background: s.is_host ? T.evergreen : T.sprout,
                                        opacity: active ? 1 : 0.5 }} />
@@ -1160,16 +1160,16 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                       <div style={{ minWidth: 0, flex: 1, display: "flex",
                                     flexDirection: "column", gap: 3 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 600,
+                          <span style={{ fontSize: 13, fontWeight: 600,
                                          color: s.is_host ? T.ink : T.meadowInk }}>{s.speaker}</span>
                           {s.tag && (
-                            <span style={{ fontSize: 9.5, letterSpacing: ".12em",
-                                           textTransform: "uppercase", color: T.muted,
+                            <span style={{ fontSize: 12, letterSpacing: 0,
+                                           textTransform: "none", color: T.muted,
                                            padding: "2px 6px", border: `1px solid ${T.line}`,
                                            borderRadius: 5 }}>{s.tag}</span>
                           )}
                         </div>
-                        <div style={{ fontSize: 13.5, lineHeight: 1.55,
+                        <div style={{ fontSize: 14, lineHeight: 1.55,
                                       color: active ? T.ink : T.slate }}>{s.text}</div>
                       </div>
                     </div>
@@ -1178,7 +1178,7 @@ function RecordingPlayer({ businessKey, callId, title, startAt, onClose }) {
                 {shown.length === 0 && (
                   <div style={{ padding: "40px 24px", textAlign: "center", display: "flex",
                                 flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 14.5, fontWeight: 600, color: T.ink }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>
                       No matches in this call
                     </div>
                     <div style={{ fontSize: 13, color: T.muted }}>
@@ -1370,9 +1370,9 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl * { box-sizing:border-box; }
         .bcl .mod { max-width:900px; }
 
-        .bcl .ph { display:flex; align-items:center; gap:9px; font-size:11.5px; color:${T.amber};
+        .bcl .ph { display:flex; align-items:center; gap:9px; font-size:12px; color:${T.amber};
           background:${T.amberBg}; border:1px solid ${alpha(T.amber, .3)}; border-radius:9px; padding:8px 13px; margin-bottom:16px; }
-        .bcl .ph b { font-weight:700; } .bcl .ph em { font-style:normal; color:${T.slate}; }
+        .bcl .ph b { font-weight:600; } .bcl .ph em { font-style:normal; color:${T.slate}; }
         .bcl .ph-dot { width:6px; height:6px; border-radius:99px; background:${T.amber}; flex:none; }
 
         .bcl .ctx { display:flex; align-items:center; gap:11px; margin-bottom:16px; flex-wrap:wrap; }
@@ -1380,7 +1380,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .ctx-h { font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.01em; }
         .bcl .ctx-s { font-size:12px; color:${T.muted}; }
         .bcl .ctx-spacer { flex:1; }
-        .bcl .pill { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600;
+        .bcl .pill { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600;
           border-radius:99px; padding:5px 12px; border:1px solid ${T.line};
           color:${T.slate}; background:${T.parchment}; }
         .bcl .pill .pdot { width:7px; height:7px; border-radius:99px; background:${T.muted}; }
@@ -1393,7 +1393,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .pill.closed { color:${T.slate}; background:${T.parchment}; border-color:${T.line}; }
         .bcl .pill.closed .pdot { background:${T.muted}; }
         .bcl .gear { border:1px solid ${T.line}; background:${T.white}; border-radius:9px; padding:6px 12px;
-          font-size:11.5px; font-weight:600; color:${T.secondary}; cursor:pointer; font-family:inherit;
+          font-size:12px; font-weight:600; color:${T.secondary}; cursor:pointer; font-family:inherit;
           display:inline-flex; align-items:center; gap:6px; transition:border-color .15s ease, background .15s ease; }
         .bcl .gear:hover { border-color:${T.petal}; background:${T.parchment}; }
         .bcl .gear.on { border-color:${T.petalDeep}; color:${T.petalDeep}; }
@@ -1404,35 +1404,35 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .shift-head { display:flex; align-items:center; gap:10px; margin-bottom:15px; flex-wrap:wrap; }
         .bcl .shift-bar { width:4px; height:18px; border-radius:2px; background:${T.teal}; }
         .bcl .shift-title { font-family:var(--font-display); font-size:14px; font-weight:600; color:${T.ink}; }
-        .bcl .shift-title em { font-style:normal; font-size:11px; font-weight:500; color:${T.muted}; margin-left:9px; }
+        .bcl .shift-title em { font-style:normal; font-size:12px; font-weight:500; color:${T.muted}; margin-left:9px; }
         .bcl .shift-spacer { flex:1; }
         .bcl .shift-body { display:grid; grid-template-columns:minmax(190px,1fr) 1.35fr; gap:22px; align-items:center; }
-        .bcl .shift-num { font-family:var(--font-display); font-size:34px; font-weight:700; color:${T.ink};
+        .bcl .shift-num { font-family:var(--font-display); font-size:34px; font-weight:600; color:${T.ink};
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1; }
         .bcl .shift-num .of { font-size:13px; font-weight:500; color:${T.muted}; margin-left:8px; letter-spacing:0; }
         .bcl .shift-sub { font-size:12px; color:${T.slate}; margin-top:7px; }
         .bcl .shift-stats { display:flex; gap:20px; margin-top:15px; flex-wrap:wrap; }
-        .bcl .sh-stat-l { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:${T.muted}; }
-        .bcl .sh-stat-v { font-family:var(--font-display); font-size:15px; font-weight:700; color:${T.ink}; margin-top:3px; font-variant-numeric:tabular-nums; }
+        .bcl .sh-stat-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; }
+        .bcl .sh-stat-v { font-family:var(--font-display); font-size:15px; font-weight:600; color:${T.ink}; margin-top:3px; font-variant-numeric:tabular-nums; }
         .bcl .sh-stat-v.behind { color:${T.petalDeep}; }
         .bcl .sh-stat-v.good { color:${T.meadow}; }
         .bcl .shift-chart { min-width:0; }
         .bcl .shift-svg { width:100%; height:auto; display:block; overflow:visible; }
-        .bcl .shift-svg-lbl { font-family:var(--font-text); font-size:9px; fill:${T.muted}; }
-        .bcl .shift-svg-now { font-family:var(--font-display); font-size:11px; font-weight:700; }
-        .bcl .shift-foot { font-size:11px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
+        .bcl .shift-svg-lbl { font-family:var(--font-text); font-size:12px; fill:${T.muted}; }
+        .bcl .shift-svg-now { font-family:var(--font-display); font-size:12px; font-weight:600; }
+        .bcl .shift-foot { font-size:12px; color:${T.muted}; margin-top:15px; padding-top:12px; border-top:1px solid ${T.line}; }
         .bcl .shift-src { margin-top:16px; padding-top:14px; border-top:1px solid ${T.line}; }
         .bcl .shift-src-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:9px; flex-wrap:wrap; gap:4px; }
-        .bcl .shift-src-title { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:${T.slate}; }
-        .bcl .shift-src-sub { font-size:11px; color:${T.muted}; }
+        .bcl .shift-src-title { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.slate}; }
+        .bcl .shift-src-sub { font-size:12px; color:${T.muted}; }
         .bcl .shift-src-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:${T.parchment}; }
         .bcl .shift-src-bar span { display:block; height:100%; transition:width .4s ease; }
         .bcl .shift-src-legend { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:11px; }
-        .bcl .shift-src-item { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:${T.secondary}; }
+        .bcl .shift-src-item { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:${T.secondary}; }
         .bcl .shift-src-item i { width:9px; height:9px; border-radius:3px; flex:none; }
         .bcl .shift-src-item b { font-family:var(--font-display); font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
         .bcl .shift-src-item em { font-style:normal; color:${T.muted}; }
-        .bcl .shift-cap { font-size:11.5px; color:${T.muted}; margin-bottom:7px; min-height:16px; }
+        .bcl .shift-cap { font-size:12px; color:${T.muted}; margin-bottom:7px; min-height:16px; }
         .bcl .shift-cap.on { color:${T.teal}; }
         .bcl .shift-cap b { color:${T.ink}; font-weight:600; }
         .bcl .shift-cap.on b { color:${T.teal}; }
@@ -1453,21 +1453,21 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         @keyframes drx-in { from{ transform:translateX(20px); opacity:.6; } to{ transform:none; opacity:1; } }
         .bcl .drx-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px;
           border-bottom:1px solid ${T.line}; background:${T.parchment}; }
-        .bcl .drx-title { font-family:var(--font-display); font-size:14px; font-weight:700; color:${T.ink}; }
+        .bcl .drx-title { font-family:var(--font-display); font-size:14px; font-weight:600; color:${T.ink}; }
         .bcl .drx-x { border:none; background:none; font-size:15px; color:${T.slate}; cursor:pointer; }
         .bcl .drx-body { padding:18px 20px; overflow-y:auto; }
-        .bcl .drx-val { font-family:var(--font-display); font-size:30px; font-weight:700; color:${T.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+        .bcl .drx-val { font-family:var(--font-display); font-size:30px; font-weight:600; color:${T.ink}; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .bcl .drx-sub { font-size:12px; color:${T.muted}; margin:2px 0 12px; }
         .bcl .drx-steps { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
-        .bcl .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:12.5px; border-bottom:1px solid ${T.parchment}; }
+        .bcl .drx-step { display:flex; justify-content:space-between; gap:12px; padding:9px 13px; font-size:13px; border-bottom:1px solid ${T.parchment}; }
         .bcl .drx-step:last-child { border-bottom:none; }
         .bcl .drx-step span { color:${T.slate}; } .bcl .drx-step b { color:${T.ink}; font-family:var(--font-display); font-weight:600; text-align:right; }
-        .bcl .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:${T.teal}; background:${T.mist}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
-        .bcl .drx-note, .bcl .drx-note2 { font-size:11.5px; color:${T.muted}; line-height:1.5; }
-        .bcl .drx-empty { font-size:12.5px; color:${T.muted}; padding:12px 0; }
+        .bcl .drx-formula { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:${T.teal}; background:${T.mist}; border-radius:8px; padding:8px 11px; margin-bottom:10px; }
+        .bcl .drx-note, .bcl .drx-note2 { font-size:12px; color:${T.muted}; line-height:1.5; }
+        .bcl .drx-empty { font-size:13px; color:${T.muted}; padding:12px 0; }
         .bcl .drx-tblwrap { overflow-x:auto; }
         .bcl .drx-tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-        .bcl .drx-tbl th { text-align:left; font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
+        .bcl .drx-tbl th { text-align:left; font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.muted}; padding:6px 8px; border-bottom:1px solid ${T.line}; }
         .bcl .drx-tbl td { padding:7px 8px; border-bottom:1px solid ${T.parchment}; color:${T.secondary}; }
         .bcl .drx-tbl tr.on td { background:${T.meadowBg}; color:${T.ink}; font-weight:600; }
         .bcl .drx-tbl a { color:${T.teal}; text-decoration:none; font-weight:600; }
@@ -1478,13 +1478,13 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .hero { position:relative; overflow:hidden; border-radius:18px 18px 0 0; padding:26px 28px 24px;
           ${heroCss("petal")}
           box-shadow:0 2px 6px ${alpha(T.evergreen, .10)}, 0 16px 38px ${alpha(T.evergreen, .12)}; }
-        .bcl .eyebrow { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em;
-          text-transform:uppercase; display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }
+        .bcl .eyebrow { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0;
+          text-transform:none; display:inline-flex; align-items:center; gap:8px; color:${T.evergreen}; }
         .bcl .eyebrow .edot { width:8px; height:8px; border-radius:99px; background:${T.poppy}; }
-        .bcl .hnum { font-family:var(--font-display); font-weight:700; letter-spacing:-.025em; color:${T.evergreen};
+        .bcl .hnum { font-family:var(--font-display); font-weight:600; letter-spacing:-.025em; color:${T.evergreen};
           line-height:1; margin:12px 0 6px; font-variant-numeric:tabular-nums; font-size:44px; display:flex; align-items:baseline; gap:12px; }
         .bcl .hnum .of { font-size:15px; font-weight:500; color:${T.slate}; letter-spacing:0; }
-        .bcl .hdesc { font-size:12.5px; color:${T.slate}; }
+        .bcl .hdesc { font-size:13px; color:${T.slate}; }
 
         .bcl .gb { margin-top:20px; }
         .bcl .gb-track { position:relative; height:11px; border-radius:6px; background:${alpha(T.evergreen, .1)}; overflow:visible; }
@@ -1496,7 +1496,7 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
           border-radius:99px; background:${T.evergreen}; }
         .bcl .gb-goalcap { position:absolute; right:0; top:-3px; bottom:-3px; width:3px; border-radius:2px; background:${T.poppy}; }
         .bcl .gb-legend { display:flex; gap:18px; margin-top:12px; flex-wrap:wrap; align-items:center; }
-        .bcl .gb-legend span { font-size:11.5px; color:${T.slate}; display:inline-flex; align-items:center; gap:6px; }
+        .bcl .gb-legend span { font-size:12px; color:${T.slate}; display:inline-flex; align-items:center; gap:6px; }
         .bcl .gb-legend b { color:${T.ink}; font-weight:600; font-family:var(--font-display); }
         .bcl .gb-legend .right { margin-left:auto; }
         .bcl .gb-legend .d { width:8px; height:8px; border-radius:99px; }
@@ -1507,35 +1507,35 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         .bcl .hstats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:22px; }
         .bcl .ms { background:${alpha(T.white, .5)}; border:1px solid ${alpha(T.evergreen, .1)}; border-radius:11px; padding:11px 13px; }
-        .bcl .ms-l { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:${T.tertiary}; }
-        .bcl .ms-v { font-family:var(--font-display); font-size:19px; font-weight:700; color:${T.evergreen}; margin-top:5px;
+        .bcl .ms-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.tertiary}; }
+        .bcl .ms-v { font-family:var(--font-display); font-size:19px; font-weight:600; color:${T.evergreen}; margin-top:5px;
           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
         .bcl .ms-v.behind { color:${T.poppyText}; }
         .bcl .ms-v.good { color:${T.meadow}; }
-        .bcl .ms-s { font-size:10.5px; color:${T.muted}; margin-top:2px; }
+        .bcl .ms-s { font-size:12px; color:${T.muted}; margin-top:2px; }
 
         .bcl .card { background:${T.white}; border:1px solid ${T.line}; border-top:none; border-radius:0 0 18px 18px;
           padding:22px 26px 24px; box-shadow:0 12px 30px ${alpha(T.evergreen, .06)}; }
 
         .bcl .fn-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:4px; }
-        .bcl .fn-title { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:${T.ink}; }
-        .bcl .fn-sub { font-size:11px; color:${T.muted}; }
+        .bcl .fn-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.ink}; }
+        .bcl .fn-sub { font-size:12px; color:${T.muted}; }
         .bcl .fr { margin-bottom:13px; }
         .bcl .fr-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
-        .bcl .fr-label { font-size:12.5px; font-weight:600; color:${T.secondary}; }
-        .bcl .fr-owner { font-style:normal; font-size:10px; font-weight:500; letter-spacing:.04em; text-transform:uppercase;
+        .bcl .fr-label { font-size:13px; font-weight:600; color:${T.secondary}; }
+        .bcl .fr-owner { font-style:normal; font-size:12px; font-weight:500; letter-spacing:0; text-transform:none;
           color:${T.muted}; margin-left:8px; }
         .bcl .fr-n { font-family:var(--font-display); font-size:15px; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
         .bcl .fr-bar { height:8px; border-radius:5px; background:${T.parchment}; overflow:hidden; }
         .bcl .fr-bar span { display:block; height:100%; background:${T.teal}; opacity:.55; border-radius:5px; transition:width .4s ease; }
-        .bcl .fr-tag { font-size:11px; color:${T.muted}; margin-top:5px; }
+        .bcl .fr-tag { font-size:12px; color:${T.muted}; margin-top:5px; }
         .bcl .fr-tag.teal { color:${T.teal}; font-weight:600; }
 
         .bcl .fn-out { margin-top:16px; padding-top:16px; border-top:1px dashed ${T.line}; }
         .bcl .fn-out-top { display:flex; justify-content:space-between; align-items:baseline; }
-        .bcl .fn-out-label { font-size:13px; font-weight:700; color:${T.ink}; display:inline-flex; align-items:center; gap:7px; }
+        .bcl .fn-out-label { font-size:13px; font-weight:600; color:${T.ink}; display:inline-flex; align-items:center; gap:7px; }
         .bcl .fn-out-label .d { width:9px; height:9px; border-radius:99px; background:${T.meadow}; }
-        .bcl .fn-out-n { font-family:var(--font-display); font-size:22px; font-weight:700; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .fn-out-n { font-family:var(--font-display); font-size:22px; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
         .bcl .fn-out-n em { font-style:normal; font-size:12px; font-weight:500; color:${T.muted}; margin-left:6px; }
         .bcl .fn-out-bar { height:10px; border-radius:6px; background:${T.parchment}; overflow:hidden; margin:9px 0 7px; }
         .bcl .fn-out-bar span { display:block; height:100%; background:${T.meadow}; border-radius:6px; transition:width .5s ease; }
@@ -1543,48 +1543,48 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
 
         .bcl .side { display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-top:18px; }
         .bcl .side-chip { background:${T.parchment}; border:1px solid ${T.line}; border-radius:11px; padding:12px 14px; }
-        .bcl .side-n { font-family:var(--font-display); font-size:20px; font-weight:700; color:${T.ink}; }
+        .bcl .side-n { font-family:var(--font-display); font-size:20px; font-weight:600; color:${T.ink}; }
         .bcl .side-l { font-size:12px; font-weight:600; color:${T.secondary}; margin-left:7px; }
-        .bcl .side-note { display:block; font-size:10.5px; color:${T.muted}; margin-top:4px; line-height:1.4; }
+        .bcl .side-note { display:block; font-size:12px; color:${T.muted}; margin-top:4px; line-height:1.4; }
 
         .bcl .mom { margin-top:16px; }
         .bcl .mom-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; flex-wrap:wrap; gap:4px; }
-        .bcl .mom-title { font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:${T.ink}; }
-        .bcl .mom-sub { font-size:11px; color:${T.muted}; }
+        .bcl .mom-title { font-family:var(--font-display); font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.ink}; }
+        .bcl .mom-sub { font-size:12px; color:${T.muted}; }
         .bcl .mom-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px; }
         .bcl .mom-cell { background:${T.white}; border:1px solid ${T.line}; border-radius:11px; padding:12px 13px; }
-        .bcl .mom-l { font-size:11px; font-weight:600; color:${T.slate}; }
+        .bcl .mom-l { font-size:12px; font-weight:600; color:${T.slate}; }
         .bcl .mom-row { display:flex; align-items:baseline; gap:8px; margin-top:4px; }
-        .bcl .mom-v { font-family:var(--font-display); font-size:22px; font-weight:700; color:${T.ink}; font-variant-numeric:tabular-nums; }
-        .bcl .mom-d { font-size:11px; font-weight:700; }
+        .bcl .mom-v { font-family:var(--font-display); font-size:22px; font-weight:600; color:${T.ink}; font-variant-numeric:tabular-nums; }
+        .bcl .mom-d { font-size:12px; font-weight:600; }
         .bcl .mom-d.up { color:${T.meadow}; } .bcl .mom-d.dn { color:${T.petalDeep}; } .bcl .mom-d.flat { color:${T.muted}; }
         .bcl .mom-foot { display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
-        .bcl .spark { display:block; } .bcl .mom-prev { font-size:10px; color:${T.muted}; }
+        .bcl .spark { display:block; } .bcl .mom-prev { font-size:12px; color:${T.muted}; }
 
         .bcl .cash { margin-top:18px; padding-top:16px; border-top:1px solid ${T.line}; }
         .bcl .cash-top { display:flex; justify-content:space-between; align-items:baseline; }
-        .bcl .cash-l { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:${T.slate}; }
+        .bcl .cash-l { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.slate}; }
         .bcl .cash-v { font-size:13px; color:${T.secondary}; } .bcl .cash-v b { font-family:var(--font-display); font-weight:600; color:${T.ink}; } .bcl .cash-v em { font-style:normal; color:${T.muted}; }
         .bcl .cash-bar { height:7px; border-radius:4px; background:${T.parchment}; overflow:hidden; margin:9px 0 7px; }
         .bcl .cash-fill { display:block; height:100%; background:${T.teal}; opacity:.55; border-radius:4px; }
-        .bcl .cash-note { font-size:11px; color:${T.muted}; line-height:1.5; } .bcl .cash-note em { font-style:normal; color:${T.slate}; font-weight:600; }
+        .bcl .cash-note { font-size:12px; color:${T.muted}; line-height:1.5; } .bcl .cash-note em { font-style:normal; color:${T.slate}; font-weight:600; }
 
         .bcl .drawer { margin-bottom:16px; background:${T.white}; border:1px solid ${T.line}; border-radius:16px;
           box-shadow:0 12px 30px ${alpha(T.evergreen, .08)}; overflow:hidden; }
         .bcl .dr-head { display:flex; justify-content:space-between; align-items:center; padding:15px 20px;
           border-bottom:1px solid ${T.line}; background:${T.parchment}; }
-        .bcl .dr-title { font-family:var(--font-display); font-size:13px; font-weight:700; color:${T.ink}; }
+        .bcl .dr-title { font-family:var(--font-display); font-size:13px; font-weight:600; color:${T.ink}; }
         .bcl .dr-x { border:none; background:none; font-size:14px; color:${T.slate}; cursor:pointer; padding:2px 6px; }
         .bcl .dr-body { padding:18px 20px 22px; }
-        .bcl .dr-sec { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:${T.petalDeep};
+        .bcl .dr-sec { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; color:${T.petalDeep};
           margin:18px 0 10px; } .bcl .dr-sec:first-child { margin-top:0; } .bcl .dr-sec .ro { font-weight:500; color:${T.muted}; text-transform:none; letter-spacing:0; font-style:normal; margin-left:8px; }
         .bcl .fld { display:block; margin-bottom:13px; }
-        .bcl .fld-l { display:block; font-size:11.5px; font-weight:600; color:${T.secondary}; margin-bottom:5px; }
-        .bcl .fld-h { display:block; font-size:10.5px; color:${T.muted}; margin-top:4px; }
+        .bcl .fld-l { display:block; font-size:12px; font-weight:600; color:${T.secondary}; margin-bottom:5px; }
+        .bcl .fld-h { display:block; font-size:12px; color:${T.muted}; margin-top:4px; }
         .bcl .in { width:100%; border:1px solid ${T.line}; border-radius:8px; padding:8px 10px; font-family:inherit;
-          font-size:12.5px; color:${T.ink}; background:${T.white}; }
+          font-size:13px; color:${T.ink}; background:${T.white}; }
         .bcl .in:focus { outline:2px solid ${T.petal}; outline-offset:1px; border-color:${T.petal}; }
-        .bcl .in-money { position:relative; } .bcl .in-money span { position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12.5px; color:${T.muted}; }
+        .bcl .in-money { position:relative; } .bcl .in-money span { position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:13px; color:${T.muted}; }
         .bcl .in-money .in { padding-left:20px; }
         .bcl .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
         .bcl .range { width:100%; accent-color:${T.petalDeep}; }
@@ -1595,11 +1595,11 @@ export default function LaunchSection({ data, usingSample, role, businessKey = "
         .bcl .map { border:1px solid ${T.line}; border-radius:10px; overflow:hidden; }
         .bcl .map-row { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; border-bottom:1px solid ${T.parchment}; }
         .bcl .map-row:last-child { border-bottom:none; }
-        .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:${T.muted}; margin-left:8px; }
-        .bcl .map-m { font-size:11px; color:${T.muted}; }
-        .bcl .map-in { width:58%; flex:none; font-size:11.5px; padding:5px 9px; }
-        .bcl .map-note { font-size:10.5px; color:${T.muted}; margin-top:8px; line-height:1.5; }
-        .bcl .dr-err { font-size:11.5px; color:${T.poppyText}; margin-top:12px; }
+        .bcl .map-g { font-size:12px; font-weight:600; color:${T.secondary}; } .bcl .map-g em { font-style:normal; font-size:12px; text-transform:none; letter-spacing:0; color:${T.muted}; margin-left:8px; }
+        .bcl .map-m { font-size:12px; color:${T.muted}; }
+        .bcl .map-in { width:58%; flex:none; font-size:12px; padding:5px 9px; }
+        .bcl .map-note { font-size:12px; color:${T.muted}; margin-top:8px; line-height:1.5; }
+        .bcl .dr-err { font-size:12px; color:${T.poppyText}; margin-top:12px; }
         .bcl .dr-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
         .bcl .btn { font-family:inherit; font-size:12px; font-weight:600; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid transparent; }
         .bcl .btn.ghost { background:${T.white}; border-color:${T.line}; color:${T.secondary}; }

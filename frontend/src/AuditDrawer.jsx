@@ -7,27 +7,27 @@ const API_BASE = import.meta.env.VITE_API_BASE;
 /* Forum segment chip — daffodil Forum / mist IC (never poppy). */
 function SegChip({ seg }) {
   if (seg === "BC") return (
-    <span style={{ fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
-      color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>BC</span>
+    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      color: T.evergreen, background: T.petal, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>BC</span>
   );
   if (seg === "MTG") return (
-    <span style={{ fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
-      color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>Loan</span>
+    <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      color: T.teal, background: T.mist, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>Loan</span>
   );
   if (seg === "ULRG") return (
-    <span title="Sourced by ULRG — Utah Life referral or borrower matches a ULRG closing" style={{ fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
-      color: T.white, background: T.meadow, borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0 }}>ULRG</span>
+    <span title="Sourced by ULRG — Utah Life referral or borrower matches a ULRG closing" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      color: T.white, background: T.meadow, borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0 }}>ULRG</span>
   );
   if (seg === "OTHER") return (
-    <span title="Not attributable to ULRG" style={{ fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
-      color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase", flexShrink: 0 }}>Other</span>
+    <span title="Not attributable to ULRG" style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
+      color: T.muted, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 4, padding: "1px 6px", textTransform: "none", flexShrink: 0 }}>Other</span>
   );
   const f = seg === "F" || seg === "Forum";
   return (
     <span style={{
-      fontFamily: "var(--font-display)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+      fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0,
       color: f ? T.evergreen : T.teal, background: f ? T.daffodil : T.mist,
-      borderRadius: 4, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0,
+      borderRadius: 4, padding: "2px 6px", textTransform: "none", flexShrink: 0,
     }}>{f ? "Forum" : "IC"}</span>
   );
 }
@@ -73,7 +73,7 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
   const mixed = srcCount.ULRG > 0 && srcCount.OTHER > 0;
   const shown = mixed && srcFilter !== "all" ? allRows.filter((r) => r.seg === srcFilter) : allRows;
   const srcSeg = (k, on) => ({
-    fontFamily: "var(--font-text)", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
+    fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
     borderRadius: 6, padding: "4px 10px", background: on ? T.white : "transparent",
     color: on ? (k === "ULRG" ? T.meadow : k === "OTHER" ? T.slate : T.teal) : T.muted,
     boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
@@ -90,7 +90,7 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "18px 20px", borderBottom: `1px solid ${T.line}` }}>
           <div>
             {d?.source && (
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>{d.source}</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px" }}>{d.source}</span>
             )}
             <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600, color: T.ink, marginTop: 8 }}>{title}</div>
           </div>
@@ -108,9 +108,9 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
             </div>
           ) : (
             <>
-              <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, lineHeight: 1.55 }}>{d.computed_as}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, lineHeight: 1.55 }}>{d.computed_as}</div>
               {d.report_url && (
-                <a href={d.report_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, fontSize: 12.5, fontWeight: 600, color: T.teal, textDecoration: "none" }}>Open the P&amp;L in QuickBooks ↗</a>
+                <a href={d.report_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, fontSize: 13, fontWeight: 600, color: T.teal, textDecoration: "none" }}>Open the P&amp;L in QuickBooks ↗</a>
               )}
               {mixed && (
                 <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 8, padding: 3, marginTop: 16 }}>
@@ -119,7 +119,7 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                   ))}
                 </div>
               )}
-              {d.count != null && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, margin: "16px 0 4px" }}>{shown.length}{mixed && srcFilter !== "all" ? ` of ${allRows.length}` : ""} record{shown.length === 1 ? "" : "s"}</div>}
+              {d.count != null && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, margin: "16px 0 4px" }}>{shown.length}{mixed && srcFilter !== "all" ? ` of ${allRows.length}` : ""} record{shown.length === 1 ? "" : "s"}</div>}
               {shown.length === 0 && !d.report_url && <div style={{ ...muted, marginTop: 14 }}>No records for this period.</div>}
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                 {shown.map((r) => {
@@ -138,12 +138,12 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                           {projected && <span aria-hidden title="Scheduled — not yet collected" style={{ width: 6, height: 6, borderRadius: 99, background: "transparent", border: `1.5px dashed ${T.meadow}`, flexShrink: 0 }} />}
                         </div>
                         {forum
-                          ? (r.l2 && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{r.l2}</div>)
-                          : ((r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 11, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>)}
+                          ? (r.l2 && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{r.l2}</div>)
+                          : ((r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 12, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>)}
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: watch ? T.amber : projected ? T.slate : T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{forum ? r.r1 : amountFor(r)}</div>
-                        {forum && r.r2 && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{r.r2}</div>}
+                        {forum && r.r2 && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{r.r2}</div>}
                       </div>
                       {r.source_url && <a href={r.source_url} target="_blank" rel="noreferrer" title="Open in the source system" style={{ fontSize: 14, color: T.teal, textDecoration: "none" }}>↗</a>}
                     </li>

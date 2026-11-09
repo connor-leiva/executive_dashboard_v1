@@ -69,7 +69,7 @@ function SegNav({ view, setView, counts }) {
     <div style={{ display: "inline-flex", gap: 2, background: T.parchment, border: `1px solid ${T.line}`,
                   borderRadius: 10, padding: 3, marginBottom: 18 }}>
       {VIEWS.map(([k, l]) => (
-        <button key={k} onClick={() => setView(k)} style={{ fontFamily: font.head, fontSize: 12.5,
+        <button key={k} onClick={() => setView(k)} style={{ fontFamily: font.head, fontSize: 13,
           fontWeight: 600, borderRadius: 8, border: "none", padding: "7px 15px", cursor: "pointer",
           color: view === k ? T.ink : T.muted, background: view === k ? T.white : "transparent" }}>
           {l}{counts[k] ? ` · ${counts[k]}` : ""}
@@ -82,10 +82,10 @@ function SegNav({ view, setView, counts }) {
 function StatCard({ label, value, color, scope }) {
   return (
     <Card style={{ padding: "15px 17px" }}>
-      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary, marginBottom: 7 }}>
+      <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, marginBottom: 7 }}>
         {label}{scope && <span style={{ color: T.muted }}> · {scope}</span>}
       </div>
-      <div style={{ fontFamily: font.head, fontSize: 23, fontWeight: 700, color: color || T.ink,
+      <div style={{ fontFamily: font.head, fontSize: 23, fontWeight: 600, color: color || T.ink,
                     fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </Card>
   );
@@ -111,8 +111,8 @@ function Header({ cols }) {
     <div className="pay-head" style={{ display: "grid", gridTemplateColumns: ROW, columnGap: 12,
       padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
       {cols.map((h, i) => (
-        <span key={h} style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-          letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted,
+        <span key={h} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+          letterSpacing: 0, textTransform: "none", color: T.muted,
           textAlign: i === 3 ? "right" : "left" }}>{h}</span>
       ))}
     </div>
@@ -127,7 +127,7 @@ function BillRow({ p, open, toggle, children, right }) {
         alignItems: "center", padding: "12px 16px", cursor: "pointer" }}>
         <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
           {fmtDate(p.due_date)}</span>
-        <span style={{ minWidth: 0, fontFamily: font.body, fontSize: 12.5, fontWeight: 600,
+        <span style={{ minWidth: 0, fontFamily: font.body, fontSize: 13, fontWeight: 600,
           color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {p.vendor || "—"}</span>
         <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, minWidth: 0,
@@ -137,7 +137,7 @@ function BillRow({ p, open, toggle, children, right }) {
           textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{usd(p.amount)}</span>
         <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
           {p.holds?.length ? <HoldChips holds={p.holds} />
-            : <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+            : <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 {STATUS_LABEL[p.status] || p.status}</span>}
         </span>
         <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>{right}</span>
@@ -154,7 +154,7 @@ function BillRow({ p, open, toggle, children, right }) {
           {p.holds?.map((h) => (
             <div key={h.key} style={{ background: T.parchment, border: `1px solid ${T.line}`,
               borderRadius: 10, padding: "10px 13px" }}>
-              <div style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 700,
+              <div style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                 color: T.poppyText }}>{h.label}</div>
               <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, marginTop: 3 }}>
                 {h.why}</div>
@@ -180,17 +180,17 @@ function BillRow({ p, open, toggle, children, right }) {
 
 const input = {
   width: "100%", boxSizing: "border-box",          // no global border-box reset in this app
-  fontFamily: font.body, fontSize: 12.5, padding: "7px 9px", color: T.ink,
+  fontFamily: font.body, fontSize: 13, padding: "7px 9px", color: T.ink,
   background: T.white, border: `1px solid ${T.line}`, borderRadius: 8,
 };
 
 function FieldRow({ label, hint, children, span }) {
   return (
     <label style={{ display: "grid", gap: 4, minWidth: 0, gridColumn: span ? "1 / -1" : "auto" }}>
-      <span style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-        letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>{label}</span>
+      <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+        letterSpacing: 0, textTransform: "none", color: T.muted }}>{label}</span>
       {children}
-      {hint && <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>{hint}</span>}
+      {hint && <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>{hint}</span>}
     </label>
   );
 }
@@ -269,7 +269,7 @@ function NewVendorForm({ onDone, onCancel }) {
           <input style={input} maxLength={4} value={f.tin_last4} onChange={set("tin_last4")} /></FieldRow>
         <FieldRow label="1099">
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: font.body,
-                          fontSize: 12.5, color: T.ink, padding: "7px 0" }}>
+                          fontSize: 13, color: T.ink, padding: "7px 0" }}>
             <input type="checkbox" checked={f.is_1099} onChange={set("is_1099")} />
             Issue a 1099 to this vendor
           </label></FieldRow>
@@ -350,7 +350,7 @@ function VendorSetup({ v, onDone }) {
             </select></FieldRow>
           <FieldRow label="Verified">
             <label style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: font.body,
-                            fontSize: 12.5, color: T.ink, padding: "7px 0" }}>
+                            fontSize: 13, color: T.ink, padding: "7px 0" }}>
               <input type="checkbox" checked={bank.verified} onChange={set("verified")} />
               I confirmed these details with the vendor
             </label></FieldRow>
@@ -518,7 +518,7 @@ function ForwardingAddress({ onClose }) {
           <Pill tone={cfg.enabled ? "good" : "muted"}>{cfg.enabled ? "Open" : "Closed"}</Pill>
           <button style={{ ...btn(), marginLeft: "auto" }} onClick={onClose}>Done</button>
         </div>
-        <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary,
+        <div style={{ fontFamily: font.body, fontSize: 13, color: T.secondary,
                       margin: "7px 0 11px", maxWidth: 620, lineHeight: 1.5 }}>
           Forward supplier invoices here and each attachment is filed and read. Point your existing
           AP inbox at this address — you do not have to change what your vendors send to.
@@ -526,7 +526,7 @@ function ForwardingAddress({ onClose }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                       marginBottom: 11 }}>
           <code style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                         fontSize: 12.5, background: T.parchment, padding: "6px 9px",
+                         fontSize: 13, background: T.parchment, padding: "6px 9px",
                          borderRadius: 6, wordBreak: "break-all" }}>{cfg.address}</code>
           <button style={btn()} onClick={copy}>{copied ? "Copied" : "Copy"}</button>
         </div>
@@ -541,7 +541,7 @@ function ForwardingAddress({ onClose }) {
         {cfg.can_manage ? (
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
             <label style={{ display: "grid", gap: 4 }}>
-              <span style={{ fontFamily: font.body, fontSize: 11, color: T.secondary }}>
+              <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 Name before the @</span>
               <input value={draft} onChange={(e) => setLocal(e.target.value)}
                 style={{ ...input, width: 190 }} spellCheck={false} />
@@ -560,10 +560,10 @@ function ForwardingAddress({ onClose }) {
           </div>
         )}
         {err && (
-          <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText, marginTop: 9 }}>
+          <div style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText, marginTop: 9 }}>
             {err}</div>
         )}
-        <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 11,
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 11,
                       maxWidth: 620, lineHeight: 1.5 }}>
           Anyone can email an address they know, so what arrives is only ever a filed document and
           a draft. A bill exists when a person accepts one.
@@ -616,13 +616,13 @@ function InboxView() {
       </Stats>
       {err && (
         <Card style={{ padding: "11px 15px", marginBottom: 12 }}>
-          <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
+          <span style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText }}>{err}</span>
         </Card>
       )}
       {channel && <ForwardingAddress onClose={() => setChannel(false)} />}
       {dropped && (
         <Card style={{ padding: "11px 15px", marginBottom: 12 }}>
-          <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
+          <span style={{ fontFamily: font.body, fontSize: 13, color: T.secondary }}>
             <strong style={{ color: T.ink }}>{dropped.filename}</strong> — {intakeSaid(dropped)}
           </span>
         </Card>
@@ -648,7 +648,7 @@ function InboxView() {
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <Header cols={["Due", "Vendor", "Invoice", "Amount", "Status", ""]} />
         {rows.length === 0 && (
-          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
+          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 13, color: T.secondary }}>
             Nothing waiting. Bills appear here once entered, and go for approval when coded
             against an active vendor.
           </div>
@@ -764,8 +764,8 @@ function BandEditor({ onClose }) {
         <div className="band-head" style={{ display: "grid", gridTemplateColumns: BAND_COLS,
                       columnGap: 10, padding: "0 0 7px" }}>
           {["Band", "From", "To", "Signatures", "Active", ""].map((h, i) => (
-            <span key={h || i} style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-              letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>{h}</span>
+            <span key={h || i} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+              letterSpacing: 0, textTransform: "none", color: T.muted }}>{h}</span>
           ))}
         </div>
 
@@ -803,7 +803,7 @@ function BandEditor({ onClose }) {
         {problems.length > 0 && (
           <div style={{ background: T.parchment, border: `1px solid ${T.line}`, borderLeft:
             `3px solid ${T.poppy}`, borderRadius: 10, padding: "10px 13px", marginBottom: 12 }}>
-            <div style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 700,
+            <div style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                           color: T.poppyText }}>
               {problems.length === 1 ? "One amount range is uncovered" : "Some amounts are uncovered"}
             </div>
@@ -811,7 +811,7 @@ function BandEditor({ onClose }) {
               <div key={i} style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
                                     marginTop: 3 }}>{p}</div>
             ))}
-            <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 6 }}>
+            <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 6 }}>
               A bill landing in an uncovered range cannot be submitted at all — it is not that it
               skips approval, it simply stops.
             </div>
@@ -865,7 +865,7 @@ function ApprovalsView() {
             Approval bands</button>
         )}
         {[[true, "Mine"], [false, "Everyone"]].map(([k, l]) => (
-          <button key={l} onClick={() => setMine(k)} style={{ fontFamily: font.body, fontSize: 11.5,
+          <button key={l} onClick={() => setMine(k)} style={{ fontFamily: font.body, fontSize: 12,
             fontWeight: 600, borderRadius: 99, padding: "5px 12px", cursor: "pointer",
             color: mine === k ? T.white : T.secondary,
             background: mine === k ? T.meadow : T.white,
@@ -874,13 +874,13 @@ function ApprovalsView() {
       </div>
       {err && (
         <Card style={{ padding: "11px 15px", marginBottom: 12 }}>
-          <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
+          <span style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText }}>{err}</span>
         </Card>
       )}
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <Header cols={["Due", "Vendor", "Invoice", "Amount", "Band", ""]} />
         {rows.length === 0 && (
-          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
+          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 13, color: T.secondary }}>
             {mine ? "Nothing is waiting on you." : "Nothing is awaiting approval."}
           </div>
         )}
@@ -894,7 +894,7 @@ function ApprovalsView() {
                 onClick={(e) => { e.stopPropagation(); decide(p, "reject"); }}>Reject</button>
             </>}>
             {p.approvals?.length > 1 && (
-              <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+              <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 This band needs {p.approvals.length} signatures —{" "}
                 {p.approvals.filter((a) => a.decision === "approve").length} so far. One person
                 cannot supply both.
@@ -929,8 +929,8 @@ function RunHeader() {
       columnGap: 12,
       padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
       {["Vendor", "Invoice", "Terms", "Due", "Amount", ""].map((h, i) => (
-        <span key={h || i} style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-          letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted,
+        <span key={h || i} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+          letterSpacing: 0, textTransform: "none", color: T.muted,
           textAlign: i === 4 ? "right" : "left" }}>{h}</span>
       ))}
     </div>
@@ -949,13 +949,13 @@ function RunLine({ line, actions, busy }) {
       <div className="pay-row" onClick={() => setShow((v) => !v)} style={{ display: "grid",
         gridTemplateColumns: RUN_COLS, columnGap: 12, alignItems: "center",
         padding: "12px 16px", cursor: detail ? "pointer" : "default" }}>
-        <span style={{ minWidth: 0, fontFamily: font.body, fontSize: 12.5, fontWeight: 600,
+        <span style={{ minWidth: 0, fontFamily: font.body, fontSize: 13, fontWeight: 600,
           color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {line.vendor || line.vendor_legal_name || "—"}</span>
         <span style={{ minWidth: 0, fontFamily: font.body, fontSize: 12, color: T.secondary,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {line.invoice_number}</span>
-        <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted }}>
+        <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
           {line.terms || "—"}</span>
         <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
           {fmtDate(line.due_date)}</span>
@@ -964,11 +964,11 @@ function RunLine({ line, actions, busy }) {
         <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6,
                        justifyContent: "flex-end", flexWrap: "wrap" }}>
           {line.holds?.length ? <HoldChips holds={line.holds} />
-            : <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+            : <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 {STATUS_LABEL[line.status] || line.status}</span>}
           {detail && (
             /* The hold chip alone reads as a label. This says the row does something. */
-            <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>
+            <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>
               {show ? "▴" : "▾"}</span>
           )}
         </span>
@@ -978,7 +978,7 @@ function RunLine({ line, actions, busy }) {
           {line.holds?.map((h) => (
             <div key={h.key} style={{ background: T.white, border: `1px solid ${T.line}`,
               borderRadius: 10, padding: "10px 13px" }}>
-              <div style={{ fontFamily: font.head, fontSize: 12.5, fontWeight: 700,
+              <div style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                 color: h.hold ? T.poppyText : T.secondary }}>
                 {h.label}{h.overridden ? " · overridden" : ""}</div>
               <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary, marginTop: 3 }}>
@@ -986,7 +986,7 @@ function RunLine({ line, actions, busy }) {
             </div>
           ))}
           {line.override_reason && (
-            <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+            <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
               Override on record: {line.override_reason}
             </div>
           )}
@@ -1039,7 +1039,7 @@ function ReleaseButton({ run, onDone }) {
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="000000"
             inputMode="numeric" autoFocus
             style={{ width: 96, boxSizing: "border-box", fontFamily: font.body, fontSize: 13,
-              letterSpacing: ".16em", textAlign: "center", padding: "6px 8px",
+              letterSpacing: 0, textAlign: "center", padding: "6px 8px",
               border: `1px solid ${T.line}`, borderRadius: 8, color: T.ink, background: T.white }} />
         )}
         <button disabled={busy} style={btn(busy ? "disabled" : "primary")}
@@ -1047,7 +1047,7 @@ function ReleaseButton({ run, onDone }) {
           {busy ? "Releasing…" : code !== null ? "Confirm release" : "Release run"}
         </button>
       </div>
-      {err && <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.poppyText }}>{err}</span>}
+      {err && <span style={{ fontFamily: font.body, fontSize: 12, color: T.poppyText }}>{err}</span>}
     </div>
   );
 }
@@ -1137,11 +1137,11 @@ function RunsView() {
       {/* Entity bar. One run per company, so this is not a filter — it is which run you are on. */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                     marginBottom: 14 }}>
-        <span style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-          letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>Entity</span>
+        <span style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+          letterSpacing: 0, textTransform: "none", color: T.muted }}>Entity</span>
         {list.map((e) => (
           <button key={e.id} onClick={() => { setBizId(e.id); setOpenId(null); }}
-            style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600, borderRadius: 99,
+            style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, borderRadius: 99,
               padding: "5px 12px", cursor: "pointer",
               color: e.id === active ? T.white : T.secondary,
               background: e.id === active ? T.meadow : T.white,
@@ -1152,7 +1152,7 @@ function RunsView() {
 
       {err && (
         <Card style={{ padding: "11px 15px", marginBottom: 12 }}>
-          <span style={{ fontFamily: font.body, fontSize: 12.5, color: T.poppyText }}>{err}</span>
+          <span style={{ fontFamily: font.body, fontSize: 13, color: T.poppyText }}>{err}</span>
         </Card>
       )}
 
@@ -1163,19 +1163,19 @@ function RunsView() {
                         flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 210 }}>
               <Eyebrow>{run ? "Payment run" : "Next payment run"}</Eyebrow>
-              <div style={{ fontFamily: font.head, fontSize: 21, fontWeight: 700, color: T.ink,
+              <div style={{ fontFamily: font.head, fontSize: 21, fontWeight: 600, color: T.ink,
                             marginTop: 4 }}>
                 {fmtLong(run?.run_date || proposal?.run_date)}</div>
-              <div style={{ fontFamily: font.body, fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+              <div style={{ fontFamily: font.body, fontSize: 13, color: T.muted, marginTop: 3 }}>
                 {run
                   ? `${RUN_STATUS[run.status]?.[1] || run.status}${run.released_by ? ` · released by ${run.released_by}` : ""}`
                   : `Everything approved and due through ${fmtDate(proposal?.horizon)} — the next ${proposal?.lookahead_days ?? 6} days`}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+              <div style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 {releasable} line{releasable === 1 ? "" : "s"} {settled ? "paid" : "releasable"}</div>
-              <div style={{ fontFamily: font.head, fontSize: 27, fontWeight: 700, color: T.ink,
+              <div style={{ fontFamily: font.head, fontSize: 27, fontWeight: 600, color: T.ink,
                             fontVariantNumeric: "tabular-nums" }}>{usd(total)}</div>
             </div>
             {run
@@ -1217,7 +1217,7 @@ function RunsView() {
         <Card style={{ padding: 0, overflow: "hidden", marginTop: 8 }}>
           <RunHeader />
           {lines.length === 0 && (
-            <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5,
+            <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 13,
                           color: T.secondary }}>
               Nothing is due inside this window for this entity.
             </div>
@@ -1259,7 +1259,7 @@ function RunsView() {
                 <div key={l.payable_id} style={{ display: "flex", alignItems: "center", gap: 12,
                   flexWrap: "wrap", padding: "11px 16px",
                   borderBottom: i < waiting.length - 1 ? `1px solid ${T.line}` : "none" }}>
-                  <span style={{ flex: 1, minWidth: 140, fontFamily: font.body, fontSize: 12.5,
+                  <span style={{ flex: 1, minWidth: 140, fontFamily: font.body, fontSize: 13,
                     fontWeight: 600, color: T.ink }}>{l.vendor || l.vendor_legal_name || "—"}</span>
                   <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
                     minWidth: 70 }}>{l.invoice_number}</span>
@@ -1268,7 +1268,7 @@ function RunsView() {
                   <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                     color: T.ink, width: 96, textAlign: "right",
                     fontVariantNumeric: "tabular-nums" }}>{usd(l.amount)}</span>
-                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary,
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
                     minWidth: 150 }}>
                     {l.picked_up_on ? `in the ${fmtDate(l.picked_up_on)} run` : "no due date set"}</span>
                 </div>
@@ -1277,7 +1277,7 @@ function RunsView() {
           </>
         )}
 
-        <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 12,
+        <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 12,
                       lineHeight: 1.6, maxWidth: 640 }}>
           Releasing asks for your code and records the batch against the approved list.{" "}
           <b>The person who approved these bills cannot also release them</b> unless this
@@ -1294,16 +1294,16 @@ function RunsView() {
                     padding: "12px 16px", cursor: "pointer",
                     borderBottom: i < all.length - 1 ? `1px solid ${T.line}` : "none",
                     background: r.id === shownId ? T.parchment : T.white }}>
-                  <span style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600,
+                  <span style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600,
                     color: T.ink, flex: 1, minWidth: 140 }}>{fmtLong(r.run_date)}</span>
                   <Pill tone={RUN_STATUS[r.status]?.[0] || "muted"}>
                     {RUN_STATUS[r.status]?.[1] || r.status}</Pill>
-                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted,
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted,
                     width: 74 }}>{r.item_count} line{r.item_count === 1 ? "" : "s"}</span>
                   <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600,
                     color: T.ink, width: 96, textAlign: "right",
                     fontVariantNumeric: "tabular-nums" }}>{usd(r.total_amount)}</span>
-                  <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary,
+                  <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary,
                     minWidth: 120 }}>{r.released_by ? `by ${r.released_by}` : "not released"}</span>
                 </div>
               ))}
@@ -1351,7 +1351,7 @@ function VendorsView() {
         )}
         {[[null, "All"], ["active", "Active"], ["pending_verification", "Pending"],
           ["inactive", "Inactive"]].map(([k, l]) => (
-          <button key={l} onClick={() => setStatus(k)} style={{ fontFamily: font.body, fontSize: 11.5,
+          <button key={l} onClick={() => setStatus(k)} style={{ fontFamily: font.body, fontSize: 12,
             fontWeight: 600, borderRadius: 99, padding: "5px 12px", cursor: "pointer",
             color: status === k ? T.white : T.secondary,
             background: status === k ? T.meadow : T.white,
@@ -1362,12 +1362,12 @@ function VendorsView() {
         <div style={{ display: "grid", gridTemplateColumns: VEN_COLS, columnGap: 12,
           padding: "11px 16px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
           {["Vendor", "Type", "W-9", "Banking", "Terms", "Status"].map((h) => (
-            <span key={h} style={{ fontFamily: font.head, fontSize: 10.5, fontWeight: 700,
-              letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>{h}</span>
+            <span key={h} style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600,
+              letterSpacing: 0, textTransform: "none", color: T.muted }}>{h}</span>
           ))}
         </div>
         {rows.length === 0 && (
-          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 12.5, color: T.secondary }}>
+          <div style={{ padding: "26px 16px", fontFamily: font.body, fontSize: 13, color: T.secondary }}>
             No vendors yet. Add one above — it needs a W-9 and verified banking before anything
             can be paid to it.
           </div>
@@ -1382,26 +1382,26 @@ function VendorsView() {
               style={{ display: "grid", gridTemplateColumns: VEN_COLS, columnGap: 12,
               alignItems: "center", padding: "12px 16px", cursor: "pointer" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink,
+                <div style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {v.display_name}</div>
-                <div style={{ fontFamily: font.body, fontSize: 11, color: T.muted, marginTop: 1,
+                <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 1,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {v.dba || v.default_business_name || "no defaults set"}</div>
               </div>
-              <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+              <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 {v.vendor_type === "individual" ? "Individual" : "Business"}</span>
-              <span style={{ fontFamily: font.body, fontSize: 11.5, fontWeight: 600,
+              <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600,
                 color: v.w9 ? T.meadowInk : T.poppyText }}>{v.w9 ? "On file" : "Missing"}</span>
               {/* Banking reads the VERIFICATION, not the account number. Whether somebody rang
                   the vendor back is the control; the last four digits are not. */}
-              <span style={{ fontFamily: font.body, fontSize: 11.5, minWidth: 0,
+              <span style={{ fontFamily: font.body, fontSize: 12, minWidth: 0,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 color: v.bank?.verified_at ? T.secondary : T.poppyText }}>
                 {v.bank?.verified_at
                   ? `${v.bank.verified_by_name || "Verified"} · ${fmtDate(v.bank.verified_at)}`
                   : v.bank ? "Not verified" : "None on file"}</span>
-              <span style={{ fontFamily: font.body, fontSize: 11.5, color: T.secondary }}>
+              <span style={{ fontFamily: font.body, fontSize: 12, color: T.secondary }}>
                 Net {v.terms_days}</span>
               <span><Pill tone={tone}>{label}</Pill></span>
             </div>
@@ -1410,7 +1410,7 @@ function VendorsView() {
           );
         })}
       </Card>
-      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 12,
+      <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 12,
                     lineHeight: 1.6, maxWidth: 640 }}>
         Open a vendor to attach its W-9 or record its banking. Status is derived, never typed:
         a vendor becomes Active on its own once a W-9 is on file and banking has been verified

@@ -219,7 +219,7 @@ export default function PeriodNav({
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
                   {fmtWindow(win)}
                 </span>
-                <span style={{ fontSize: 9, color: T.muted }} aria-hidden>▾</span>
+                <span style={{ fontSize: 12, color: T.muted }} aria-hidden>▾</span>
               </button>
               <button className="cc-nav" style={arrow("right")} aria-label="Next period"
                 onClick={() => emit(grain, step(grain, anchor, 1))}>›</button>
@@ -233,20 +233,20 @@ export default function PeriodNav({
                   background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 12,
                   boxShadow: `0 18px 40px ${alpha(T.evergreen, 0.16)}`,
                 }}>
-                  <div style={{ fontFamily: font, fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.tertiary, marginBottom: 7 }}>
+                  <div style={{ fontFamily: font, fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.tertiary, marginBottom: 7 }}>
                     Custom range
                   </div>
-                  <label style={{ display: "block", fontFamily: font, fontSize: 10.5, color: T.muted, marginBottom: 2 }}>From</label>
+                  <label style={{ display: "block", fontFamily: font, fontSize: 12, color: T.muted, marginBottom: 2 }}>From</label>
                   <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...dateInput, marginBottom: 7 }} />
-                  <label style={{ display: "block", fontFamily: font, fontSize: 10.5, color: T.muted, marginBottom: 2 }}>To</label>
+                  <label style={{ display: "block", fontFamily: font, fontSize: 12, color: T.muted, marginBottom: 2 }}>To</label>
                   <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{ ...dateInput, marginBottom: 10 }} />
                   <button onClick={applyRange} disabled={!from || !to || to < from} style={{
-                    width: "100%", fontFamily: font, fontSize: 12, fontWeight: 700, color: T.onDark,
+                    width: "100%", fontFamily: font, fontSize: 12, fontWeight: 600, color: T.onDark,
                     background: (!from || !to || to < from) ? T.muted : T.evergreen,
                     border: "none", borderRadius: 7, padding: "7px 0",
                     cursor: (!from || !to || to < from) ? "default" : "pointer",
                   }}>Apply range</button>
-                  <div style={{ fontFamily: font, fontSize: 10, color: T.muted, marginTop: 8, lineHeight: 1.45 }}>
+                  <div style={{ fontFamily: font, fontSize: 12, color: T.muted, marginTop: 8, lineHeight: 1.45 }}>
                     Booked (QuickBooks) P&amp;L is snapshot per standard period — a custom or future
                     window shows the live/cash view instead.
                   </div>
@@ -277,7 +277,7 @@ export default function PeriodNav({
           <div className="pn-note" style={{ width: 1, height: 22, background: T.line }} aria-hidden />
           {/* what the SERVER actually computed — the honest label for the data on screen */}
           <div className="pn-note" style={{
-            fontFamily: font, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase",
+            fontFamily: font, fontSize: 12, letterSpacing: 0, textTransform: "none",
             color: T.muted, whiteSpace: "nowrap",
           }}>{serverLabel || (loading ? "Loading…" : "")}</div>
         </div>
@@ -289,8 +289,8 @@ export default function PeriodNav({
               width: 7, height: 7, borderRadius: 99, background: STATUS_COLOR[worst],
               boxShadow: `0 0 0 3px ${alpha(STATUS_COLOR[worst], 0.18)}`,
             }} />
-            <span className="pn-srclabel" style={{ fontSize: 12.5, fontWeight: 600, color: T.slate }}>{srcLabel}</span>
-            {oldest && <span className="pn-note" style={{ fontSize: 11.5, color: T.muted }}>· {relativeTime(new Date(oldest).toISOString())}</span>}
+            <span className="pn-srclabel" style={{ fontSize: 13, fontWeight: 600, color: T.slate }}>{srcLabel}</span>
+            {oldest && <span className="pn-note" style={{ fontSize: 12, color: T.muted }}>· {relativeTime(new Date(oldest).toISOString())}</span>}
           </button>
 
           <button onClick={onRefresh} disabled={!apiEnabled || refreshing} className="cc-nav"
@@ -315,23 +315,23 @@ export default function PeriodNav({
           padding: "11px 24px", background: T.parchment, borderBottom: `1px solid ${T.line}`,
         }}>
           <span style={{
-            fontFamily: font, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginRight: 2,
+            fontFamily: font, fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted, marginRight: 2,
           }}>Live from</span>
           {sources.map((s) => (
             <span key={s.name} style={{
               display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px",
               border: `1px solid ${T.line}`, borderRadius: 8, background: T.white,
-              fontFamily: font, fontSize: 12.5, color: T.slate,
+              fontFamily: font, fontSize: 13, color: T.slate,
             }}>
               <span aria-hidden style={{ width: 6, height: 6, borderRadius: 99, background: STATUS_COLOR[srcStatus(s)] }} />
               {s.name}
-              <span style={{ fontSize: 11.5, color: T.muted }}>
+              <span style={{ fontSize: 12, color: T.muted }}>
                 {s.last_synced ? relativeTime(s.last_synced) : s.status}
               </span>
             </span>
           ))}
           {updated && !refreshing && (
-            <span style={{ fontFamily: font, fontSize: 11, color: T.muted, marginLeft: 2 }}>
+            <span style={{ fontFamily: font, fontSize: 12, color: T.muted, marginLeft: 2 }}>
               Synced {relativeTime(updated)}
             </span>
           )}

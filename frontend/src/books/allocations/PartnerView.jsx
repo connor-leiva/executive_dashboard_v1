@@ -19,8 +19,8 @@ import { fmtMonth } from "./words.js";
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none", color: L.faint };
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number arrived from the server and is not touched. */
@@ -31,7 +31,7 @@ function Figure({ label, value, size = 15, weight = 600, tone, note }) {
       <div style={{ ...EYEBROW, marginBottom: 5 }}>{label}</div>
       <Money v={value} size={size} weight={weight} tone={tone} />
       {note && (
-        <div style={{ fontFamily: F.body, fontSize: 11, color: L.muted, marginTop: 4 }}>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 4 }}>
           {note}
         </div>
       )}
@@ -57,7 +57,7 @@ export function EntityPicker({ businesses, value, onPick }) {
         const on = b.id === value;
         return (
           <button key={b.id} onClick={() => onPick(b.id)}
-            style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+            style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600, cursor: "pointer",
                      borderRadius: 9, padding: "7px 13px", display: "inline-flex",
                      alignItems: "center", gap: 7,
                      color: on ? L.paper : L.body,
@@ -87,10 +87,10 @@ function Contribution({ c }) {
                   padding: "9px 16px 9px 30px", background: L.card,
                   borderBottom: `1px solid ${L.ruleLine}` }}>
       <span style={{ minWidth: 0 }}>
-        <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+        <span style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
           {c.pool_name || "Allocation"}, {where}
         </span>
-        <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, display: "block" }}>
+        <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, display: "block" }}>
           {[rule?.method && `Tier ${rule.tier}, ${rule.method}`,
             rule?.version && `v${rule.version}`,
             c.basis,
@@ -100,7 +100,7 @@ function Contribution({ c }) {
           ].filter(Boolean).join(" · ")}
         </span>
         {rule?.rationale && (
-          <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, display: "block",
+          <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted, display: "block",
                          marginTop: 3, fontStyle: "italic" }}>
             {rule.rationale}
           </span>
@@ -143,10 +143,10 @@ export default function PartnerView({ data, businessId, period }) {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12,
                       flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: F.body, fontSize: 17, fontWeight: 700, color: L.deep }}>
+            <div style={{ fontFamily: F.body, fontSize: 17, fontWeight: 600, color: L.deep }}>
               {data.business?.name || "Entity"}
             </div>
-            <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginTop: 3 }}>
+            <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 3 }}>
               {/* The statement's period carries `start`, `end`, `books_closed` and `synced_at`
                   and no label: the first version read `period.label`, which is undefined, so
                   the dates silently did not render at all. */}
@@ -160,8 +160,8 @@ export default function PartnerView({ data, businessId, period }) {
               to be a safeguard. What CAN be non-zero is `excluded`, money the statement left
               out while still tying, and that is the number worth a reader's attention. */}
           {tie && (
-            <span style={{ fontFamily: F.num, fontSize: 10.5, letterSpacing: ".1em",
-                           textTransform: "uppercase", alignSelf: "flex-start",
+            <span style={{ fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                           textTransform: "none", alignSelf: "flex-start",
                            borderRadius: 7, padding: "5px 9px",
                            color: Number(tie.excluded || 0) ? L.flagInk : L.accentInk,
                            background: Number(tie.excluded || 0) ? L.flagBg : L.accentBg }}>
@@ -189,7 +189,7 @@ export default function PartnerView({ data, businessId, period }) {
         {/* Said on the page, not only in the spec. A partner who is owed a PERCENTAGE of an
             entity would otherwise read this headline as their own figure, and nothing in the
             schema models a partner share (SPEC 11 item 5 is still open). */}
-        <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginTop: 16,
+        <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 16,
                       borderTop: `1px solid ${L.ruleLine}`, paddingTop: 12 }}>
           Earned is this entity&apos;s whole profit after shared cost moved in and out. It is not
           a partner&apos;s percentage of it: no partner share is recorded anywhere yet, so a
@@ -212,10 +212,10 @@ export default function PartnerView({ data, businessId, period }) {
 
         {!lines.length && (
           <div style={{ padding: "20px 16px", textAlign: "center" }}>
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+            <div style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
               No shared cost reached this entity in this period.
             </div>
-            <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginTop: 5 }}>
+            <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 5 }}>
               Earned and booked agree, which is what the two equal figures above mean.
             </div>
           </div>
@@ -228,7 +228,7 @@ export default function PartnerView({ data, businessId, period }) {
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                                color: L.deep }}>{line.name}</span>
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                display: "block" }}>{line.code}</span>
               </span>
               {/* Alignment lives in the STYLESHEET, never inline. An inline `display: block`
@@ -246,7 +246,7 @@ export default function PartnerView({ data, businessId, period }) {
         ))}
       </div>
 
-      <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+      <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
         Read from the same statement the Statement page renders for{" "}
         {period && period !== "ytd" ? fmtMonth(period) : "the year to date"}, so the two
         cannot disagree about a figure they both show.

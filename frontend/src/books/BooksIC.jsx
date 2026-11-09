@@ -37,7 +37,7 @@ export default function BooksIC({ isCFO = false }) {
                 {openCount ? `${openCount} unmatched ${openCount === 1 ? "item blocks" : "items block"} the close`
                            : "Every balance tied — nets to $0"}</div>
             </div>
-            <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 700, color: openCount ? T.poppyText : T.meadowInk,
+            <span style={{ fontFamily: font.head, fontSize: 13, fontWeight: 600, color: openCount ? T.poppyText : T.meadowInk,
               background: openCount ? "rgba(250,128,105,0.16)" : "rgba(184,204,184,0.18)", borderRadius: 99, padding: "8px 18px" }}>
               {openCount ? "Action needed" : "Tied ✓"}</span>
           </div>
@@ -59,10 +59,10 @@ export default function BooksIC({ isCFO = false }) {
                           <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>owes</span>
                           <EntityChip k={p.to} />
                         </div>
-                        <div style={{ fontFamily: font.body, fontSize: 11.5, marginTop: 4,
+                        <div style={{ fontFamily: font.body, fontSize: 12, marginTop: 4,
                           color: s.policy ? T.muted : T.poppyText }}>
                           {p.date}{p.characterization ? ` · ${CHAR_LABEL[p.characterization] || p.characterization}` : ""} · {s.label}</div>
-                        {p.txns?.[0]?.memo && <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.tertiary, marginTop: 3 }}>{p.txns[0].memo}</div>}
+                        {p.txns?.[0]?.memo && <div style={{ fontFamily: font.body, fontSize: 12, color: T.tertiary, marginTop: 3 }}>{p.txns[0].memo}</div>}
                         {p.txns?.[0]?.qbo_url && <div style={{ marginTop: 4 }}><QboLink url={p.txns[0].qbo_url} entity={p.txns[0].entity} /></div>}
                       </div>
                       {p.status === "characterized" && (
@@ -71,7 +71,7 @@ export default function BooksIC({ isCFO = false }) {
                           style={{ fontFamily: font.head, fontSize: 12, fontWeight: 600, color: T.white, background: T.evergreen,
                             border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", flexShrink: 0 }}>Mark tied</button>
                       )}
-                      <span style={{ fontFamily: font.head, fontSize: 15, fontWeight: 700, color: T.ink,
+                      <span style={{ fontFamily: font.head, fontSize: 15, fontWeight: 600, color: T.ink,
                         fontVariantNumeric: "tabular-nums", minWidth: 74, textAlign: "right" }}>{usd(p.amount)}</span>
                     </div>
                   );
@@ -82,20 +82,20 @@ export default function BooksIC({ isCFO = false }) {
             <Card>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <Eyebrow>The policy</Eyebrow>
-                <span style={{ fontFamily: font.body, fontSize: 11, color: T.muted }}>set by the CFO</span>
+                <span style={{ fontFamily: font.body, fontSize: 12, color: T.muted }}>set by the CFO</span>
               </div>
               {(data.rules || []).map((r, i) => {
                 const active = ruleOverride[r.id] ?? r.active;
                 return (
                   <div key={r.id} style={{ display: "flex", gap: 11, padding: "11px 0",
                     borderTop: i ? `1px solid ${T.line}` : "none", alignItems: "flex-start" }}>
-                    <span style={{ fontFamily: font.body, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-                      letterSpacing: "0.05em", color: active ? T.meadowInk : T.muted,
+                    <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, textTransform: "none",
+                      letterSpacing: 0, color: active ? T.meadowInk : T.muted,
                       background: active ? "rgba(97,131,94,0.1)" : T.parchment, borderRadius: 5, padding: "3px 8px",
                       flexShrink: 0, marginTop: 1 }}>{active ? "auto" : "off"}</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink }}>{r.label}</div>
-                      <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                      <div style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{r.label}</div>
+                      <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 2 }}>
                         {CHAR_LABEL[r.characterization] || r.characterization}
                         {r.monthly_cap != null && ` · up to ${usd(r.monthly_cap)}/mo`}
                         {(r.from || r.to) && ` · ${r.from || "any"} → ${r.to || "any"}`}</div>
@@ -104,7 +104,7 @@ export default function BooksIC({ isCFO = false }) {
                       <button disabled={busy === r.id} onClick={() => act(r.id,
                         () => patchJSON(`/books/ic/rules/${r.id}`, { active: !active }),
                         () => setRuleOverride((o) => ({ ...o, [r.id]: !active })))}
-                        style={{ fontFamily: font.body, fontSize: 11, fontWeight: 600, color: T.slate, background: T.parchment,
+                        style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment,
                           border: `1px solid ${T.line}`, borderRadius: 7, padding: "4px 9px", cursor: "pointer", flexShrink: 0 }}>
                         {active ? "Turn off" : "Turn on"}</button>
                     )}
@@ -112,16 +112,16 @@ export default function BooksIC({ isCFO = false }) {
                 );
               })}
               <div style={{ display: "flex", gap: 11, padding: "11px 0", borderTop: `1px solid ${T.line}`, alignItems: "flex-start" }}>
-                <span style={{ fontFamily: font.body, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.05em", color: T.poppyText, background: "rgba(250,128,105,0.1)", borderRadius: 5,
+                <span style={{ fontFamily: font.body, fontSize: 12, fontWeight: 600, textTransform: "none",
+                  letterSpacing: 0, color: T.poppyText, background: "rgba(250,128,105,0.1)", borderRadius: 5,
                   padding: "3px 8px", flexShrink: 0, marginTop: 1 }}>stops</span>
                 <div>
-                  <div style={{ fontFamily: font.body, fontSize: 12.5, fontWeight: 600, color: T.ink }}>Everything else</div>
-                  <div style={{ fontFamily: font.body, fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                  <div style={{ fontFamily: font.body, fontSize: 13, fontWeight: 600, color: T.ink }}>Everything else</div>
+                  <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 2 }}>
                     stops and escalates to the CFO — never guessed</div>
                 </div>
               </div>
-              <div style={{ fontFamily: font.body, fontSize: 11, color: T.muted, marginTop: 12, lineHeight: 1.55,
+              <div style={{ fontFamily: font.body, fontSize: 12, color: T.muted, marginTop: 12, lineHeight: 1.55,
                 borderTop: `1px solid ${T.line}`, paddingTop: 12 }}>
                 Rule amounts are placeholders until confirmed — inactive rules don't gate anything.</div>
             </Card>

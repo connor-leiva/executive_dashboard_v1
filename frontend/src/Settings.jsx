@@ -112,7 +112,7 @@ function SettingsShell({ children, role, aiOn, ulrgOn, badges }) {
           <span aria-hidden style={{
             width: 26, height: 26, borderRadius: 999, background: T.evergreen, color: T.onDark,
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600,
+            fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600,
           }}>{workspace.trim().charAt(0).toUpperCase()}</span>
           <span style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500, color: T.secondary }}>{workspace}</span>
         </a>
@@ -125,7 +125,7 @@ function SettingsShell({ children, role, aiOn, ulrgOn, badges }) {
             return (
               <NavLink key={n.to} to={n.to} style={({ isActive }) => ({
                 display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: isActive ? 600 : 500,
+                fontFamily: "var(--font-text)", fontSize: 14, fontWeight: isActive ? 600 : 500,
                 color: isActive ? T.ink : T.slate, textDecoration: "none",
                 background: isActive ? T.white : "transparent", border: `1px solid ${isActive ? T.line : "transparent"}`,
                 borderRadius: 8, padding: "9px 12px",
@@ -133,7 +133,7 @@ function SettingsShell({ children, role, aiOn, ulrgOn, badges }) {
                 <span>{n.label}</span>
                 {show && (
                   <span style={{
-                    fontFamily: "var(--font-data)", fontSize: 11, fontVariantNumeric: "tabular-nums",
+                    fontFamily: "var(--font-data)", fontSize: 12, fontVariantNumeric: "tabular-nums",
                     color: n.attention ? T.poppyText : T.muted,
                   }}>{count}</span>
                 )}
@@ -151,7 +151,7 @@ function Card({ title, hint, children }) {
   return (
     <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, marginBottom: 18 }}>
       {title && <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600, color: T.ink }}>{title}</div>}
-      {hint && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3, marginBottom: 14 }}>{hint}</div>}
+      {hint && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 14 }}>{hint}</div>}
       {children}
     </div>
   );
@@ -159,7 +159,7 @@ function Card({ title, hint, children }) {
 
 function btn(kind) {
   const base = {
-    fontFamily: "var(--font-text)", fontSize: 12.5, fontWeight: 600, borderRadius: 8,
+    fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, borderRadius: 8,
     padding: "6px 12px", cursor: "pointer", border: "none",
   };
   if (kind === "primary") return { ...base, color: T.onDark, background: T.evergreen };
@@ -263,7 +263,7 @@ function GhlConnectForm({ row, onClose, onDone }) {
             <input style={field} value={salesMatch} onChange={(e) => setSalesMatch(e.target.value)} placeholder="sales" />
           </label>
         </div>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -320,7 +320,7 @@ function AriveConnectForm({ row, onClose, onDone }) {
         <label style={label}>API Key {keep}
           <input style={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -375,7 +375,7 @@ function SisuConnectForm({ row, onClose, onDone }) {
         <label style={label}>API token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
           <input style={field} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -436,7 +436,7 @@ function SkyslopeConnectForm({ row, onClose, onDone }) {
         <label style={labelStyle}>Access Secret {keep}
           <input style={field} type="password" value={accessSecret} onChange={(e) => setAccessSecret(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -498,18 +498,18 @@ function MetaAdsConnectForm({ row, onClose, onDone }) {
         </label>
         <label style={label}>Ad account ID
           <input style={field} value={acct} onChange={(e) => setAcct(e.target.value)} autoComplete="off" placeholder="act_587749862890426" />
-          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>
+          <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>
             From Ads Manager, top left. One token can carry several accounts — add the others
             after this one.
           </span>
         </label>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 14, lineHeight: 1.5, background: T.parchment, borderRadius: 8, padding: "10px 12px" }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 14, lineHeight: 1.5, background: T.parchment, borderRadius: 8, padding: "10px 12px" }}>
           <strong style={{ color: T.slate }}>Ad-level revenue needs one more thing.</strong> Your ad
           URLs need <code>utm_content=&#123;&#123;ad.id&#125;&#125;</code> and a matching{" "}
           <code>utm_content</code> field in GoHighLevel. Until both exist the funnel works at
           campaign level and the creative wall shows no revenue.
         </div>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -562,9 +562,9 @@ function FubConnectForm({ row, onClose, onDone }) {
         <label style={label}>API key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
           <input style={field} type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         {warning && (
-          <div role="status" style={{ fontFamily: "var(--font-text)", fontSize: 12.5, lineHeight: 1.45, color: T.daffodilText, background: T.daffodilBg, borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <div role="status" style={{ fontFamily: "var(--font-text)", fontSize: 13, lineHeight: 1.45, color: T.daffodilText, background: T.daffodilBg, borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
             <strong style={{ display: "block", marginBottom: 3 }}>Connected, with one catch</strong>
             {warning}
           </div>
@@ -624,7 +624,7 @@ function StripeLegacyConnectForm({ row, onClose, onDone }) {
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
@@ -672,7 +672,7 @@ function StripeBcConnectForm({ row, onClose, onDone }) {
         <label style={label}>Read-only restricted key {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep the current key</span>}
           <input style={field} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={editing ? "•••••••• (unchanged)" : "rk_live_…"} required={!editing} />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Verifying…" : editing ? "Save changes" : "Connect"}</button>
@@ -742,7 +742,7 @@ function RecruitingConnectForm({ row, onClose, onDone }) {
           Nothing syncs until a pipeline is chosen, and nothing is ever sent to a candidate until
           write-back is turned on for the workspace and for that person.
         </div>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -794,7 +794,7 @@ function GhlLegacyConnectForm({ row, onClose, onDone }) {
         <label style={label}>Location ID <span style={{ fontWeight: 400, color: T.muted }}>· from the old-location GHL URL</span>
           <input style={field} value={locationId} onChange={(e) => setLocationId(e.target.value)} required />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : editing ? "Save changes" : "Connect"}</button>
@@ -850,9 +850,9 @@ function LegacyDeltaPanel({ live }) {
     <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.parchment, padding: "13px 15px", marginTop: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon name="open" size={13} color={T.evergreen} />
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.ink }}>GHL import file</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink }}>GHL import file</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>{d.total_forum_charges || 0} legacy charges synced</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{d.total_forum_charges || 0} legacy charges synced</span>
       </div>
       <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.secondary, marginTop: 6, lineHeight: 1.5 }}>
         {pending > 0
@@ -863,7 +863,7 @@ function LegacyDeltaPanel({ live }) {
         <SBtn small icon="open" disabled={!live || busy || pending === 0} onClick={download}>{busy ? "Working…" : "Download file"}</SBtn>
         <SBtn small icon="check_circled" disabled={!live || busy || pending === 0} onClick={markImported}>Mark imported</SBtn>
       </div>
-      {msg && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, marginTop: 9 }}>{msg}</div>}
+      {msg && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, marginTop: 9 }}>{msg}</div>}
     </div>
   );
 }
@@ -926,17 +926,17 @@ function QuickBooksConnect({ live }) {
         return (
           <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
+              <div style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: 600, color: T.ink }}>{b.name}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                 {connected ? (
                   <>
                     <span style={{ width: 7, height: 7, borderRadius: 99, background: STATUS_DOT[row.status] || T.muted }} />
-                    <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate }}>{STATUS_LABEL[row.status] || row.status}</span>
-                    {row.last_synced_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>· synced {relativeTime(row.last_synced_at)}</span>}
-                    {row.status === "error" && row.last_error && <span title={row.last_error} style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.poppyText }}>· {String(row.last_error).slice(0, 40)}</span>}
+                    <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>{STATUS_LABEL[row.status] || row.status}</span>
+                    {row.last_synced_at && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>· synced {relativeTime(row.last_synced_at)}</span>}
+                    {row.status === "error" && row.last_error && <span title={row.last_error} style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.poppyText }}>· {String(row.last_error).slice(0, 40)}</span>}
                   </>
                 ) : (
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>Not connected</span>
+                  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>Not connected</span>
                 )}
               </div>
             </div>
@@ -993,7 +993,7 @@ function StatusPill({ src }) {
 }
 
 const Chip = ({ children }) => (
-  <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate,
+  <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate,
     background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 8px" }}>{children}</span>
 );
 
@@ -1065,7 +1065,7 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
 
   const field = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", marginTop: 5 };
   const label = { display: "block", fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
-  const check = { display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink };
+  const check = { display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontFamily: "var(--font-text)", fontSize: 13, color: T.ink };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,46,44,0.34)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -1107,7 +1107,7 @@ function QboEntityForm({ mode, entity, onClose, onDone }) {
             <input style={field} type="date" value={backfill} onChange={(e) => setBackfill(e.target.value)} />
           </label>
         )}
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>
@@ -1163,7 +1163,7 @@ function EntityMenu({ items, disabled }) {
             <button key={it.label} role="menuitem" disabled={it.disabled}
               onClick={(ev) => { ev.stopPropagation(); setOpen(false); it.onClick(); }}
               style={{ textAlign: "left", border: 0, background: "transparent", cursor: "pointer",
-                borderRadius: 7, padding: "7px 9px", fontFamily: "var(--font-text)", fontSize: 12.5,
+                borderRadius: 7, padding: "7px 9px", fontFamily: "var(--font-text)", fontSize: 13,
                 color: it.danger ? T.poppyText : T.slate }}>{it.label}</button>
           ))}
         </span>
@@ -1195,18 +1195,18 @@ function EntityRow({ e, live, busy, onAction }) {
       <span aria-hidden style={{ width: 8, height: 8, flexShrink: 0, borderRadius: 3,
         background: disc ? T.muted : (e.accent || T.muted) }} />
       <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600,
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600,
           color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           {e.business_name}
-          {routesTo && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
-          {e.books_enabled === false && <span style={{ fontFamily: "var(--font-text)", fontSize: 10.5, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
+          {routesTo && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>→ {routesTo}</span>}
+          {e.books_enabled === false && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, border: `1px solid ${T.line}`, borderRadius: 5, padding: "1px 6px" }}>Books off</span>}
         </span>
         {e.realm_id && (
-          <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>ID {e.realm_id}</span>
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>ID {e.realm_id}</span>
         )}
         {/* This connection's own configuration, on this connection's own row. */}
         {e.config_summary?.length > 0 && (
-          <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
             {e.config_summary.map(([k, v]) => `${k} ${v}`).join(" · ")}</span>
         )}
       </div>
@@ -1249,13 +1249,13 @@ function AddSourceModal({ sources, live, onPick, onClose }) {
         style={{ width: "100%", maxWidth: 520, background: T.white, borderRadius: 14,
           border: `1px solid ${T.line}`, boxShadow: "0 24px 60px rgba(0,46,44,.22)", overflow: "hidden" }}>
         <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.line}` }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Add a source</div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Add a source</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>
             Everything the Command Center can read from. Connecting one starts its first sync.</div>
         </div>
         <div style={{ maxHeight: "46vh", overflowY: "auto" }}>
           {shown.length === 0 && (
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "20px 18px" }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, padding: "20px 18px" }}>
               Everything we support is already connected.</div>
           )}
           {shown.map((s) => (
@@ -1265,9 +1265,9 @@ function AddSourceModal({ sources, live, onPick, onClose }) {
                 padding: "13px 18px", cursor: live ? "pointer" : "default" }}>
               <IntegrationMark provider={s.provider} fallback={s.mono} size={30} />
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: "block", fontFamily: "var(--font-display)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>
+                <span style={{ display: "block", fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.ink }}>
                   {s.title}{s.tag ? ` · ${s.tag}` : ""}</span>
-                <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                <span style={{ display: "block", fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 2 }}>
                   {s.meta || s.desc(s)}</span>
               </span>
               <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.teal, flexShrink: 0 }}>Connect</span>
@@ -1298,10 +1298,10 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
         <IntegrationMark provider={s.provider} fallback={s.mono} />
         <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.title}</span>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.ink }}>{s.title}</span>
             {/* Server-side, so the chip and the list beneath it cannot disagree about how many. */}
             {s.tag && (
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, fontWeight: 500,
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 500,
                 color: T.slate, background: T.parchment, borderRadius: 6, padding: "2px 8px",
                 whiteSpace: "nowrap" }}>{s.tag}</span>
             )}
@@ -1314,7 +1314,7 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
         <span style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           <StatusPill src={s} />
           {/* A fixed column in the data face, so the ages line up down the page. */}
-          <span style={{ fontFamily: "var(--font-data)", fontSize: 11.5, color: T.muted,
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted,
             width: 62, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.ago || ""}</span>
           <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, flexShrink: 0 }}>
             <Icon name="chevron_down" size={14} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .22s ease" }} />
@@ -1326,13 +1326,13 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
           <div style={{ padding: "0 20px 18px" }}>
             {/* A vendor row's own description, not one member's: DESC is written per provider,
                 so a two-location row would otherwise be described by whichever came first. */}
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, paddingBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, paddingBottom: 12, lineHeight: 1.5 }}>
               {(s.members?.length || 1) > 1 ? s.meta : s.desc(s)}</div>
 
             {entities.length > 0 && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 9 }}>
-                  <span style={{ fontFamily: "var(--font-data)", fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: T.muted }}>
+                  <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted }}>
                     {s.multi_entity ? `${s.entity_plural || "Entities"} · ${entities.length} · one connection each` : "Connection"}</span>
                   <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
                 </div>
@@ -1353,18 +1353,18 @@ function SourceCard({ s, open, onToggle, live, busy, onEntityAction, onConnect }
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 {/* "Feeds" is what the mockup calls these, and it is the better word: it is what
                     this source puts INTO the dashboard. The payload still calls it `provides`. */}
-                <span style={{ fontFamily: "var(--font-data)", fontSize: 10, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase", color: T.muted }}>Feeds</span>
+                <span style={{ fontFamily: "var(--font-data)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted }}>Feeds</span>
                 {(s.provides || []).map((c) => <Chip key={c}>{c}</Chip>)}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                {s.last_run && <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
+                {s.last_run && <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: s.status === "stale" ? T.daffodilText : T.muted }}>{s.last_run}</span>}
                 {/* Only where a second connection is actually possible -- `multi_entity` says so
                     on the payload rather than the page testing for QuickBooks by name. */}
                 {s.multi_entity && (
                   <button disabled={!live} onClick={() => onConnect(s)} style={{
                     height: 32, padding: "0 13px", borderRadius: 9, cursor: live ? "pointer" : "default",
                     border: `1px dashed ${T.line}`, background: "transparent",
-                    fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, whiteSpace: "nowrap",
+                    fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, whiteSpace: "nowrap",
                   }}>+ Connect another {s.entity_singular || "entity"}</button>
                 )}
               </div>
@@ -1659,24 +1659,24 @@ function IntegrationsPage() {
         .si-card { background:${T.white}; border:1px solid ${T.line}; border-radius:14px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,46,44,.04); transition:box-shadow .2s ease, border-color .2s ease; }
         .si-card.on { box-shadow:0 2px 4px rgba(0,46,44,.05), 0 14px 30px rgba(0,46,44,.07); border-color:#E0D6C6; }
         .si-head { box-sizing:border-box; display:flex; align-items:center; gap:14px; width:100%; background:none; border:none; padding:15px 20px; cursor:pointer; }
-        .si-mono { width:36px; height:36px; border-radius:10px; background:${T.parchment}; border:1px solid ${T.line}; display:inline-flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:12.5px; font-weight:700; color:${T.evergreen}; flex-shrink:0; }
+        .si-mono { width:36px; height:36px; border-radius:10px; background:${T.parchment}; border:1px solid ${T.line}; display:inline-flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:13px; font-weight:600; color:${T.evergreen}; flex-shrink:0; }
         .si-collapse { display:grid; grid-template-rows:0fr; transition:grid-template-rows .26s cubic-bezier(.4,0,.2,1); }
         .si-collapse.open { grid-template-rows:1fr; }
         .si-collapse-in { overflow:hidden; }
         .si-btn { transition:background .14s ease, border-color .14s ease, color .14s ease; }
         .si-btn.ghost:hover:not(:disabled) { border-color:${T.teal}; color:${T.teal}; }
         .si-btn.primary:hover:not(:disabled) { background:${T.poppyActive}; border-color:${T.poppyActive}; }
-        .si-danger { background:none; border:none; cursor:pointer; font-family:var(--font-text); font-size:11.5px; font-weight:600; color:${T.muted}; padding:4px 2px; }
+        .si-danger { background:none; border:none; cursor:pointer; font-family:var(--font-text); font-size:12px; font-weight:600; color:${T.muted}; padding:4px 2px; }
         .si-danger:hover:not(:disabled) { color:${T.poppyText}; }
         .si-btn:focus-visible, .si-danger:focus-visible { outline:2px solid ${T.teal}; outline-offset:2px; border-radius:8px; }
         @media (prefers-reduced-motion: reduce) { .si-collapse { transition:none; } }
       `}</style>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 28, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ maxWidth: 520 }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".13em", textTransform: "uppercase", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.poppyText, display: "flex", alignItems: "center", gap: 7 }}>
             <Icon name="puzzle" size={13} color={T.poppyText} />Settings · Integrations
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", marginTop: 6, color: T.ink }}>Data sources</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600, letterSpacing: "-.02em", marginTop: 6, color: T.ink }}>Data sources</div>
           <div style={{ fontSize: 13, color: T.slate, marginTop: 5, lineHeight: 1.5 }}>Every number in the Command Center traces back to one of these connections.</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1698,13 +1698,13 @@ function IntegrationsPage() {
             padding: "14px 20px", borderRight: i < 2 ? `1px solid ${T.line}` : "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span aria-hidden style={{ width: 8, height: 8, borderRadius: 999, background: dot }} />
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: T.ink, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: T.ink, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{value}</span>
             </div>
             <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>{label}</div>
           </div>
         ))}
         <span style={{ flex: 1 }} />
-        <span style={{ padding: "0 20px", fontFamily: "var(--font-data)", fontSize: 11, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, whiteSpace: "nowrap" }}>
+        <span style={{ padding: "0 20px", fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.muted, whiteSpace: "nowrap" }}>
           {view.next_sync_in_min != null ? `Auto-sync in ${view.next_sync_in_min} min` : "Auto-sync every 30 min"}
         </span>
       </div>
@@ -1717,11 +1717,11 @@ function IntegrationsPage() {
           border: `1px solid ${alpha(T.poppyText, 0.3)}`, background: alpha(T.poppyText, 0.08) }}>
           <span aria-hidden style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8,
             background: T.poppyText, color: T.white, display: "flex", alignItems: "center",
-            justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700 }}>!</span>
+            justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600 }}>!</span>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.poppyText }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: 600, color: T.poppyText }}>
               {alerts[0].title}{alerts.length > 1 ? ` · and ${alerts.length - 1} more` : ""}</div>
-            {alerts[0].detail && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.slate, marginTop: 2 }}>{alerts[0].detail}</div>}
+            {alerts[0].detail && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.slate, marginTop: 2 }}>{alerts[0].detail}</div>}
           </div>
           <SBtn kind="primary" disabled={!live} onClick={() => fixAlert(alerts[0])}>
             {alerts[0].action === "reconnect" ? "Reconnect" : "Fix it"}</SBtn>
@@ -1737,13 +1737,13 @@ function IntegrationsPage() {
       <div style={{ border: `1px solid ${T.line}`, borderRadius: 14, background: T.white, overflow: "hidden", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
           padding: "11px 18px", borderBottom: `1px solid ${T.line}`, background: T.parchment }}>
-          <span style={{ fontFamily: "var(--font-data)", fontSize: 10.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.slate }}>
+          <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.slate }}>
             Connected · {connected.length}</span>
           <span style={{ flex: 1 }} />
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {["All", "Needs attention", "Healthy"].map((f) => (
               <button key={f} onClick={() => setFilter(f)} style={{
-                border: 0, cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 12.5,
+                border: 0, cursor: "pointer", fontFamily: "var(--font-text)", fontSize: 13,
                 whiteSpace: "nowrap", fontWeight: filter === f ? 600 : 500, padding: "0 11px",
                 height: 27, borderRadius: 999,
                 background: filter === f ? T.evergreen : T.white,
@@ -1757,7 +1757,7 @@ function IntegrationsPage() {
             live={live} busy={busy} onConnect={connectSource}
             onEntityAction={(action, e) => entityAction(action, e, s)} />
         )) : (
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, padding: "22px 18px" }}>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, padding: "22px 18px" }}>
             Nothing {filter === "Healthy" ? "healthy" : "needing attention"} right now.</div>
         )}
       </div>
@@ -1765,7 +1765,7 @@ function IntegrationsPage() {
       {available.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontFamily: "var(--font-data)", fontSize: 10.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.slate }}>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, letterSpacing: 0, textTransform: "none", color: T.slate }}>
               Available · {available.length}</span>
             <span aria-hidden style={{ flex: 1, height: 1, background: T.line }} />
           </div>
@@ -1775,7 +1775,7 @@ function IntegrationsPage() {
               border: `1px dashed ${T.line}`, background: T.white }}>
               <IntegrationMark provider={s.provider} fallback={s.mono} />
               <div style={{ flex: 1, minWidth: 180 }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 14.5, fontWeight: 600, color: T.ink }}>{s.title}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 600, color: T.ink }}>{s.title}</div>
                 <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{s.meta || s.desc(s)}</div>
               </div>
               <SBtn kind="primary" disabled={!live} onClick={() => connectSource(s)}>Connect</SBtn>
@@ -1784,7 +1784,7 @@ function IntegrationsPage() {
         </div>
       )}
 
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, padding: "8px 2px" }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, padding: "8px 2px" }}>
         Auto-sync runs every 30 minutes. Disconnecting removes stored tokens; historical data already synced stays in the dashboard.
       </div>
 
@@ -1987,13 +1987,13 @@ function BusinessEditForm({ biz, onClose, onDone }) {
                 <input style={field} type="number" step="1" value={f.opex_pct} onChange={set("opex_pct")} placeholder="e.g. 29" />
               </label>
             </div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, marginTop: 6 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 6 }}>
               Reverse-engineered from a closed month's P&L. Drives the calculated Live / Projection lenses down to your JV share.
             </div>
           </>
         )}
 
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "var(--font-display)", fontSize: 12.5, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.slate }}>Financials (three-lens)</div>
         <div style={half}>
           <label style={{ ...label, flex: 1 }}>Expense run-rate
             <select style={field} value={f.expense_run_rate_mode} onChange={set("expense_run_rate_mode")}>
@@ -2011,7 +2011,7 @@ function BusinessEditForm({ biz, onClose, onDone }) {
         <label style={label}>Default agent split (%) <span style={{ fontWeight: 400, color: T.muted }}>· commission fallback when a Sisu deal is missing it</span>
           <input style={field} type="number" step="1" value={f.agent_split_pct} onChange={set("agent_split_pct")} placeholder="e.g. 60" />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy} style={busy ? btn("disabled") : btn("primary")}>{busy ? "Saving…" : "Save changes"}</button>
@@ -2043,11 +2043,11 @@ function BusinessesPage() {
         <div key={b.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.line}` }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: b.accent, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{b.name}</div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>{b.tag}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: 600, color: T.ink }}>{b.name}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{b.tag}</div>
           </div>
-          {b.is_jv && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate }}>JV {Math.round(b.jv_share * 100)}%</span>}
-          <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.slate, textTransform: "capitalize" }}>{b.status}</span>
+          {b.is_jv && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate }}>JV {Math.round(b.jv_share * 100)}%</span>}
+          <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, textTransform: "capitalize" }}>{b.status}</span>
           <button disabled={!live} onClick={() => setEditing(b)} style={live ? btn() : btn("disabled")}>Edit</button>
         </div>
       )) : <div style={{ color: T.muted, fontSize: 13 }}>Loading…</div>}
@@ -2073,7 +2073,7 @@ function CopyLink({ url, caption }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ marginTop: 8 }}>
-    {caption && <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginBottom: 4 }}>{caption}</div>}
+    {caption && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginBottom: 4 }}>{caption}</div>}
     <div style={{ display: "flex", gap: 8 }}>
       <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px" }} />
       <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={btn("primary")}>{copied ? "Copied" : "Copy"}</button>
@@ -2083,7 +2083,7 @@ function CopyLink({ url, caption }) {
 }
 
 function TabDots({ user }) {
-  if (user.all_tabs) return <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>All tabs</span>;
+  if (user.all_tabs) return <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>All tabs</span>;
   return (
     <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
       {(user.tabs || []).map((t) => (
@@ -2094,7 +2094,7 @@ function TabDots({ user }) {
 }
 
 function Pill({ text, color, bg }) {
-  return <span style={{ fontFamily: "var(--font-display)", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
+  return <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color, background: bg, borderRadius: 5, padding: "2px 7px" }}>{text}</span>;
 }
 
 function InviteModal({ tabs, me, onClose, onInvited }) {
@@ -2133,7 +2133,7 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
         {result ? (
           <>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Invite sent</div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 4 }}>We emailed <b style={{ color: T.ink }}>{result.user.email}</b> an invite. It works once and expires in 7 days.</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 4 }}>We emailed <b style={{ color: T.ink }}>{result.user.email}</b> an invite. It works once and expires in 7 days.</div>
             <CopyLink url={result.invite_url} caption="or copy the link" />
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={onClose} style={btn("primary")}>Done</button>
@@ -2163,7 +2163,7 @@ function InviteModal({ tabs, me, onClose, onInvited }) {
                 </div>
               </div>
             )}
-            {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+            {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button type="button" onClick={onClose} style={btn()}>Cancel</button>
               <button type="submit" disabled={busy || (role === "member" && !grants.length)} style={(busy || (role === "member" && !grants.length)) ? btn("disabled") : btn("primary")}>{busy ? "Inviting…" : "Send invite"}</button>
@@ -2206,15 +2206,15 @@ function UserRow({ u, me, tabs, onChanged }) {
   return (
     <div style={{ borderTop: `1px solid ${T.line}` }}>
       <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", cursor: "pointer" }}>
-        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.parchment, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 700, color: T.slate, flexShrink: 0 }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
+        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.parchment, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.slate, flexShrink: 0 }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{u.name}{isSelf && <span style={{ color: T.muted, fontWeight: 400 }}> · you</span>}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 14, fontWeight: 600, color: T.ink }}>{u.name}{isSelf && <span style={{ color: T.muted, fontWeight: 400 }}> · you</span>}</div>
           <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</div>
         </div>
         <Pill text={u.role} color={ROLE_COLOR[u.role]} bg={u.role === "owner" ? T.meadowBg : T.parchment} />
         <span style={{ width: 90 }}><TabDots user={u} /></span>
         {u.status !== "active" && <Pill text={u.status} color={u.status === "invited" ? T.daffodilText : T.muted} bg={u.status === "invited" ? T.daffodilBg : T.parchment} />}
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted, width: 84, textAlign: "right" }}>{u.last_login_at ? relativeTime(u.last_login_at) : "—"}</span>
+        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, width: 84, textAlign: "right" }}>{u.last_login_at ? relativeTime(u.last_login_at) : "—"}</span>
       </div>
       {open && (
         <div style={{ padding: "4px 4px 16px 48px" }}>
@@ -2233,7 +2233,7 @@ function UserRow({ u, me, tabs, onChanged }) {
                   {role === "member" ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 6 }}>
                       {tabs.map((t) => (
-                        <label key={t} style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink }}>
+                        <label key={t} style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "var(--font-text)", fontSize: 13, color: T.ink }}>
                           <input type="checkbox" checked={grants.includes(t)} onChange={() => toggle(t)} />{TAB_META[t]?.label || t}
                         </label>
                       ))}
@@ -2247,11 +2247,11 @@ function UserRow({ u, me, tabs, onChanged }) {
                 <span style={{ flex: 1 }} />
                 <button onClick={toggleStatus} disabled={busy} style={btn("danger")}>{u.status === "disabled" ? "Enable" : "Disable"}</button>
               </div>
-              {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 10 }}>{err}</div>}
+              {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 10 }}>{err}</div>}
               {link && <CopyLink url={link} caption="Sent. Or copy the link — email can bounce or land in spam." />}
             </>
           ) : (
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted }}>{isSelf ? "Manage your own name and password on the Account page." : "You can't manage this user."}</div>
           )}
         </div>
       )}
@@ -2278,9 +2278,9 @@ function UsersPage() {
     <>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: T.muted }}>Settings · Users</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, letterSpacing: 0, textTransform: "none", color: T.muted }}>Settings · Users</div>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 3 }}>Team</div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 3 }}>Invite teammates and control exactly which tabs each one sees.</div>
         </div>
         <button onClick={() => setInviting(true)} style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.white, background: T.poppy, border: "none", borderRadius: 9, padding: "9px 16px", cursor: "pointer", flexShrink: 0 }}>Invite user</button>
       </div>
@@ -2334,7 +2334,7 @@ function RecruitingPage() {
   if (!data.connected) {
     return (
       <Card>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>No recruiting location yet</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>No recruiting location yet</div>
         <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 6, lineHeight: 1.55, maxWidth: 560 }}>
           Recruiting reads a Go High Level location of its own — the one your candidate pipeline
           lives in, not the one your membership programmes run on. Connect it under Integrations,
@@ -2397,13 +2397,13 @@ function RecruitingPage() {
     <>
       {Object.entries(data.options?.errors || {}).map(([k, v]) => (
         <Card key={k} style={{ borderLeft: `3px solid ${T.poppyText}` }}>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText }}>{v}</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText }}>{v}</div>
         </Card>
       ))}
 
       <Card>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Pipeline</div>
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Pipeline</div>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4 }}>
           Which pipeline holds candidates, and what each of its stages means. Nothing syncs until a pipeline is chosen.
         </div>
         <label style={label}>Recruiting pipeline
@@ -2424,7 +2424,7 @@ function RecruitingPage() {
                 </SBtn>
               )}
               <span style={{ flex: 1 }} />
-              <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted }}>
+              <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>
                 {stages.filter((st) => groupOf(st.id)).length} of {stages.length} mapped
               </span>
             </div>
@@ -2435,7 +2435,7 @@ function RecruitingPage() {
                 <div key={st.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px", gap: 12, alignItems: "center", padding: "9px 12px", borderTop: i ? `1px solid ${T.line}` : "none" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.name}</div>
-                    <div style={{ fontFamily: "var(--font-data)", fontSize: 10.5, color: T.muted }}>{st.id}</div>
+                    <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted }}>{st.id}</div>
                   </div>
                   <select style={{ ...select, marginTop: 0 }} value={groupOf(st.id)} disabled={!live}
                           onChange={(e) => setStageGroup(st.id, e.target.value)}>
@@ -2445,7 +2445,7 @@ function RecruitingPage() {
                 </div>
               ))}
             </div>
-            <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
               <b>Signed</b> is what “signed this month” counts. <b>Met</b> and <b>Offer out</b> are what the path to goal is
               drawn from. <b>Appointment set</b> is where the SDR hands over. The <b>Nurture</b> groups are parked — held out
               of the pipeline breakdown and off everybody’s daily list — and the Hot/Warm/Cold bands are there if you want a
@@ -2469,7 +2469,7 @@ function RecruitingPage() {
           </select>
         </label>
 
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
           <SBtn kind="primary" disabled={!live || busy} onClick={save}>{busy ? "Saving…" : "Save"}</SBtn>
           {saved && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.meadowInk }}>Saved.</span>}
@@ -2546,21 +2546,21 @@ function RecruitingWebhook({ data, live, onChanged }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>
           Faster updates <span style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 400, color: T.muted }}>· optional</span>
         </div>
         <span style={{ flex: 1 }} />
-        <span style={{ fontFamily: "var(--font-data)", fontSize: 11, color: on ? T.meadowInk : T.muted }}>
+        <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: on ? T.meadowInk : T.muted }}>
           {on ? "On" : "Off"}
         </span>
       </div>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.55 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.55 }}>
         Recruiting already reads GHL every five minutes. A Workflow webhook makes a reply or a
         stage change show up in seconds instead. Nothing breaks without it — the poll carries on
         either way, so this is safe to turn off the moment it looks wrong.
       </div>
 
-      <ol style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary,
+      <ol style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary,
                    lineHeight: 1.7, paddingLeft: 18, marginTop: 14, marginBottom: 0 }}>
         <li>Press <b>Generate secret</b> below and copy it — it is shown once.</li>
         <li>In GHL, build a Workflow on the recruiting location with the triggers
@@ -2569,7 +2569,7 @@ function RecruitingWebhook({ data, live, onChanged }) {
         <li>Add a custom header <span style={code}>X-Axcion-Secret</span> with the secret as its value.</li>
         <li>Publish the Workflow. Nothing else is needed — the body is not read.</li>
       </ol>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
         Axcion ignores what the webhook sends and re-reads the change from GHL with its own
         credentials, so nothing in that payload can alter a record here.
       </div>
@@ -2584,13 +2584,13 @@ function RecruitingWebhook({ data, live, onChanged }) {
         </div>
       )}
 
-      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
         <SBtn kind="primary" disabled={!live || busy} onClick={rotate}>
           {busy ? "Working…" : on ? "Replace secret" : "Generate secret"}
         </SBtn>
         {on && <SBtn disabled={!live || busy} onClick={clear}>Turn off</SBtn>}
-        {on && <span style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
+        {on && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
           Replacing stops the old secret working immediately.</span>}
       </div>
     </Card>
@@ -2657,8 +2657,8 @@ function RecruitingGoals({ live }) {
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Goals</div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Goals</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
             The monthly targets the hero and the leaderboard are judged against. Weekly commitments
             are set by the people doing the work, on the tab itself.
           </div>
@@ -2680,7 +2680,7 @@ function RecruitingGoals({ live }) {
         <input type="number" min="0" style={num} disabled={!live}
                value={draft["team:signed"] ?? ""} onChange={set("team:signed")} />
       </div>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
         The team target and the seat targets are allowed to differ. An owner may carry a number the
         splits do not add up to, and the tab shows both rather than quietly reconciling them.
       </div>
@@ -2692,7 +2692,7 @@ function RecruitingGoals({ live }) {
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
             {metricsFor(seat.role).map((metric) => (
-              <label key={metric} style={{ fontFamily: "var(--font-text)", fontSize: 11.5, color: T.muted }}>
+              <label key={metric} style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>
                 <span style={{ display: "block", marginBottom: 3 }}>
                   {metric === "show_rate" ? "show rate %" : metric}
                 </span>
@@ -2706,12 +2706,12 @@ function RecruitingGoals({ live }) {
       ))}
 
       {(data.seats || []).length === 0 && (
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 14 }}>
           No seats yet. Add them in the Roster below, then come back and give them a number.
         </div>
       )}
 
-      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
         <SBtn kind="primary" disabled={!live || busy} onClick={save}>{busy ? "Saving…" : `Save ${data.period.label} goals`}</SBtn>
         {saved && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.meadowInk }}>Saved.</span>}
@@ -2739,8 +2739,8 @@ function RecruitingRules({ data, draft, setDraft, live }) {
 
   return (
     <Card>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Rules</div>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Rules</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
         What lands on somebody’s list each morning. A rule that is off produces nothing; the others
         carry on. Items clear themselves when the work happens — including when it happens in GHL.
       </div>
@@ -2758,7 +2758,7 @@ function RecruitingRules({ data, draft, setDraft, live }) {
             <span style={{ display: "inline-flex", gap: 10, flexWrap: "wrap" }}>
               {r.fields.map((f) => (
                 <label key={f.name} style={{ ...label, opacity: on ? 1 : 0.45 }}>
-                  <span style={{ fontWeight: 400, fontSize: 11, color: T.muted }}>{f.name.replace(/_/g, " ")}</span>
+                  <span style={{ fontWeight: 400, fontSize: 12, color: T.muted }}>{f.name.replace(/_/g, " ")}</span>
                   <input type="number" min={f.min} max={f.max} disabled={!live || !on}
                          value={cfg[f.name] ?? ""}
                          onChange={(e) => set(r.key, { [f.name]: e.target.value === "" ? undefined : Number(e.target.value) })}
@@ -2766,7 +2766,7 @@ function RecruitingRules({ data, draft, setDraft, live }) {
                                   fontFamily: "var(--font-data)", fontSize: 13, color: T.ink,
                                   background: T.white, border: `1px solid ${T.line}`, borderRadius: 7,
                                   padding: "6px 8px" }} />
-                  <span style={{ fontWeight: 400, fontSize: 10.5, color: T.muted }}>{f.min}–{f.max}</span>
+                  <span style={{ fontWeight: 400, fontSize: 12, color: T.muted }}>{f.min}–{f.max}</span>
                 </label>
               ))}
             </span>
@@ -2788,12 +2788,12 @@ function RecruitingTemplates({ data, draft, setDraft, live }) {
 
   return (
     <Card>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Templates</div>
-      <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Templates</div>
+      <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.5 }}>
         The drafts the drawer offers. Written by a person, never generated — somebody is about to
         send this to a stranger and has to be able to check it.
       </div>
-      <div style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted, marginTop: 8 }}>
+      <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 8 }}>
         Merge fields: {fields.map((f) => `{${f}}`).join(" · ")}
       </div>
       <label style={label}>Text<textarea rows={3} style={box} value={t.text || ""} disabled={!live} onChange={set("text")} /></label>
@@ -2818,15 +2818,15 @@ function RecruitingRoster({ data, live, onChanged }) {
     finally { setBusy(null); }
   }
 
-  const cell = { fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink };
-  const select = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 12.5, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 8px" };
+  const cell = { fontFamily: "var(--font-text)", fontSize: 13, color: T.ink };
+  const select = { width: "100%", boxSizing: "border-box", fontFamily: "var(--font-text)", fontSize: 13, color: T.ink, background: T.white, border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 8px" };
 
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 15.5, fontWeight: 600, color: T.ink }}>Roster</div>
-          <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.secondary, marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>Roster</div>
+          <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.secondary, marginTop: 4 }}>
             Who closes and who books. A seat owns candidates, carries a calendar, and is the unit write-back is turned on for.
           </div>
         </div>
@@ -2834,10 +2834,10 @@ function RecruitingRoster({ data, live, onChanged }) {
         <SBtn kind="primary" disabled={!live} onClick={() => setAdding(true)}>+ Add seat</SBtn>
       </div>
 
-      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+      {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
 
       {seats.length === 0 && (
-        <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.muted, marginTop: 14 }}>
+        <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, marginTop: 14 }}>
           No seats yet. Until there is at least one Team Leader, nothing has an owner and the tab has nobody to attribute a signing to.
         </div>
       )}
@@ -2846,17 +2846,17 @@ function RecruitingRoster({ data, live, onChanged }) {
         <div key={seat.id} style={{ borderTop: `1px solid ${T.line}`, padding: "13px 0", opacity: seat.active ? 1 : 0.55 }}>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr)", gap: 12, alignItems: "start" }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ ...cell, fontWeight: 600, fontSize: 13.5 }}>{seat.display_name}</div>
-              <div style={{ fontFamily: "var(--font-data)", fontSize: 10.5, color: T.muted, textTransform: "uppercase", letterSpacing: ".06em", marginTop: 2 }}>
+              <div style={{ ...cell, fontWeight: 600, fontSize: 14 }}>{seat.display_name}</div>
+              <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
                 {/* The title supersedes the role rather than joining it: a title is written as
                     the whole descriptor ("Team Leader · Draper"), so printing both gave
                     "TEAM LEADER · TEAM LEADER · DRAPER". */}
                 {seat.title || (seat.role === "sdr" ? "SDR" : "Team Leader")}
               </div>
-              {seat.from_number && <div style={{ fontFamily: "var(--font-data)", fontSize: 11, color: T.muted, marginTop: 3 }}>{seat.from_number}</div>}
+              {seat.from_number && <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.muted, marginTop: 3 }}>{seat.from_number}</div>}
             </div>
             <label style={{ minWidth: 0 }}>
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>GHL user</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>GHL user</span>
               {/* Matched by email as a SUGGESTION and confirmed here. An automatic match that
                   cannot be corrected from the UI is FUB-SPEC A7. */}
               <select style={select} value={seat.ghl_user_id || ""} disabled={!live || busy === seat.id}
@@ -2866,7 +2866,7 @@ function RecruitingRoster({ data, live, onChanged }) {
               </select>
             </label>
             <label style={{ minWidth: 0 }}>
-              <span style={{ fontFamily: "var(--font-text)", fontSize: 11, color: T.muted }}>Recruiting calendar</span>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>Recruiting calendar</span>
               <select style={select} value={seat.calendar_id || ""} disabled={!live || busy === seat.id}
                       onChange={(e) => patch(seat, { calendar_id: e.target.value || null })}>
                 <option value="">— none —</option>
@@ -2950,7 +2950,7 @@ function RecruitingSeatModal({ users, calendars, live, onClose, onDone }) {
         <label style={label}>Sending number <span style={{ fontWeight: 400, color: T.muted }}>· optional, E.164 e.g. +18015550142</span>
           <input style={field} value={form.from_number} onChange={set("from_number")} placeholder="+1…" />
         </label>
-        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 12.5, color: T.poppyText, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.poppyText, marginTop: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btn()}>Cancel</button>
           <button type="submit" disabled={busy || !live} style={busy || !live ? btn("disabled") : btn("primary")}>{busy ? "Adding…" : "Add seat"}</button>

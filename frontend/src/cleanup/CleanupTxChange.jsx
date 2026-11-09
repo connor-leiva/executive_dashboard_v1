@@ -96,7 +96,7 @@ function FormShell({ title, r, value, preview, close, children }) {
   };
   return (
     <div className="cx-form">
-      <div style={{ fontFamily: F.num, fontWeight: 700, color: L.deep, fontSize: 13.5 }}>{title}</div>
+      <div style={{ fontFamily: F.num, fontWeight: 600, color: L.deep, fontSize: 14 }}>{title}</div>
       {children}
       <label style={{ display: "grid", gap: 4 }}>
         <span style={EYEBROW}>Why (optional: it goes in the record)</span>
@@ -172,7 +172,7 @@ function SplitForm({ r, close }) {
               <input type="number" min={0} max={100} step={0.1} value={pct[b]} aria-label={`${b}'s share, percent`}
                      onChange={(e) => setPct({ ...pct, [b]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
                      style={{ ...inputStyle, width: 70, textAlign: "right" }} />
-              <span style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>%</span>
+              <span style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>%</span>
             </span>
             <span style={{ ...NUM, fontSize: 13, color: Number(pct[b]) > 0 ? L.deep : L.ghost }}>{cents(part(b))}</span>
           </div>))}
@@ -221,7 +221,7 @@ function RemoveForm({ r, close }) {
   return (
     <FormShell title={r.moneyIn ? "Not real money in" : "Not a real charge"} r={r} close={close} preview={preview}
                value={reason && { do: "remove", reason }}>
-      {r.cleared && !r.moneyIn ? <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+      {r.cleared && !r.moneyIn ? <div style={{ fontFamily: F.body, fontSize: 13, color: L.muted }}>
         The bank shows this one, so it happened.</div> : null}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {reasons.map(([k, label]) => <Chip key={k} on={reason === k} onClick={() => setReason(k)}>{label}</Chip>)}
@@ -280,7 +280,7 @@ export function ChangeArea({ r }) {
   }
   if (!r.key) return null;
   if (r.transfer && !r.change) {
-    return <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+    return <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 13, color: L.muted }}>
       Money moving between accounts isn&rsquo;t income or a cost, so there&rsquo;s no company&rsquo;s results to move it on.</div>;
   }
   const undo = async () => {
@@ -296,7 +296,7 @@ export function ChangeArea({ r }) {
       <Note tone="green" style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ flex: 1, minWidth: 220 }}>
           <strong>Your change:</strong> {changeSaid(r.change, ov)}{r.change.why ? ` Why: “${r.change.why}”.` : ""}
-          <span style={{ display: "block", fontSize: 11.5, color: L.muted, marginTop: 2 }}>
+          <span style={{ display: "block", fontSize: 12, color: L.muted, marginTop: 2 }}>
             {[r.change.by, r.change.at ? r.change.at.slice(0, 10) : ""].filter(Boolean).join(", ")}</span>
           {state?.error ? <span style={{ display: "block", color: L.loss }}>{state.error}</span> : null}
         </span>
@@ -305,7 +305,7 @@ export function ChangeArea({ r }) {
     );
   }
   if (!can) {
-    return <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 12.5, color: L.muted }}>
+    return <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 13, color: L.muted }}>
       Moving a transaction is an owner&rsquo;s or admin&rsquo;s to do.</div>;
   }
   const acts = [["move", "Move to another company"], ["split", "Split between companies"]];

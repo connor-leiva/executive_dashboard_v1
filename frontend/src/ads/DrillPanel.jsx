@@ -41,7 +41,7 @@ function Cell({ col, row }) {
     // A price-sheet figure and a number somebody typed into a GHL opportunity are not the same
     // kind of fact, so the weaker provenances are flagged rather than blending in.
     const weak = v === "GHL amount" || v === "not priced";
-    return <span style={{ fontSize: 11, color: weak ? C.warnInk : C.muted,
+    return <span style={{ fontSize: 12, color: weak ? C.warnInk : C.muted,
                           background: weak ? C.warnBg : "transparent",
                           borderRadius: 6, padding: weak ? "1px 6px" : 0 }}>{v || "—"}</span>;
   }
@@ -74,8 +74,8 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
       <style>{`
         .adr-wrap { overflow-x: auto; }
         .adr-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .adr-tbl th { text-align: left; font-family: ${FONT}; font-size: 10.5px;
-                      font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+        .adr-tbl th { text-align: left; font-family: ${FONT}; font-size: 12px;
+                      font-weight: 600; letter-spacing: 0; text-transform:none;
                       color: ${C.muted}; padding: 6px 10px 6px 0; border-bottom: 1px solid ${C.line}; }
         .adr-tbl td { font-family: ${FONT}; color: ${C.ink}; padding: 7px 10px 7px 0;
                       border-bottom: 1px solid ${C.line}; vertical-align: top; }
@@ -86,7 +86,7 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
         <span style={{ fontFamily: HEAD, fontSize: 14, fontWeight: 600, color: C.ink }}>
           {drill?.title || label}
         </span>
-        <span style={{ flex: 1, fontFamily: FONT, fontSize: 11.5, color: C.slate }}>
+        <span style={{ flex: 1, fontFamily: FONT, fontSize: 12, color: C.slate }}>
           {drill?.subtitle}
         </span>
         <button type="button" onClick={onClose}
@@ -98,12 +98,12 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
       </div>
 
       {loading && (
-        <div style={{ fontFamily: FONT, fontSize: 12.5, color: C.muted, marginTop: 12 }}>
+        <div style={{ fontFamily: FONT, fontSize: 13, color: C.muted, marginTop: 12 }}>
           Loading…
         </div>
       )}
       {error && (
-        <div style={{ fontFamily: FONT, fontSize: 12.5, color: C.badInk, marginTop: 12 }}>
+        <div style={{ fontFamily: FONT, fontSize: 13, color: C.badInk, marginTop: 12 }}>
           Couldn&rsquo;t open this one. {String(error.message || error)}
         </div>
       )}
@@ -111,7 +111,7 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
       {/* The note distinguishes "nobody reached this" from "we do not record this". They look
           identical as a zero and mean completely different things. */}
       {!loading && !error && drill?.note && (
-        <div style={{ fontFamily: FONT, fontSize: 12.5, color: C.warnInk, background: C.warnBg,
+        <div style={{ fontFamily: FONT, fontSize: 13, color: C.warnInk, background: C.warnBg,
                       border: `1px solid ${C.warnBar}`, borderRadius: 10, padding: "10px 12px",
                       marginTop: 12, lineHeight: 1.5 }}>
           {drill.note}

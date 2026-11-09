@@ -99,7 +99,7 @@ function Plate({ chrome }) {
       <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 30 }}>
         {tagline ? (
           <h2 className="acu-plate-headline" style={{
-            fontFamily: HEAD, fontWeight: 700, fontSize: 34, lineHeight: 1.12,
+            fontFamily: HEAD, fontWeight: 600, fontSize: 34, lineHeight: 1.12,
             letterSpacing: "-.03em", color: T.onDark, margin: 0, maxWidth: "15ch",
             textWrap: "balance",
           }}>{tagline}</h2>
@@ -139,10 +139,10 @@ export function AuthShell({ chrome, title, sub, back, above, children, overlay }
           {back}
           {above}
           <div style={{ marginBottom: 28 }}>
-            <h1 style={{ fontFamily: HEAD, fontWeight: 700, fontSize: 31, letterSpacing: "-.026em",
+            <h1 style={{ fontFamily: HEAD, fontWeight: 600, fontSize: 31, letterSpacing: "-.026em",
                          color: T.ink, margin: 0 }}>{title}</h1>
             {sub ? (
-              <p style={{ fontFamily: FONT, fontSize: 14.5, lineHeight: 1.5, color: T.muted,
+              <p style={{ fontFamily: FONT, fontSize: 14, lineHeight: 1.5, color: T.muted,
                           margin: "10px 0 0", textWrap: "pretty" }}>{sub}</p>
             ) : null}
           </div>
@@ -150,7 +150,7 @@ export function AuthShell({ chrome, title, sub, back, above, children, overlay }
         </div>
         <div style={{
           position: "absolute", left: 0, right: 0, bottom: 34, display: "flex",
-          justifyContent: "center", gap: 16, fontFamily: FONT, fontSize: 12.5, color: T.muted,
+          justifyContent: "center", gap: 16, fontFamily: FONT, fontSize: 13, color: T.muted,
         }}>
           {/* Axcion's documents, which cover every workspace it hosts. These pointed at
               /privacy.html and /eula.html, which were Spring Command Center's, with its name and
@@ -172,13 +172,13 @@ export function AuthShell({ chrome, title, sub, back, above, children, overlay }
 
 const inputBase = {
   height: 46, width: "100%", boxSizing: "border-box", borderRadius: 10, background: T.white,
-  padding: "0 14px", fontFamily: FONT, fontSize: 14.5, color: T.ink,
+  padding: "0 14px", fontFamily: FONT, fontSize: 14, color: T.ink,
 };
 
 export function Field({ id, label, invalid, hint, ...rest }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-      <label htmlFor={id} style={{ fontFamily: FONT, fontWeight: 600, fontSize: 12.5,
+      <label htmlFor={id} style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13,
                                    color: T.secondary }}>{label}</label>
       <input id={id} className={`acu-input${invalid ? " acu-bad" : ""}`} {...rest}
              style={{ ...inputBase, border: `1px solid ${invalid ? T.poppyText : T.line}`,
@@ -189,7 +189,7 @@ export function Field({ id, label, invalid, hint, ...rest }) {
                       // sets `background` inline and a stylesheet rule would lose to it.
                       ...(rest.readOnly
                           ? { background: T.parchment, color: T.secondary } : null) }} />
-      {hint ? <div style={{ fontFamily: FONT, fontSize: 11.5, color: T.muted }}>{hint}</div> : null}
+      {hint ? <div style={{ fontFamily: FONT, fontSize: 12, color: T.muted }}>{hint}</div> : null}
     </div>
   );
 }
@@ -200,7 +200,7 @@ export function PasswordField({ id, label, invalid, ...rest }) {
   const [shown, setShown] = useState(false);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-      <label htmlFor={id} style={{ fontFamily: FONT, fontWeight: 600, fontSize: 12.5,
+      <label htmlFor={id} style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13,
                                    color: T.secondary }}>{label}</label>
       <div style={{ position: "relative", display: "flex" }}>
         <input id={id} type={shown ? "text" : "password"}
@@ -211,7 +211,7 @@ export function PasswordField({ id, label, invalid, ...rest }) {
                 aria-label={shown ? "Hide password" : "Show password"}
                 style={{ position: "absolute", right: 6, top: 6, height: 34, padding: "0 11px",
                          border: "none", background: "transparent", borderRadius: 8,
-                         fontFamily: FONT, fontWeight: 600, fontSize: 12.5, color: T.muted,
+                         fontFamily: FONT, fontWeight: 600, fontSize: 13, color: T.muted,
                          cursor: "pointer" }}>
           {shown ? "Hide" : "Show"}
         </button>
@@ -241,7 +241,7 @@ export function PrimaryButton({ busy, busyLabel, children, ...rest }) {
 export function RememberMe({ checked, onChange }) {
   return (
     <label style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: FONT,
-                    fontSize: 13.5, color: T.secondary, cursor: "pointer", userSelect: "none" }}>
+                    fontSize: 14, color: T.secondary, cursor: "pointer", userSelect: "none" }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
              style={{ width: 16, height: 16, margin: 0, accentColor: T.poppy, cursor: "pointer" }} />
       Remember me
@@ -254,7 +254,7 @@ export function QuietButton({ children, ...rest }) {
     <button className="acu-quiet" {...rest} style={{
       height: 48, border: `1px solid ${T.line}`, borderRadius: "var(--acu-btn-r, 999px)",
       background: T.white,
-      color: T.ink, fontFamily: FONT, fontWeight: 600, fontSize: 14.5, cursor: "pointer",
+      color: T.ink, fontFamily: FONT, fontWeight: 600, fontSize: 14, cursor: "pointer",
     }}>{children}</button>
   );
 }
@@ -283,7 +283,7 @@ export function ErrorNote({ children }) {
            style={{ flex: "none", marginTop: 1 }}>
         <circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5" /><path d="M12 16.4v.2" />
       </svg>
-      <p style={{ fontFamily: FONT, fontSize: 13.5, lineHeight: 1.45, color: T.poppyText,
+      <p style={{ fontFamily: FONT, fontSize: 14, lineHeight: 1.45, color: T.poppyText,
                   margin: 0, textWrap: "pretty" }}>{children}</p>
     </div>
   );
@@ -335,9 +335,9 @@ export function Handoff({ title, sub }) {
     }}>
       <Badge><Tick /></Badge>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: HEAD, fontWeight: 700, fontSize: 26, letterSpacing: "-.022em",
+        <div style={{ fontFamily: HEAD, fontWeight: 600, fontSize: 26, letterSpacing: "-.022em",
                       color: T.ink }}>{title}</div>
-        <p style={{ fontFamily: FONT, fontSize: 14.5, color: T.muted, margin: "9px 0 0" }}>{sub}</p>
+        <p style={{ fontFamily: FONT, fontSize: 14, color: T.muted, margin: "9px 0 0" }}>{sub}</p>
       </div>
       <div style={{ width: 210, height: 3, borderRadius: 999, background: T.page,
                     overflow: "hidden" }}>

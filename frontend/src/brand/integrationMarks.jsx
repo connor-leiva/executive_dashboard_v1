@@ -65,7 +65,7 @@ export function IntegrationMark({ provider, fallback = "?", size = 34, title }) 
       }}>
       {!mark && (
         <span style={{
-          fontFamily: "var(--font-display)", fontSize: Math.round(size * 0.37), fontWeight: 700,
+          fontFamily: "var(--font-display)", fontSize: Math.round(size * 0.37), fontWeight: 600,
           color: T.evergreen,
         }}>{fallback}</span>
       )}

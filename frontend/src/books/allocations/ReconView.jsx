@@ -21,8 +21,8 @@ const TARGET_VIEW = { drivers: "drivers", rule: "rules", rules: "rules" };
 
 const NUM = { fontFamily: F.num, fontVariantNumeric: "tabular-nums", textAlign: "right",
               whiteSpace: "nowrap" };
-const EYEBROW = { fontFamily: F.num, fontSize: 10, letterSpacing: ".14em",
-                  textTransform: "uppercase", color: L.faint };
+const EYEBROW = { fontFamily: F.num, fontSize: 12, letterSpacing: 0,
+                  textTransform: "none", color: L.faint };
 
 /* Ledger parens for a negative, the convention the rest of the module reads in. Formatting
    only: the number itself arrived from the server and is not touched. */
@@ -86,7 +86,7 @@ export default function ReconView({ data, month, go = () => {} }) {
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600,
                                color: L.deep }}>{r.pool_name}</span>
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted,
+                <span style={{ fontFamily: F.body, fontSize: 12, color: L.muted,
                                display: "block", overflow: "hidden",
                                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {scopeLabel(meta, r.scope_kind)} · {r.pattern}
@@ -102,7 +102,7 @@ export default function ReconView({ data, month, go = () => {} }) {
                                     gap: 12, padding: "8px 16px 8px 30px",
                                     background: L.flagBg,
                                     borderBottom: `1px solid ${L.ruleLine}` }}>
-                <span style={{ fontFamily: F.body, fontSize: 11.5, color: L.flagInk,
+                <span style={{ fontFamily: F.body, fontSize: 12, color: L.flagInk,
                                flex: "1 1 auto", minWidth: 0 }}>
                   {fmtMonth(p.month)} · {reasonOf(meta, p.reason)?.label
                     || "Not resolved, and the engine did not say why"}
@@ -130,7 +130,7 @@ export default function ReconView({ data, month, go = () => {} }) {
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%",
                            padding: "11px 16px", background: L.controls, border: "none",
                            borderTop: `1px solid ${L.ruleLine}`, cursor: "pointer",
-                           fontFamily: F.body, fontSize: 12.5, color: L.muted,
+                           fontFamily: F.body, fontSize: 13, color: L.muted,
                            textAlign: "left" }}>
             <span aria-hidden style={{ display: "inline-block",
                                        transform: foldOpen ? "rotate(90deg)" : "none",
@@ -143,7 +143,7 @@ export default function ReconView({ data, month, go = () => {} }) {
         {/* The foot, on the deep ground the mockup uses here. Summed by the server. */}
         <div className="al-recon-row"
              style={{ display: "grid", gap: 10, padding: "13px 16px", background: L.deep }}>
-          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 700,
+          <span style={{ fontFamily: F.body, fontSize: 14, fontWeight: 600,
                          color: L.onDeep }}>
             {totals.count || rules.length} rule
             {(totals.count || rules.length) === 1 ? "" : "s"}
@@ -160,19 +160,19 @@ export default function ReconView({ data, month, go = () => {} }) {
         <div style={{ background: L.card, border: `1px solid ${L.cardEdge}`,
                       borderRadius: 14, padding: 16 }}>
           <div style={{ ...EYEBROW, marginBottom: 8 }}>Intercompany</div>
-          <div style={{ fontFamily: F.body, fontSize: 12.5, color: L.body }}>
+          <div style={{ fontFamily: F.body, fontSize: 13, color: L.body }}>
             {check.zero_sum?.balanced
               ? "Every contribution nets to zero across the portfolio."
               : "The portfolio does not net to zero, which means a row points outside it."}
           </div>
-          <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted, marginTop: 6 }}>
+          <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted, marginTop: 6 }}>
             This check reads observed rows only: an applied allocation has no intercompany
             movement behind it, so it cannot appear here.
           </div>
         </div>
       )}
 
-      <div style={{ fontFamily: F.body, fontSize: 11.5, color: L.muted }}>
+      <div style={{ fontFamily: F.body, fontSize: 12, color: L.muted }}>
         {months.length
           ? `Covering ${months.map(fmtMonth).join(", ")}.`
           : "No complete months in this span yet."}

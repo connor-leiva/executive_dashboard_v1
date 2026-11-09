@@ -64,8 +64,8 @@ function Thumb({ src, name }) {
 function Cell({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: FONT, fontSize: 9.5, fontWeight: 600, letterSpacing: ".06em",
-                    textTransform: "uppercase", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                    textTransform: "none", color: C.muted }}>{label}</div>
       <div style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 13,
                     color: C.ink, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden",
                     textOverflow: "ellipsis" }}>{children}</div>
@@ -85,13 +85,13 @@ function AdTile({ ad }) {
             and what they will search for. The headline is what the audience saw. Both matter,
             and they are frequently nothing like each other. */}
         <div title={ad.name}
-             style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: C.ink,
+             style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.ink,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {ad.name}
         </div>
         {ad.headline && (
           <div title={ad.headline}
-               style={{ fontFamily: FONT, fontSize: 11.5, color: C.slate, marginTop: 3,
+               style={{ fontFamily: FONT, fontSize: 12, color: C.slate, marginTop: 3,
                         lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 2,
                         WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {ad.headline}
@@ -117,7 +117,7 @@ export default function CreativeWall({ data, loading }) {
 
   if (loading && !ads.length) {
     return (
-      <div style={{ fontFamily: FONT, fontSize: 12.5, color: C.muted, padding: "10px 0" }}>
+      <div style={{ fontFamily: FONT, fontSize: 13, color: C.muted, padding: "10px 0" }}>
         Loading the creative…
       </div>
     );
@@ -128,7 +128,7 @@ export default function CreativeWall({ data, loading }) {
     // a failed sync. Say which one this is.
     return (
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
-                    padding: 18, fontFamily: FONT, fontSize: 12.5, color: C.slate,
+                    padding: 18, fontFamily: FONT, fontSize: 13, color: C.slate,
                     lineHeight: 1.55 }}>
         No ads delivered in this window. Widen the period, or check the sync in Settings if you
         expected spend here.
@@ -152,7 +152,7 @@ export default function CreativeWall({ data, loading }) {
         {ads.map((ad) => <AdTile key={ad.id} ad={ad} />)}
       </div>
       {data?.total > ads.length && (
-        <div style={{ fontFamily: FONT, fontSize: 11.5, color: C.muted, marginTop: 10 }}>
+        <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted, marginTop: 10 }}>
           Showing the {ads.length} highest-spending of {data.total} ads that delivered.
         </div>
       )}

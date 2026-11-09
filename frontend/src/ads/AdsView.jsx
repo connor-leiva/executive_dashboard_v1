@@ -76,12 +76,12 @@ function Stat({ label, children, tone, note }) {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12,
                   padding: "13px 15px" }}>
-      <div style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
-                    textTransform: "uppercase", color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                    textTransform: "none", color: C.muted }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 600, marginTop: 5, color: tone || C.ink }}>
         {children}
       </div>
-      {note && <div style={{ fontFamily: FONT, fontSize: 11, color: C.muted, marginTop: 3 }}>{note}</div>}
+      {note && <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted, marginTop: 3 }}>{note}</div>}
     </div>
   );
 }
@@ -95,7 +95,7 @@ function Bars({ rows, valueKey, format, max }) {
         <div key={r.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 92px",
                                    alignItems: "center", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: FONT, fontSize: 12.5, color: C.ink, overflow: "hidden",
+            <div style={{ fontFamily: FONT, fontSize: 13, color: C.ink, overflow: "hidden",
                           textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
             <div className="ads-track" style={{ background: C.surface2, borderRadius: 4,
                                                 height: 8, marginTop: 5, overflow: "hidden" }}>
@@ -113,7 +113,7 @@ function Bars({ rows, valueKey, format, max }) {
 function Pill({ tone, children }) {
   const b = band(tone);
   return (
-    <span style={{ fontFamily: FONT, fontSize: 11, fontWeight: 600, color: b.ink,
+    <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: b.ink,
                    background: b.bg, border: `1px solid ${b.bar}`, borderRadius: 999,
                    padding: "2px 9px" }}>{children}</span>
   );
@@ -233,11 +233,11 @@ export default function AdsView() {
         <h2 style={{ fontFamily: HEAD, fontSize: 18, margin: 0, color: C.ink }}>
           Connect a Meta ad account
         </h2>
-        <p style={{ fontFamily: FONT, fontSize: 13.5, color: C.slate, maxWidth: 560,
+        <p style={{ fontFamily: FONT, fontSize: 14, color: C.slate, maxWidth: 560,
                     lineHeight: 1.6 }}>
           {data.reason}
         </p>
-        <p style={{ fontFamily: FONT, fontSize: 12.5, color: C.muted, maxWidth: 560,
+        <p style={{ fontFamily: FONT, fontSize: 13, color: C.muted, maxWidth: 560,
                     lineHeight: 1.6 }}>
           You&rsquo;ll need a System User token with <strong>ads_read</strong>. Don&rsquo;t grant
           ads_management — this module only reads.
@@ -336,7 +336,7 @@ export default function AdsView() {
                 </span>
                 <button onClick={() => setCampaign(null)}
                         style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                                 font: "inherit", fontSize: 11, color: C.slate,
+                                 font: "inherit", fontSize: 12, color: C.slate,
                                  textDecoration: "underline" }}>
                   show the whole account
                 </button>
@@ -392,7 +392,7 @@ export default function AdsView() {
                 <div style={{ fontFamily: HEAD, fontSize: 14, color: C.ink }}>
                   No funnel for this entity
                 </div>
-                <p style={{ fontSize: 12.5, color: C.slate, margin: "6px 0 0", lineHeight: 1.6,
+                <p style={{ fontSize: 13, color: C.slate, margin: "6px 0 0", lineHeight: 1.6,
                             maxWidth: 660 }}>
                   A funnel is defined for programme and transactional businesses. This account
                   books its spend to {data.archetype ? `a ${data.archetype} entity` : "no entity"},
@@ -491,38 +491,38 @@ export default function AdsView() {
             <div style={{ display: "grid", gap: 14,
                           gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
               <div>
-                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
-                              textTransform: "uppercase", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                              textTransform: "none", color: C.muted }}>
                   Leads · Meta&rsquo;s count
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
                   <Fig value={num(data.coverage.meta_leads)} />
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
                   Meta measuring itself
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
-                              textTransform: "uppercase", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                              textTransform: "none", color: C.muted }}>
                   Registrations matched
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
                   <Fig value={num(data.coverage.registrations_matched)} />
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
                   of {num(data.coverage.registrations_total)} in Axcion
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".07em",
-                              textTransform: "uppercase", color: C.muted }}>
+                <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                              textTransform: "none", color: C.muted }}>
                   Campaign grade or better
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>
                   <Fig value={num(data.coverage.campaign_grade_or_better)} />
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
                   ad grade: {num(data.coverage.ad_grade)}
                 </div>
               </div>
@@ -588,8 +588,8 @@ export default function AdsView() {
         <Card pad={0}>
           <div className="ads-table-row ads-head"
                style={{ padding: "11px 16px", borderBottom: `1px solid ${C.line}`,
-                        fontSize: 10.5, fontWeight: 600, letterSpacing: ".06em",
-                        textTransform: "uppercase", color: C.muted, background: C.surface2 }}>
+                        fontSize: 12, fontWeight: 600, letterSpacing: 0,
+                        textTransform: "none", color: C.muted, background: C.surface2 }}>
             <span>Campaign</span><span>Spend</span><span>Link clicks</span>
             <span>CTR</span><span>CPC</span><span>Cost / lead</span>
           </div>
@@ -600,7 +600,7 @@ export default function AdsView() {
                 <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {c.name}
                 </div>
-                <div style={{ fontSize: 11, color: C.muted }}>{c.group}</div>
+                <div style={{ fontSize: 12, color: C.muted }}>{c.group}</div>
               </div>
               <Fig lead="$" value={compact(c.spend).replace("$", "")} />
               <Fig value={compact(c.link_clicks)} />
@@ -630,7 +630,7 @@ export default function AdsView() {
       <Section n="06" id="trust" title="What to trust"
         lede="The grain each number on this page is entitled to, and where it stops.">
         <Card>
-          <div style={{ display: "grid", gap: 12, fontSize: 12.5, color: C.slate, lineHeight: 1.6 }}>
+          <div style={{ display: "grid", gap: 12, fontSize: 13, color: C.slate, lineHeight: 1.6 }}>
             <div>
               <strong style={{ color: C.ink }}>Rates are computed from sums.</strong> CTR here is
               total link clicks over total impressions for the window — never an average of daily

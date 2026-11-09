@@ -17,13 +17,13 @@ export function OwnerBadge({ owner, dark, size = 22 }) {
             justifyContent: "center", fontFamily: FM, fontSize: Math.round(size * 0.42),
             background: dark ? "rgba(255,255,255,.15)" : C.mist, color: dark ? C.onDark : C.slate }}>
             {(name[0] || "·").toUpperCase()}</span>}
-      <span style={{ fontFamily: FB, fontSize: 11.5, color: dark ? C.onDark : C.slate }}>{name}</span>
+      <span style={{ fontFamily: FB, fontSize: 12, color: dark ? C.onDark : C.slate }}>{name}</span>
     </span>
   );
 }
 
 export function Eyebrow({ children, color = C.muted }) {
-  return <div style={{ fontFamily: FM, fontSize: 9.5, letterSpacing: ".15em", textTransform: "uppercase", color }}>{children}</div>;
+  return <div style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none", color }}>{children}</div>;
 }
 
 export function Card({ children, style, pad = 20 }) {
@@ -32,14 +32,14 @@ export function Card({ children, style, pad = 20 }) {
 }
 
 export function Chip({ children, ink, bg, dash }) {
-  return <span style={{ fontFamily: FM, fontSize: 8.5, letterSpacing: ".08em", padding: "3px 6px", borderRadius: 4,
+  return <span style={{ fontFamily: FM, fontSize: 12, letterSpacing: 0, padding: "3px 6px", borderRadius: 4,
     background: bg || C.hairSoft, color: ink || C.muted, border: dash ? `1px dashed ${C.hair}` : "none", whiteSpace: "nowrap" }}>{children}</span>;
 }
 
 export function Avatar({ t }) {
   const unset = !t || t === "??";
   return <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22,
-    borderRadius: 99, fontFamily: FM, fontSize: 9, background: unset ? C.daffodilBg : C.mist,
+    borderRadius: 99, fontFamily: FM, fontSize: 12, background: unset ? C.daffodilBg : C.mist,
     color: unset ? C.amberInk : C.teal, border: unset ? `1px dashed ${C.daffodil}` : "none" }}>{t || "??"}</span>;
 }
 
@@ -59,18 +59,18 @@ export const tdL = { padding: "9px 8px", borderBottom: cellB, verticalAlign: "mi
 export const tdC = { padding: "9px 5px", borderBottom: cellB, textAlign: "center", verticalAlign: "middle" };
 export const cumCell = { padding: "9px 7px", borderBottom: cellB, verticalAlign: "middle" };
 export const thL = { padding: "9px 8px", textAlign: "left" };
-export const thC = { padding: "8px 4px", textAlign: "center", fontFamily: FM, fontSize: 9, fontWeight: 400 };
-export const thCum = { padding: "8px 7px", textAlign: "left", fontFamily: FM, fontSize: 9, letterSpacing: ".07em",
-  textTransform: "uppercase", color: C.slate, fontWeight: 400 };
-export const groupTh = { padding: "8px", fontFamily: FM, fontSize: 9, letterSpacing: ".1em", textTransform: "uppercase",
+export const thC = { padding: "8px 4px", textAlign: "center", fontFamily: FM, fontSize: 12, fontWeight: 400 };
+export const thCum = { padding: "8px 7px", textAlign: "left", fontFamily: FM, fontSize: 12, letterSpacing: 0,
+  textTransform: "none", color: C.slate, fontWeight: 400 };
+export const groupTh = { padding: "8px", fontFamily: FM, fontSize: 12, letterSpacing: 0, textTransform: "none",
   color: C.muted, fontWeight: 400, background: C.hairSoft, borderBottom: `1px solid ${C.hair}`, textAlign: "left" };
 
 export function Dir({ d, showLabel }) {
-  if (d === undefined || d === null) return <span style={{ fontFamily: FM, fontSize: 11, color: C.muted }}>–</span>;
+  if (d === undefined || d === null) return <span style={{ fontFamily: FM, fontSize: 12, color: C.muted }}>–</span>;
   const flat = Math.abs(d) < 3, col = flat ? C.muted : d > 0 ? C.meadow : C.poppyInk;
   return (
     <span title={`Last 4 weeks vs the 4 before, ${sgn(d, 1)} points`}
-      style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: FM, fontSize: 11, color: col, whiteSpace: "nowrap" }}>
+      style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: FM, fontSize: 12, color: col, whiteSpace: "nowrap" }}>
       <span style={{ fontSize: 12, lineHeight: 1 }}>{flat ? "→" : d > 0 ? "↑" : "↓"}</span>
       {!flat && <span>{Math.abs(d).toFixed(0)}{showLabel ? "pt" : ""}</span>}
     </span>

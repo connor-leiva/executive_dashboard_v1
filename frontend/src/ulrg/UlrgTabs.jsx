@@ -36,7 +36,7 @@ export default function UlrgTabs({ overview, role }) {
       {team && (
         <Card style={{ textAlign: "center", padding: "40px 28px" }}>
           <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{team.name} Team Room</div>
-          <div style={{ fontFamily: FB, fontSize: 12.5, color: C.slate, marginTop: 8, maxWidth: 460, marginInline: "auto" }}>
+          <div style={{ fontFamily: FB, fontSize: 13, color: C.slate, marginTop: 8, maxWidth: 460, marginInline: "auto" }}>
             {(team.owner && team.owner.name) || "This team"}’s monthly pace metric, rocks, and worklists land here next.
             The Scorecard tab is live now.
           </div>

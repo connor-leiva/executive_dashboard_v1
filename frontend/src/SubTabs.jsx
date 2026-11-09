@@ -17,7 +17,7 @@ export default function SubTabs({ tabs, active, onChange }) {
             borderBottom: on ? `2.5px solid ${T.meadow}` : "2.5px solid transparent",
             padding: t.sub ? "7px 15px 9px" : "9px 15px 11px", cursor: "pointer", marginBottom: -1 }}>
             <div>{t.label}</div>
-            {t.sub && <div style={{ fontFamily: "var(--font-text)", fontSize: 10, fontWeight: 500,
+            {t.sub && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 500,
               color: t.unassigned ? T.daffodilText : T.muted, marginTop: 1 }}>{t.sub}</div>}
           </button>
         );
