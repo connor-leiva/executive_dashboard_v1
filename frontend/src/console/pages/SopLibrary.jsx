@@ -383,7 +383,7 @@ function ToolsPanel({ sop, tiles, busy, onSave }) {
         <span>{chosen.size ? `${chosen.size} chosen` : "None"}</span>
       </header>
       <p className="followup-hint">
-        From the Tool Launchpad, so the links stay right. A member only sees the tools their role
+        From Tool launchpad, so the links stay right. A member only sees the tools their role
         may open.
       </p>
       <div className="sop-tool-picker">

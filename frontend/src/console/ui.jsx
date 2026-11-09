@@ -22,7 +22,6 @@ export function Field({ label, children }) {
 export function EmptyState({ title }) {
   return (
     <div className="console-state console-empty">
-      <div className="console-state-mark" />
       <p>{title}</p>
     </div>
   );
@@ -31,7 +30,6 @@ export function EmptyState({ title }) {
 export function ErrorState({ title = COPY.loadFailed, action, onRetry }) {
   return (
     <div className="console-state console-error">
-      <div className="console-state-mark" />
       <p>{title}</p>
       {onRetry ? <Button type="button" onClick={onRetry}>{action || COPY.retry}</Button> : null}
     </div>

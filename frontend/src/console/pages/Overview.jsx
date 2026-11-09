@@ -1,5 +1,6 @@
 import { COUNT_ROUTES, COPY, OVERVIEW_COUNTS } from "../constants.js";
 import { Button, EmptyState, ErrorState, LoadingState, MetricCard, Panel, ProgressBar } from "../ui.jsx";
+import { actorName, describeEvent } from "../events.js";
 
 function formatRelative(iso) {
   if (!iso) return "";
@@ -94,8 +95,8 @@ export default function Overview({
           {activity.slice(0, 6).map((item) => (
             <article className="activity-row" key={item.id}>
               <div>
-                <strong>{item.summary || item.action}</strong>
-                <span>{item.actor_label || item.category || item.target_type}</span>
+                <strong>{describeEvent(item)}</strong>
+                <span>{actorName(item.actor_label)}</span>
               </div>
               <time>{formatRelative(item.created_at)}</time>
             </article>

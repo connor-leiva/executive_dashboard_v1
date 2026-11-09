@@ -27,9 +27,10 @@ function query(path, params) {
 function defaultTenantHost() {
   if (typeof window === "undefined") return DEFAULT_TENANT_HOST;
   const host = window.location.hostname || "";
-  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost")) {
-    return DEFAULT_TENANT_HOST;
-  }
+  // <slug>.localhost names its workspace the same way the deployed subdomain does; bare
+  // localhost names none, and the sign-in asks.
+  if (host.endsWith(".localhost")) return host;
+  if (host === "localhost" || host === "127.0.0.1") return DEFAULT_TENANT_HOST;
   return host || DEFAULT_TENANT_HOST;
 }
 

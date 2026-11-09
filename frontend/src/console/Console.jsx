@@ -48,6 +48,13 @@ function cssVars() {
   return Object.fromEntries(Object.entries(palette).map(([key, value]) => [`--console-${key}`, value]));
 }
 
+/* The tenant switcher is local-development tooling: in production the host already names the
+   workspace. Shown only in a dev build AND when the address asks for it with ?dev. */
+function showDevTools() {
+  if (!import.meta.env.DEV || typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("dev");
+}
+
 function titleFor(pathname) {
   return ROUTE_TITLES[pathname] || ROUTE_TITLES["/"];
 }
@@ -142,6 +149,7 @@ function LoginScreen({ onLogin }) {
         {askWorkspace ? (
           <AuthField id="console-host" label={COPY.tenantHostLabel} autoComplete="organization"
                      hint="Only asked here because this address does not name a workspace."
+                     placeholder="team.axcion.io"
                      value={tenantHost} onChange={(e) => setHost(e.target.value)} />
         ) : null}
         <AuthField id="console-email" label={COPY.emailLabel} type="email" autoComplete="username"
@@ -275,27 +283,27 @@ function Shell({
             onChange={(event) => setSearch(event.target.value)}
             placeholder={COPY.search}
           />
-          <NavLink className="ask-link" to="/assistant">{COPY.ask}</NavLink>
-          <div className="role-switch" aria-label={COPY.previewingAs}>
+          <NavLink className="ask-link" to="/assistant">
+            {workspaceName ? `${COPY.ask} ${workspaceName}` : COPY.ask}
+          </NavLink>
+          <label className="role-switch">
             <span>{COPY.previewingAs}</span>
-            {ROLE_OPTIONS.map((role) => (
-              <button
-                type="button"
-                key={role.key}
-                className={role.key === selectedRole ? "active" : ""}
-                onClick={() => setSelectedRole(role.key)}
-              >
-                {role.label}
-              </button>
-            ))}
-          </div>
-          <form className="tenant-switch" onSubmit={submitTenant}>
-            <label>
-              <span>{COPY.tenant}</span>
-              <input value={tenantValue} onChange={(event) => setTenantValue(event.target.value)} />
-            </label>
-            <Button type="submit">{COPY.updateTenant}</Button>
-          </form>
+            <select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)}>
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role.key} value={role.key}>{role.label}</option>
+              ))}
+            </select>
+          </label>
+          {showDevTools() ? (
+            <form className="tenant-switch" onSubmit={submitTenant}>
+              <label>
+                <span>{COPY.tenant}</span>
+                <input value={tenantValue} placeholder="team.axcion.io"
+                       onChange={(event) => setTenantValue(event.target.value)} />
+              </label>
+              <Button type="submit">{COPY.updateTenant}</Button>
+            </form>
+          ) : null}
           <Button type="button" onClick={onSignOut}>{COPY.signOut}</Button>
         </header>
 
@@ -305,8 +313,8 @@ function Shell({
             <h1>{currentTitle}</h1>
           </div>
           <div className="preview-status">
-            <span>{previewLoading ? COPY.loading : `${tileCount} / ${calendarCount}`}</span>
-            <small>{selectedRole.replace(/_/g, " ")}</small>
+            <span>{previewLoading ? COPY.loading : `${tileCount} tiles · ${calendarCount} calendars`}</span>
+            <small>{(ROLE_OPTIONS.find((r) => r.key === selectedRole) || {}).label || selectedRole}</small>
           </div>
         </section>
 
@@ -405,6 +413,7 @@ export default function Console() {
   return (
     <Shell
       currentTitle={titleFor(location.pathname)}
+      workspaceName={workspaceQuery.data?.portal_name}
       overview={overviewQuery.data}
       pendingChanges={pendingQuery.data}
       pendingLoading={pendingQuery.isPending}
