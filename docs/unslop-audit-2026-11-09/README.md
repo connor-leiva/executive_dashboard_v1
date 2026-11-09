@@ -2,7 +2,7 @@
 
 Date: 2026-11-09. This started as a recommendations pass.
 
-**Status.** Most of it is now applied on this branch, in one commit per area: the dashboard type sweep, the dashboard (Portfolio, shell, heroes, motion, bugs 1, 2, 11 and 12), the intranet (bugs 6 and 7), the console (bugs 3, 4, 5, 8 and 9), and the marketing site (bug 10). The Portfolio's source tags come from the API (`Scorecard.source`). Still open:
+**Status.** Most of it is now applied on this branch, in one commit per area: the dashboard type sweep, the dashboard (Portfolio, shell, heroes, motion, bugs 1, 2, 11 and 12), the intranet (bugs 6 and 7), the console (bugs 3, 4, 5, 8 and 9), and the marketing site (bug 10). The Portfolio's source tags come from the API (`Scorecard.source`). After review, the in-app hero cards keep their bokeh or workspace background images, so that part of Pass 2 is not applied. Still open:
 
 - The Forum restructure in Pass 7: one lead chart, tiles without mini charts, and the renewal calendar as a table.
 - Moving the source tag onto the business pages' tiles, which still show the `↗` arrow.
