@@ -135,7 +135,7 @@ export default function Sops({ config, canConfigure }) {
           {denied
             ? "Your role does not have access to the SOP library. Ask an admin if that looks wrong."
             : canConfigure
-              ? "Nothing is published yet. Write the procedures in the console under SOP Library, then publish."
+              ? "Nothing is published yet. Write the procedures in the console under SOP library, then publish."
               : "Your team has not published any procedures yet."}
         </p>
       </div>

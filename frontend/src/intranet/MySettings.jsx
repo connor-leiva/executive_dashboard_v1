@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { delJSON, getBlob, getJSON, patchJSON, postJSON, replaceToken, uploadFile } from "../api.js";
+import { API_BASE, delJSON, getBlob, getJSON, patchJSON, postJSON, replaceToken, uploadFile } from "../api.js";
 import { useAuthedImage } from "../useAuthedImage.js";
 
 /* MY SETTINGS: the things a person may change about themselves.
@@ -217,6 +217,9 @@ export default function MySettings() {
 
   useEffect(() => {
     let live = true;
+    // The offline preview has no server. Say so plainly instead of surfacing the parse error of
+    // an HTML page that came back where JSON was expected.
+    if (!API_BASE) { setState("preview"); return () => { live = false; }; }
     getJSON("/intranet/me/profile").then((data) => {
       if (!live) return;
       setProfile(data);
@@ -224,7 +227,10 @@ export default function MySettings() {
       setState("ready");
     }).catch((err) => {
       if (!live) return;
-      setError(err.detail || err.message);
+      // A response that was not JSON (an HTML error page, a proxy page) is not a message to show.
+      const raw = String(err.detail || err.message || "");
+      const unreadable = err instanceof SyntaxError || /is not valid JSON|Unexpected token/.test(raw);
+      setError(unreadable || !raw ? "Settings could not load. Try again" : raw);
       setState(err.status === 409 ? "off-roster" : "error");
     });
     return () => { live = false; };
@@ -273,11 +279,25 @@ export default function MySettings() {
     return <div className="ut-set"><p className="ut-set-lede">Loading your settings&hellip;</p></div>;
   }
 
+  if (state === "preview") {
+    return (
+      <div className="ut-set">
+        <h1 className="ut-set-title">My settings</h1>
+        <p className="ut-set-lede">
+          Your photo and profile, which everyone in the workspace can see
+        </p>
+        <section className="ut-set-card">
+          <h2 className="ut-set-card-title">Nothing to edit in the preview</h2>
+          <p className="ut-set-card-lede">Sign in to your workspace to change your photo, profile and password</p>
+        </section>
+      </div>
+    );
+  }
+
   if (state === "off-roster") {
     return (
       <div className="ut-set">
-        <div className="ut-set-eyebrow">Workspace</div>
-        <h1 className="ut-set-title">My Settings</h1>
+          <h1 className="ut-set-title">My settings</h1>
         <section className="ut-set-card">
           <h2 className="ut-set-card-title">You are not on the roster yet</h2>
           <p className="ut-set-card-lede">{error}</p>
@@ -289,7 +309,7 @@ export default function MySettings() {
   if (state === "error") {
     return (
       <div className="ut-set">
-        <h1 className="ut-set-title">My Settings</h1>
+        <h1 className="ut-set-title">My settings</h1>
         <section className="ut-set-card"><p className="ut-set-card-lede">{error}</p></section>
       </div>
     );
@@ -297,8 +317,7 @@ export default function MySettings() {
 
   return (
     <div className="ut-set">
-      <div className="ut-set-eyebrow">Workspace</div>
-      <h1 className="ut-set-title">My Settings</h1>
+      <h1 className="ut-set-title">My settings</h1>
       <p className="ut-set-lede">
         Your photo and the things your profile says about you. Everyone in the workspace can see
         these; your email address and where you sit in the directory are set by an admin.

@@ -6,17 +6,17 @@ export const NAV_GROUPS = [
       { id: "ask", label: "Ask Utah Life" },
       { id: "wtd", label: "Win the Day", capability: "wtd" },
       { id: "follow-ups", label: "Follow-ups" },
-      { id: "sunburst", label: "Sunburst Coaching" },
-      { id: "calendar", label: "Team Calendar", capability: "team_calendar" },
-      { id: "tools", label: "Tool Launchpad" },
-      { id: "numbers", label: "My Numbers", capability: "own_numbers" },
+      { id: "sunburst", label: "Sunburst coaching" },
+      { id: "calendar", label: "Team calendar", capability: "team_calendar" },
+      { id: "tools", label: "Tool launchpad" },
+      { id: "numbers", label: "My numbers", capability: "own_numbers" },
     ],
   },
   {
     label: "Learn",
     items: [
-      { id: "onboarding", label: "Your First 30 Days" },
-      { id: "training", label: "Training Library", capability: "training_library" },
+      { id: "onboarding", label: "Your first 30 days" },
+      { id: "training", label: "Training library", capability: "training_library" },
       { id: "sops", label: "SOPs", capability: "sop_library" },
     ],
   },
@@ -26,13 +26,13 @@ export const NAV_GROUPS = [
       { id: "directory", label: "Who's Who" },
       // Not gated on a capability. Editing your own entry is not a privilege a workspace grants;
       // it is the minimum a person has over the thing the directory says about them.
-      { id: "settings", label: "My Settings" },
+      { id: "settings", label: "My settings" },
     ],
   },
   {
     label: "Marketing",
     items: [
-      { id: "brand", label: "Brand Kit" },
+      { id: "brand", label: "Brand kit" },
       { id: "marketing", label: "Requests", capability: "marketing_requests" },
     ],
   },
