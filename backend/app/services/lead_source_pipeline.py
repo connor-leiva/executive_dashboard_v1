@@ -209,8 +209,8 @@ def speed_info(people: list[dict]) -> dict:
                 break
     n = len(speeds)
     return {"buckets": [{"key": k, "label": lbl, "count": counts[k]} for k, lbl, _a, _b in SPEED_BUCKETS],
-            "median_min": int(round(statistics.median(speeds))) if speeds else None,
-            "pct_under_5min": int(round(sum(1 for x in speeds if x <= 5.0) / n * 100)) if n else 0, "n": n}
+            "median_min": round(statistics.median(speeds)) if speeds else None,
+            "pct_under_5min": round(sum(1 for x in speeds if x <= 5.0) / n * 100) if n else 0, "n": n}
 
 
 def trend(people: list[dict], now: dt.datetime, weeks: int = 12) -> dict:

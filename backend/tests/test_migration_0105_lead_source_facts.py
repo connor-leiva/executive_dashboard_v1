@@ -17,8 +17,8 @@ PARENTS = (
     "CREATE TABLE tenant (id CHAR(36) PRIMARY KEY)",
     "CREATE TABLE business (id CHAR(36) PRIMARY KEY)",
     "CREATE TABLE lead (id CHAR(36) PRIMARY KEY, tenant_id CHAR(36))",
-    'CREATE TABLE "transaction" (id CHAR(36) PRIMARY KEY, tenant_id CHAR(36), business_id CHAR(36), '
-    "buyer_email VARCHAR(255))",
+    ('CREATE TABLE "transaction" (id CHAR(36) PRIMARY KEY, tenant_id CHAR(36), business_id CHAR(36), '
+     "buyer_email VARCHAR(255))"),
 )
 
 

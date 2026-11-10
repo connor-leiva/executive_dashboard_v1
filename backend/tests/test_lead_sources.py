@@ -122,7 +122,7 @@ async def test_utah_life_seed_matches_the_spec():
         g = await _realtor(s, t.id)
         assert g.variants == ls.REALTOR_VARIANTS and g.match_mode == "contains" and g.is_active
         assert g.program_start == dt.date(2026, 2, 1)
-        assert g.exp_risk_team_default == Decimal("69") and g.exp_risk_agent_default == Decimal("49")
+        assert g.exp_risk_team_default == Decimal(69) and g.exp_risk_agent_default == Decimal(49)
         rules = (await s.execute(select(LeadSourceSpendRule).where(
             LeadSourceSpendRule.lead_source_group_id == g.id))).scalars().all()
         assert {(r.account_qbo_id, r.vendor_qbo_id) for r in rules} == {

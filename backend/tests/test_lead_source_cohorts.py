@@ -43,7 +43,7 @@ async def ws():
         g = LeadSourceGroup(tenant_id=t.id, business_id=b.id, key="realtor_com", display_name="Realtor.com",
                             variants=["Realtor.com", "Market VIP via Opcity BLA"], match_mode="contains",
                             program_start=dt.date(2026, 1, 1), is_active=True, display_order=0,
-                            exp_risk_team_default=Decimal("69"), exp_risk_agent_default=Decimal("49"))
+                            exp_risk_team_default=Decimal(69), exp_risk_agent_default=Decimal(49))
         bare = LeadSourceGroup(tenant_id=t.id, business_id=b.id, key="opcity_direct", display_name="Opcity direct",
                                variants=["Opcity Direct"], match_mode="exact", is_active=True, display_order=5)
         realty = LeadSourceGroup(tenant_id=t.id, business_id=b.id, key="realty_com", display_name="Realty.com",
@@ -52,7 +52,7 @@ async def ws():
         await s.flush()
         s.add(LeadSourceSpendRule(tenant_id=t.id, lead_source_group_id=g.id, business_id=b.id, account_qbo_id="365"))
         s.add(LeadSourceCostShare(tenant_id=t.id, lead_source_group_id=g.id, bearer_business_id=jv.id,
-                                  share_pct=Decimal("50")))
+                                  share_pct=Decimal(50)))
         s.add(Integration(tenant_id=t.id, provider="qbo", business_id=b.id, status="connected",
                           realm_id="r1", last_synced_at=NOW))
 

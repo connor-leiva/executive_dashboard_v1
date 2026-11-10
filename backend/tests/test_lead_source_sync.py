@@ -43,7 +43,7 @@ async def _workspace(slug: str) -> dict:
         s.add(LeadSourceGroup(tenant_id=t.id, business_id=b.id, key="realtor_com", display_name="Realtor.com",
                               variants=["Realtor.com", "Market VIP via Opcity BLA"], match_mode="contains",
                               program_start=dt.date(2026, 2, 1), is_active=True, display_order=0,
-                              exp_risk_team_default=Decimal("69"), exp_risk_agent_default=Decimal("49")))
+                              exp_risk_team_default=Decimal(69), exp_risk_agent_default=Decimal(49)))
         integ = Integration(tenant_id=t.id, provider="fub", business_id=b.id, status="connected",
                             access_token_enc=enc("fka_test"))
         s.add(integ)
@@ -198,7 +198,7 @@ async def test_the_join_writes_back_only_on_the_email_fallback_and_merges_duplic
             s.add(Lead(tenant_id=tid, business_id=bid, external_id=ext, email=email,
                        origin="Zillow" if ext == "5" else "Realtor.com",
                        created_at_src=dt.date.fromisoformat(created)))
-        for ext, status, email, gci, comm in (("501", "closed", None, 10000, Decimal("7000")),
+        for ext, status, email, gci, comm in (("501", "closed", None, 10000, Decimal(7000)),
                                               ("502", "closed", None, 8000, None),
                                               ("503", "pending", "C@x.com", 5000, None),
                                               ("504", "closed", "z@x.com", 9000, None)):
@@ -241,7 +241,7 @@ async def test_the_join_writes_back_only_on_the_email_fallback_and_merges_duplic
     assert txns["503"].lead_id == leads["3"].id                     # buyer email, case-insensitive
     assert txns["504"].lead_id is None                              # Zillow lead is not in scope
     assert txns["501"].company_dollar == Decimal("3177.00") and txns["501"].exp_risk_source == "api"
-    assert txns["501"].agent_commission == Decimal("7000")          # the financial cards' number, untouched
+    assert txns["501"].agent_commission == Decimal(7000)          # the financial cards' number, untouched
     assert txns["502"].exp_risk_source == "default"                 # no commission lines → the group's 69/49
     assert txns["502"].exp_risk_team == Decimal("69.00")
     assert integ.config["lead_source_last_run"]["mapping_writes"] == ["2"]

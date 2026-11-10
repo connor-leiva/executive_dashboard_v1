@@ -161,7 +161,7 @@ def _seed(bind) -> None:
                 id=gid, tenant_id=tid, business_id=ulrg_id, key="realtor_com",
                 display_name="Realtor.com", variants=REALTOR_VARIANTS, match_mode="contains",
                 program_start=dt.date(2026, 2, 1), is_active=True, display_order=0,
-                exp_risk_team_default=Decimal("69"), exp_risk_agent_default=Decimal("49")))
+                exp_risk_team_default=Decimal(69), exp_risk_agent_default=Decimal(49)))
             for acct, vendor in REALTOR_RULES:
                 bind.execute(rule.insert().values(id=uuid.uuid4(), tenant_id=tid,
                                                   lead_source_group_id=gid, business_id=ulrg_id,
@@ -177,8 +177,8 @@ def _seed(bind) -> None:
             bind.execute(group.insert().values(
                 id=uuid.uuid4(), tenant_id=tid, business_id=ulrg_id, key="realty_com",
                 display_name="Realty.com", variants=[], match_mode="contains", program_start=None,
-                is_active=False, display_order=10, exp_risk_team_default=Decimal("69"),
-                exp_risk_agent_default=Decimal("49")))
+                is_active=False, display_order=10, exp_risk_team_default=Decimal(69),
+                exp_risk_agent_default=Decimal(49)))
 
 
 def upgrade() -> None:

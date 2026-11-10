@@ -21,12 +21,13 @@ kept only if every number in it is a number the template already said. Anything 
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import html
 import json
 import re
 import uuid
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from sqlalchemy import select
@@ -93,10 +94,8 @@ def product(rates: list[float]) -> float:
 
 async def tz_of(s, d: LeadSourceDigest) -> dt.tzinfo:
     if d.timezone:
-        try:
+        with contextlib.suppress(ZoneInfoNotFoundError, ValueError):   # a bad name falls back to the workspace's zone
             return ZoneInfo(d.timezone)
-        except Exception:  # noqa: BLE001 -- a bad name falls back to the workspace's zone
-            pass
     from .sync import _workspace_tz
     return await _workspace_tz(s, d.tenant_id)
 
@@ -298,7 +297,7 @@ async def _rewrite(model: str, blocks: list[dict]) -> list[dict] | None:
         resp = await client.messages.create(model=model, max_tokens=1200,
                                             messages=[{"role": "user", "content": prompt}])
         text = "".join(getattr(part, "text", "") for part in resp.content).strip()
-        text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+        text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.MULTILINE).strip()
         out = json.loads(text)
         if not isinstance(out, list) or len(out) != len(blocks):
             return None

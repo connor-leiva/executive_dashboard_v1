@@ -104,7 +104,7 @@ async def test_a_failing_send_is_tried_three_times_then_failed(monkeypatch):
     for _ in range(5):
         async with SessionLocal() as s:
             await ld.drain(s, now=MONDAY_0605)
-    row = [r for r in await _deliveries(did)][0]
+    row = (await _deliveries(did))[0]
     assert (row.status, row.attempts) == ("failed", 3)
 
 

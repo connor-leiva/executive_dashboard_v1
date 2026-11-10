@@ -124,7 +124,7 @@ def clean_money(value, name: str) -> Decimal:
         d = Decimal(str(value))
     except Exception:  # noqa: BLE001 -- anything that is not a number is the same refusal
         raise InvalidGroup(f"{name} must be a number.") from None
-    if d < 0 or d > Decimal("10000"):
+    if d < 0 or d > Decimal(10000):
         raise InvalidGroup(f"{name} is between $0 and $10,000.")
     return d.quantize(Decimal("0.01"))
 
@@ -289,7 +289,7 @@ def seed_ulrg(sess, tenant_id=None) -> int:
                 id=uuid.uuid4(), tenant_id=tid, business_id=ulrg.id, key="realtor_com",
                 display_name="Realtor.com", variants=list(REALTOR_VARIANTS), match_mode="contains",
                 program_start=REALTOR_PROGRAM_START, is_active=True, display_order=0,
-                exp_risk_team_default=Decimal("69"), exp_risk_agent_default=Decimal("49"))
+                exp_risk_team_default=Decimal(69), exp_risk_agent_default=Decimal(49))
             sess.add(realtor)
             sess.flush()
             written += 1
@@ -312,7 +312,7 @@ def seed_ulrg(sess, tenant_id=None) -> int:
             sess.add(LeadSourceGroup(
                 id=uuid.uuid4(), tenant_id=tid, business_id=ulrg.id, key="realty_com",
                 display_name="Realty.com", variants=[], match_mode="contains", program_start=None,
-                is_active=False, display_order=10, exp_risk_team_default=Decimal("69"),
-                exp_risk_agent_default=Decimal("49")))
+                is_active=False, display_order=10, exp_risk_team_default=Decimal(69),
+                exp_risk_agent_default=Decimal(49)))
             written += 1
     return written
