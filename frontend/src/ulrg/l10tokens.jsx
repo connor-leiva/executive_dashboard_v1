@@ -68,6 +68,24 @@ export const paceState = (p) => (p >= 100 ? "good" : p >= 85 ? "warn" : "bad");
 /* three-band cell color from a value vs its (per-period) weekly goal. null ≠ zero; a goal of 0 is
    a track-only row unless scoreZero (a real ≤ 0 target). Direction-aware: for lte a value at or
    under the cap reads good. Band law: >=100 good, >=80 warn. */
+function mixHex(a, b, keep) {
+  const rgb = (hex) => [0, 2, 4].map((i) => parseInt(hex.slice(1 + i, 3 + i), 16));
+  const A = rgb(a);
+  const B = rgb(b);
+  const ch = A.map((c, i) => Math.round(c * keep + B[i] * (1 - keep)));
+  return `#${ch.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/* The open week is still in progress, so its status wash is a softer version of the same
+   tint — about 58% of the way from the page to the full color — rather than a grey veil. */
+export function softenTone(tone, keep = 0.58) {
+  if (!tone) return tone;
+  return {
+    fg: mixHex(tone.fg, T.paper, keep),
+    bg: tone.bg === "transparent" ? "transparent" : mixHex(tone.bg, T.paper, keep),
+  };
+}
+
 export function tone(v, goal, direction, scoreZero = false) {
   if (v === null || v === undefined || goal === null || goal === undefined) return TONE.none;
   if (goal === 0 && !scoreZero) return TONE.none;

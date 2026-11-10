@@ -4,7 +4,7 @@
 import { Fragment } from "react";
 import { sgn, fmtMoney, titleCase } from "./scorecardMath.js";
 import {
-  T, NUM, LBL, tone, Chevron, Pip, PaceBar, StatusTag,
+  T, NUM, LBL, tone, softenTone, Chevron, Pip, PaceBar, StatusTag,
   W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
 } from "./l10tokens.jsx";
 
@@ -165,6 +165,8 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           const wgoal = goals[i] == null ? r.goal : goals[i];
           const tn = tone(v, wgoal, r.direction, wgoal === 0 && r.scored);
           const inWin = counted.has(w.start);
+          const openWeek = w.complete === false;
+          const paint = openWeek ? softenTone(tn) : tn;
           const isNull = v === null || v === undefined;
           const money = r.unit === "usd";
           const shown = isNull ? "—" : fmtCell(r, v, { compact: money });
@@ -177,11 +179,11 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               title={money && !isNull ? full : undefined}
               style={{
                 width: WK, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                background: tn.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
+                background: paint.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
                 cursor: onDrill ? "pointer" : "default",
               }}
             >
-              <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
+              <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : openWeek ? 500 : 600, color: paint.fg, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
                 {shown}
               </span>
             </div>
