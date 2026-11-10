@@ -500,6 +500,7 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
 
       {weeksDesc.map((w) => {
         const live = w.start === liveStart;
+        const closed = w.start === (weeksDesc.find((x) => x.complete !== false) || {}).start;
         return (
           <div
             key={w.start}
@@ -511,9 +512,9 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               {live && <span style={{ width: 4, height: 4, borderRadius: "50%", background: T.good }} />}
-              <span style={{ ...NUM, ...LBL, color: live ? T.inkSoft : T.faint }}>W{w.n}</span>
+              <span style={{ ...NUM, ...LBL, fontWeight: closed ? 700 : 600, color: closed ? T.ink : live ? T.inkSoft : T.faint }}>W{w.n}</span>
             </div>
-            <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{w.label}</span>
+            <span style={{ ...NUM, fontSize: 12, fontWeight: closed ? 600 : 500, color: closed ? T.inkSoft : T.faint }}>{w.label}</span>
           </div>
         );
       })}
