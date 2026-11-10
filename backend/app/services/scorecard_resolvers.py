@@ -797,6 +797,70 @@ async def forum_vip_guests_spring(s, tenant_id, business_id, week_start: dt.date
     return await _vip_channel_count(s, tenant_id, business_id, week_start, week_end, "spring")
 
 
+@resolver("forum_vip_guests_seats")
+async def forum_vip_guests_seats(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                 group=None):
+    """Justin's VIP guests added — first entry into a guest seat, every source.
+
+    A seat is VIP Guest: Confirmed, Dallas VIP guest confirmed, or Attended when that
+    opportunity never sat in a confirmed stage. Opt-In is Spring's lead, not a seat.
+    The same person can be both. Weeks with no seat events are a real 0 once GHL has synced."""
+    from ..models import MetricRecord
+    any_evt = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest_seat").limit(1))
+    if any_evt is None and not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    n = await s.scalar(select(func.count()).select_from(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest_seat",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))
+    return float(n or 0)
+
+
+# Meta reports spend in the ad account's timezone. The scorecard week is Mon–Sun in the
+# business calendar. A purchase just after midnight can land in a different week here than
+# it does in Ads Manager.
+_META_AD_ACCOUNT = "act_587749862890426"
+
+
+@resolver("sb_cost_per_qualified_lead")
+async def sb_cost_per_qualified_lead(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                     group=None):
+    """Meta campaign spend ÷ Spring's qualified guest leads for the week.
+
+    Campaign-level insights only — ad-level rows would double-count the same dollars.
+    Blank when there are no leads (a cost per lead of zero is not a number). UNAVAILABLE
+    when Meta has never synced."""
+    from ..models import AdAccount, AdInsightDaily, Integration
+    from .ads import cpl
+    leads = await forum_vip_guests_spring(s, tenant_id, business_id, week_start, week_end, group)
+    if leads is UNAVAILABLE:
+        return UNAVAILABLE
+    accts = (await s.execute(select(AdAccount).where(
+        AdAccount.tenant_id == tenant_id, AdAccount.platform == "meta"))).scalars().all()
+    named = [a for a in accts if (a.external_id or "") in (_META_AD_ACCOUNT, _META_AD_ACCOUNT.removeprefix("act_"))]
+    use = named or (accts if len(accts) == 1 else [])
+    synced = any(a.last_synced_at for a in use) or await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "meta_ads",
+        Integration.status == "connected", Integration.last_synced_at.is_not(None)).limit(1))
+    if not use or not synced:
+        any_row = await s.scalar(select(AdInsightDaily.id).where(
+            AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.level == "campaign").limit(1)) if use else None
+        if any_row is None:
+            return UNAVAILABLE
+    ids = [a.id for a in use]
+    spend = await s.scalar(select(func.coalesce(func.sum(AdInsightDaily.spend), 0)).where(
+        AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id.in_(ids),
+        AdInsightDaily.level == "campaign",
+        AdInsightDaily.occurred_on >= week_start, AdInsightDaily.occurred_on <= week_end))
+    if not leads:
+        return None
+    return cpl(spend, leads)
+
+
 def _week_holds_today(week_start: dt.date, week_end: dt.date, today: dt.date | None = None) -> bool:
     today = today or dt.date.today()
     return week_start <= today <= week_end
@@ -829,6 +893,11 @@ async def sb_edge_paid_added(s, tenant_id, business_id, week_start: dt.date, wee
         Integration.status == "connected",
         or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
     if live is None and not rows:
+        from ..models import Business
+        missing = (await s.execute(select(Business.key).where(
+            Business.tenant_id == tenant_id, Business.kind == "membership"))).scalars().all()
+        print(f"[sb_edge_paid_added] no stripe_legacy on this business; membership businesses={list(missing)}",
+              flush=True)
         return UNAVAILABLE
     n = 0
     for r in rows:
@@ -871,27 +940,62 @@ async def sb_active_members(s, tenant_id, business_id, week_start: dt.date, week
     return float(n or 0)
 
 
+def _cash_amount(p) -> float:
+    try:
+        return float(p.amount or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _forum_cash_row(p) -> bool:
+    """The same charges the Forum tab bills: Forum/IC segments, plus unlabeled rows on this feed.
+
+    A labeled non-Forum product (Edge, Spring Break) stays out. project_charges is not used —
+    that projects future subscription amounts, and this row is money attempted this week."""
+    from .billing import forum_offering
+    meta = p.meta or {}
+    seg = p.segment or meta.get("segment")
+    if seg in ("forum", "inner_circle"):
+        return True
+    desc = meta.get("entity_source_name") or ""
+    if not desc:
+        return True
+    include, _seg = forum_offering(
+        desc, amount=_cash_amount(p), recurring=bool(meta.get("subscription_id")))
+    return include
+
+
 @resolver("sb_cash_collected_rate")
 async def sb_cash_collected_rate(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
                                  group=None):
-    """Succeeded GHL payments ÷ payment attempts (succeeded + failed) that week, as a percent.
+    """Dollar-weighted collections for the week: succeeded $ ÷ (succeeded $ + failed $).
 
-    None when the week had no attempts (a rate with an empty denominator). UNAVAILABLE when the
-    payments feed has never synced, so a quiet integration doesn't read as 0% collected."""
-    from ..models import MetricRecord
-    if not await _ghl_live(s, tenant_id, business_id):
-        return UNAVAILABLE
-    any_pay = await s.scalar(select(MetricRecord.id).where(
+    Same stitched set as the Forum tab: CSV-imported GHL copies dropped, then
+    merge_payment_sources with the legacy Stripe Forum charges. UNAVAILABLE when neither
+    feed has synced. None when the week had no attempts."""
+    from ..models import Integration, MetricRecord
+    from .billing import merge_payment_sources
+    ghl_rows = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
-        MetricRecord.source == "ghl", MetricRecord.kind == "payment").limit(1))
-    if any_pay is None:
-        return UNAVAILABLE
-    rows = (await s.execute(select(MetricRecord.status).where(
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment"))).scalars().all()
+    legacy = (await s.execute(select(MetricRecord).where(
         MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
-        MetricRecord.source == "ghl", MetricRecord.kind == "payment",
-        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))).scalars().all()
-    succ = sum(1 for st in rows if st == "succeeded")
-    fail = sum(1 for st in rows if st == "failed")
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+    ghl_up = await _ghl_live(s, tenant_id, business_id)
+    stripe_up = await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "stripe_legacy",
+        Integration.status == "connected",
+        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
+    if not ghl_rows and not legacy and not (ghl_up or stripe_up):
+        return UNAVAILABLE
+    if not ghl_rows and not legacy:
+        return UNAVAILABLE
+    native = [p for p in ghl_rows if not (p.meta or {}).get("imported")]
+    merged, _sup = merge_payment_sources(native, legacy) if legacy else (native, 0)
+    week = [p for p in merged if p.occurred_on and week_start <= p.occurred_on <= week_end
+            and _forum_cash_row(p)]
+    succ = sum(_cash_amount(p) for p in week if p.status == "succeeded")
+    fail = sum(_cash_amount(p) for p in week if p.status == "failed")
     den = succ + fail
     if den == 0:
         return None
@@ -902,26 +1006,42 @@ _CASH_IN = frozenset({"deposit", "salesreceipt", "payment", "creditmemo"})
 _CASH_OUT = frozenset({"purchase", "billpayment", "expense", "check", "creditcardcharge"})
 
 
+def _spring_book(b, scorecard_business_id) -> bool:
+    """The Forum, beCollective, and SB Coaching. Not the brokerage or the JV."""
+    if b.kind in ("real_estate", "commission_jv"):
+        return False
+    if b.id == scorecard_business_id:
+        return True
+    blob = f"{b.name or ''} {b.key or ''}".lower()
+    return ("forum" in blob or "becollective" in blob or "be collective" in blob or "coaching" in blob)
+
+
+_net_cash_logged = False
+
+
 @resolver("sb_net_cash")
 async def sb_net_cash(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
-    """Cash in minus cash out for the week from Books (QBO transactions on this business).
+    """Cash in minus cash out for the week across The Forum, beCollective, and SB Coaching.
 
     Deposits, sales receipts and payments count in. Purchases, expenses and bill payments count
-    out. Transfers and journal entries are skipped — they move money between accounts or encode
-    accruals, and summing them double-counts. UNAVAILABLE until QuickBooks has synced."""
-    from ..models import BookTxn
+    out. Transfers and journal entries are skipped. UNAVAILABLE only when none of those books
+    has a QuickBooks transaction yet."""
+    global _net_cash_logged
+    from ..models import BookTxn, Business
+    books = [b for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id))).scalars().all() if _spring_book(b, business_id)]
+    ids = [b.id for b in books] or [business_id]
+    any_txn = await s.scalar(select(BookTxn.id).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.business_id.in_(ids)).limit(1))
+    if any_txn is None:
+        return UNAVAILABLE
+    if not _net_cash_logged:
+        realms = sorted({b.key for b in books})
+        print(f"[sb_net_cash] businesses={[b.name for b in books]} keys={realms}", flush=True)
+        _net_cash_logged = True
     txns = (await s.execute(select(BookTxn).where(
-        BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id,
+        BookTxn.tenant_id == tenant_id, BookTxn.business_id.in_(ids),
         BookTxn.txn_date >= week_start, BookTxn.txn_date <= week_end))).scalars().all()
-    live = await s.scalar(select(Integration.id).where(
-        Integration.tenant_id == tenant_id, Integration.provider == "qbo",
-        Integration.status == "connected",
-        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
-    if live is None and not txns:
-        any_txn = await s.scalar(select(BookTxn.id).where(
-            BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id).limit(1))
-        if any_txn is None:
-            return UNAVAILABLE
     net = 0.0
     for t in txns:
         kind = (t.qbo_type or "").replace(" ", "").lower()
@@ -931,6 +1051,69 @@ async def sb_net_cash(s, tenant_id, business_id, week_start: dt.date, week_end: 
         elif kind in _CASH_OUT:
             net -= amt
     return round(net, 2)
+
+
+_SPRING_BREAK_ON = dt.date(2026, 11, 27)
+
+
+@resolver("sb_spring_break_tickets")
+async def sb_spring_break_tickets(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                  group=None):
+    """Cumulative succeeded Spring Break tickets as of the week's Sunday.
+
+    The row is off until Nov 27, so earlier weeks stay blank instead of reading as zero.
+    UNAVAILABLE until the legacy Stripe feed has produced ticket rows or is connected and
+    the season has started with an empty result (a real 0)."""
+    from ..models import Integration, MetricRecord
+    if week_end < _SPRING_BREAK_ON:
+        return None
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "spring_break_payment",
+        MetricRecord.status == "succeeded"))).scalars().all()
+    live = await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "stripe_legacy",
+        Integration.status == "connected",
+        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
+    if not rows and live is None:
+        return UNAVAILABLE
+    n = sum(1 for r in rows if r.occurred_on and r.occurred_on <= week_end)
+    return float(n)
+
+
+@resolver("sb_renewals_confirmed")
+async def sb_renewals_confirmed(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                group=None):
+    """Confirmed ÷ members whose renewal date falls in the 60 days after this week.
+
+    Renewal Status is the GHL field (Confirmed / Not yet / Not renewing). Not yet, Not renewing,
+    and blank stay in the denominator only. Current week only — the roster is a snapshot.
+    Blank when nobody is due. UNAVAILABLE when GHL has not synced."""
+    from ..models import MetricRecord
+    from .forum import _pdate
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    members = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    if not members:
+        return UNAVAILABLE
+    end = week_end + dt.timedelta(days=60)
+    due = []
+    for m in members:
+        mem = (m.meta or {}).get("membership") or {}
+        if mem.get("member_kind") == "admin":
+            continue
+        rd = _pdate(mem.get("renewal_date"))
+        if rd and week_end < rd <= end:
+            due.append(mem)
+    if not due:
+        return None
+    confirmed = sum(1 for mem in due if (mem.get("renewal_status") or "").strip().lower() == "confirmed")
+    return round(confirmed / len(due) * 100, 1)
 
 
 @resolver("sb_decisions_open")

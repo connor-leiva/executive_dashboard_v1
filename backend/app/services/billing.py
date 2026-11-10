@@ -138,6 +138,25 @@ _NON_EDGE_DEFAULT = [
 ]
 
 
+def spring_break_offering(description, config=None) -> tuple[bool, str | None]:
+    """A legacy-Stripe charge for Real Estate Spring Break tickets.
+
+    Positive match on "spring break" (already on the Forum and Edge denylists, so those
+    feeds never count it). VIP vs GA comes from the product name when it says so.
+    Returns (include, "vip"|"ga"|None)."""
+    config = config or {}
+    d = (description or "").lower()
+    keys = config.get("spring_break_keywords") or ["spring break"]
+    if not any(k.lower() in d for k in keys):
+        return (False, None)
+    if "vip" in d:
+        return (True, "vip")
+    padded = f" {d}"
+    if "general admission" in d or " ga " in padded or "ga ticket" in d or "ga pass" in d:
+        return (True, "ga")
+    return (True, None)
+
+
 def edge_offering(description, config=None, is_subscription=False,
                   amount=0.0, recurring=False) -> tuple[bool, str | None]:
     """Is a legacy-Stripe charge one of The Edge's offerings (e.g. 'The Edge Monthly',
