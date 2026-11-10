@@ -159,6 +159,9 @@ async def execute(s: AsyncSession, account: AdAccount, *, actor: User | None, ac
         try:
             remote = await graph_post(token, path, body, validate_only=dry_run)
             validated = True
+            if account.write_scope != "ads_management":
+                account.write_scope = "ads_management"
+                account.write_scope_detail = "Meta accepted a validate_only check."
         except MetaError as e:
             meta_error = str(e)
             if is_scope_miss(e):
