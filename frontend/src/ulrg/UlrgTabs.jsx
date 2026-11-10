@@ -4,13 +4,17 @@
 import { useState } from "react";
 import SubTabs from "../SubTabs.jsx";
 import Recruiting from "./Recruiting.jsx";
+import LeadSources from "../leadsources/LeadSources.jsx";
 import Scorecard from "./Scorecard.jsx";
 import { useScorecard } from "./useScorecard.js";
 import { Card } from "./Parts.jsx";
 import { C, FD, FB } from "./scorecardMath.js";
 
-export default function UlrgTabs({ overview, role }) {
-  const [sub, setSub] = useState("overview");
+export default function UlrgTabs({ overview, role, businessKey = "ulrg", businessName, sub: controlled, onSub }) {
+  // Controllable, so the overview's lead-to-close panel can open the Lead sources tab.
+  const [own, setOwn] = useState("overview");
+  const sub = controlled ?? own;
+  const setSub = onSub ?? setOwn;
   const { data } = useScorecard(13);                       // for the team list (generated from API)
   const teams = ((data && data.groups) || []).filter((g) => g.is_team_room);
 
@@ -20,6 +24,9 @@ export default function UlrgTabs({ overview, role }) {
     // Fourth, after Scorecard and before the team rooms (§0). Same `ulrg` grant as the
     // Scorecard: a workspace that can see one can see the other.
     { k: "recruiting", label: "Recruiting" },
+    // The lead-source reports: cohorts, team and agent pipeline, What's Working. Same `ulrg`
+    // grant as the rest of this page; the API checks it again on every request.
+    { k: "lead_sources", label: "Lead sources" },
     ...teams.map((g) => {
       const leader = g.owner && g.owner.name;
       return { k: `team:${g.key}`, label: g.name, sub: leader || "Unassigned", unassigned: !leader };
@@ -33,6 +40,7 @@ export default function UlrgTabs({ overview, role }) {
       {sub === "overview" && overview}
       {sub === "scorecard" && <Scorecard role={role} />}
       {sub === "recruiting" && <Recruiting />}
+      {sub === "lead_sources" && <LeadSources businessKey={businessKey} businessName={businessName} />}
       {team && (
         <Card style={{ textAlign: "center", padding: "40px 28px" }}>
           <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{team.name} Team Room</div>

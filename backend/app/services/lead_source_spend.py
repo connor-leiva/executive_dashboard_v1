@@ -160,12 +160,14 @@ async def matched_lines(s, tenant_id, group: LeadSourceGroup) -> dict:
 
 
 async def cost_shares(s, tenant_id, group: LeadSourceGroup) -> list[dict]:
-    rows = (await s.execute(select(LeadSourceCostShare, Business.name, Business.key)
+    from .roles import short_name
+    rows = (await s.execute(select(LeadSourceCostShare, Business)
                             .join(Business, Business.id == LeadSourceCostShare.bearer_business_id)
                             .where(LeadSourceCostShare.tenant_id == tenant_id,
                                    LeadSourceCostShare.lead_source_group_id == group.id))).all()
-    return [{"bearer_business_id": str(sh.bearer_business_id), "bearer_name": name,
-             "bearer_key": key, "share_pct": Decimal(sh.share_pct)} for sh, name, key in rows]
+    return [{"bearer_business_id": str(sh.bearer_business_id), "bearer_name": b.name,
+             "bearer_short": short_name(b), "bearer_key": b.key, "share_pct": Decimal(sh.share_pct)}
+            for sh, b in rows]
 
 
 async def qbo_synced(s, tenant_id, business_ids) -> dict:

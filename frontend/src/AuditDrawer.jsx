@@ -32,13 +32,19 @@ function SegChip({ seg }) {
   );
 }
 
-/* Right-side drawer showing the records behind a KPI (the trust layer). */
-export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, stream, month, period, onClose }) {
+/* Right-side drawer showing the records behind a KPI (the trust layer).
+
+   `preset` opens it on rows the page already holds -- the lead-source report's audit lists arrive
+   in its own payload, so fetching them again would be a second request for the same rows. Same
+   shape as a fetched detail ({label, source, computed_as, count, rows}); `onExport` adds an Export
+   CSV action beside the close button. */
+export default function AuditDrawer({ metricKey, business, agentId, lo, stage, source, stream, month, period, onClose, preset, onExport }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
   const [srcFilter, setSrcFilter] = useState("all");   // all | ULRG | OTHER (loan drawers)
 
   useEffect(() => {
+    if (preset) { setD(preset); setErr(false); setSrcFilter("all"); return; }
     if (!metricKey) return;
     setD(null);
     setErr(false);
@@ -53,11 +59,11 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
       + (stream ? `&stream=${encodeURIComponent(stream)}` : "")
       + (month ? `&month=${encodeURIComponent(month)}` : "");
     getJSON(q).then(setD).catch(() => setErr(true));
-  }, [metricKey, business, agentId, lo, stage, source, stream, month, period]);
+  }, [metricKey, business, agentId, lo, stage, source, stream, month, period, preset]);
 
-  if (!metricKey) return null;
+  if (!metricKey && !preset) return null;
 
-  const title = d?.label || metricKey.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const title = d?.label || (metricKey || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const muted = { fontFamily: "var(--font-text)", fontSize: 13, color: T.muted, lineHeight: 1.6 };
   const amountFor = (r) =>
     metricKey === "gci" && r.gci != null ? usd(r.gci)
@@ -94,11 +100,17 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
             )}
             <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600, color: T.ink, marginTop: 8 }}>{title}</div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ fontSize: 16, color: T.slate, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>✕</button>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            {onExport && d && (d.rows || []).length > 0 && (
+              <button onClick={() => onExport(d)} style={{ fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate,
+                background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer" }}>Export CSV</button>
+            )}
+            <button onClick={onClose} aria-label="Close" style={{ fontSize: 16, color: T.slate, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>✕</button>
+          </span>
         </div>
 
         <div style={{ padding: 20, overflowY: "auto" }}>
-          {!API_BASE ? (
+          {!API_BASE && !preset ? (
             <div style={muted}>Drill-down runs on the live app — it lists the exact records behind this number with links into the source system.</div>
           ) : err ? (
             <div style={muted}>Couldn't load the details.</div>
@@ -140,6 +152,7 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                         {forum
                           ? (r.l2 && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{r.l2}</div>)
                           : ((r.close_date || r.address || r.side || r.company_dollar != null) && <div style={{ fontSize: 12, color: T.muted }}>{[r.close_date, r.address, r.side, r.company_dollar != null ? `net ${usd(r.company_dollar)}` : null].filter(Boolean).join(" · ")}</div>)}
+                        {r.l3 && <div style={{ fontFamily: "var(--font-data)", fontSize: 12, color: T.tertiary, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{r.l3}</div>}
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: watch ? T.amber : projected ? T.slate : T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{forum ? r.r1 : amountFor(r)}</div>

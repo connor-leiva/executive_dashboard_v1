@@ -282,3 +282,68 @@ async def put_spend(key: str, gkey: str, body: SpendIn,
           category="Config", summary=f"QuickBooks spend mapping for {g.display_name} saved")
     await s.commit()
     return await _spend_view(s, user, b, g)
+
+
+# ── reports ──────────────────────────────────────────────────────────────────────────────────
+
+MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/cohorts")
+async def cohorts(key: str, gkey: str, start: str | None = Query(None, pattern=MONTH),
+                  end: str | None = Query(None, pattern=MONTH),
+                  user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """The cohort report: one row per month of arrival, from stored rows only. 404 for a missing or
+    inactive group; 403 without the business's tab."""
+    from ..services.lead_source_report import cohort_report
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=True)
+    if start and end and start > end:
+        raise HTTPException(400, "The first month comes before the last.")
+    return await cohort_report(s, user.tenant_id, b, g, start=start, end=end)
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/cohorts/leads")
+async def cohort_people(key: str, gkey: str, month: str | None = Query(None, pattern=MONTH),
+                        user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    from ..services.lead_source_report import cohort_leads
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=True)
+    return await cohort_leads(s, user.tenant_id, b, g, month=month)
+
+
+WINDOW = r"^(all_time|rolling_30|rolling_90|last_4mo|ytd)$"
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/pipeline")
+async def pipeline(key: str, gkey: str, window: str = Query("all_time", pattern=WINDOW),
+                   user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """The team pipeline: the eight-stage funnel, coaching tiers and the agent table."""
+    from ..services.lead_source_pipeline import team_pipeline
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=True)
+    return await team_pipeline(s, user.tenant_id, b, g, window=window)
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/pipeline/agents/{agent_key}")
+async def agent_pipeline(key: str, gkey: str, agent_key: str,
+                         window: str = Query("all_time", pattern=WINDOW),
+                         user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """One agent's pipeline. `agent_key` is the Axcion agent id, or `unassigned`."""
+    from ..services.lead_source_pipeline import agent_pipeline as build
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=True)
+    out = await build(s, user.tenant_id, b, g, agent_key, window=window)
+    if out is None:
+        raise HTTPException(404, "That agent has no leads from this source in the window")
+    return out
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/whats-working")
+async def whats_working(key: str, gkey: str, window: str = Query("all_time", pattern=WINDOW),
+                        user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
+    """What's Working: behavior medians by agent, team and outcome, and 72-hour lead journeys."""
+    from ..services.lead_source_behavior import whats_working as build
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=True)
+    return await build(s, user.tenant_id, b, g, window=window)
