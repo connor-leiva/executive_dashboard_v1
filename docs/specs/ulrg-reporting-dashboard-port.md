@@ -20,11 +20,12 @@ Lead-source spend is not a typed monthly fee. It is pulled from that tenant's Qu
 
 These replace the earlier open questions. Do not reopen them in implementation.
 
-1. **Spend comes from QuickBooks.** Utah Life's lead spend, including Realtor.com, is in QuickBooks Online. Map accounts, vendors, and classes to a lead-source group per tenant. Do not seed a dollar amount.
-2. **Sympli pays half of Realtor.com.** Each source group can name another business and a share percent. The report shows ROI on gross spend and on spend after that share. Seed Realtor.com at 50% borne by the business with `key = "sympli"`.
+1. **Spend comes from QuickBooks.** Utah Life's lead spend, including Realtor.com, is in QuickBooks Online. Map accounts and vendors to a lead-source group per tenant. Do not seed a dollar amount, and do not use class. Utah Life's Realtor.com rule is expense account `365` (primary) or vendor `962`. The charges are Purchases, not bills.
+2. **Sympli pays half of Realtor.com.** Each source group can name another business and a share percent. The report shows ROI on gross spend and on spend after that share. Seed Realtor.com at 50% borne by the business with `key = "sympli"`. Sympli's QuickBooks is not connected, and Utah Life's books have no Sympli vendor, customer, or account for this spend. The 50% is only the setting.
 3. **Write Follow Up Boss ids back to Sisu.** When an email fallback is what finds the contact, send `save_mapping_on_fallback=true`, the same as `sisu.get_contact_by_external_id` does today in the legacy app.
 4. **Cohort months use the workspace calendar.** `IntranetWorkspace.timezone` (default `America/Denver`, read by `sync._workspace_tz`). The cohort key is the `YYYY-MM` of `lead.created_at_src`, which `fub.map_person` already stores in that zone. Legacy used UTC. Parity will disagree for leads near a month boundary. That difference is expected.
 5. **Digest settings are per tenant in the UI.** Recipients, ClickUp list, and the model are editable. The only seeded recipient is Connor Leiva. The digest stays off until an admin enables it.
+6. **Realtor.com is billed monthly.** Spend belongs to the month of `book_txn.txn_date`. Do not amortize.
 
 Do not copy credentials out of the legacy tree. `roi-conversion-dashboard/fub_live_dashboard/backend/app/sisu.py` falls back to a real username and API token when env vars are unset. Leave those values there. Axcion already stores integration secrets encrypted on `integration`.
 
@@ -414,24 +415,56 @@ This is a large feature on top of the same universe. It is phase 6. Do not block
 
 ### 4.7 QuickBooks spend, cost share, and ROI
 
-Axcion already has QuickBooks per business. `Integration.provider = "qbo"` stores the realm and the encrypted tokens. `integrations/qbo.py` does OAuth, the ProfitAndLoss report, the chart of accounts (`accounts`), and CDC of `Purchase`, `Bill`, `JournalEntry`, and the other ledger types. `books_sync.sync_qbo_txns` writes `book_txn` and `book_txn_line`. Each line has `account_qbo_id`, `account_label`, `payee`, `class_label`, `amount`, `posting_type`, and the parent `book_txn.txn_date`. `pl_line` is the period P&L by account name. `coa_map.py` already knows the words "lead buy", "realtor com", "lead source", and "internet lead" as hints for standard accounts 6060 and 6061. Those hints are not Utah Life's account ids. Do not auto-include an account because its name matches.
+Axcion already has QuickBooks per business. `Integration.provider = "qbo"` stores the realm and the encrypted tokens. `integrations/qbo.py` does OAuth, the ProfitAndLoss report, and the chart of accounts. `books_sync.sync_qbo_txns` already pulls `Purchase`, `Bill`, `BillPayment`, `JournalEntry`, `Deposit`, and `Transfer` into `book_txn` and `book_txn_line`. A Purchase is how QuickBooks represents a bank or credit-card charge. `test_purchase_categorized` shows the shape: the header `AccountRef` is the card (stored as `bank_account_label`), and the line `AccountBasedExpenseLineDetail.AccountRef` is the expense account stored as `book_txn_line.account_qbo_id`. Vendor 962 has no accounts-payable bills, and the company has had no bills since 2023, so the Realtor.com charges are Purchases. No new entity type is required.
 
-Use `book_txn_line`, not the P&L summary and not `book_txn.amount`. The header amount is the first category line only, and the model docstring says a multi-line purchase would charge the whole header to line one. `txn_date` is the books date. The cohort month for a line is that date's `YYYY-MM`. Do not convert it through UTC.
+Two fields the current sync drops, which this report needs:
+
+- The vendor id. `_payee` keeps `EntityRef.name` (and `VendorRef.name`) and throws away `value`. Add `vendor_qbo_id` on `book_txn`, from `EntityRef.value` on a Purchase and `VendorRef.value` on a Bill. The line payee is often empty on a Purchase, so vendor matching reads the header.
+- The Purchase `Credit` flag. A true `Credit` is a refund, not more spend. Store it as `purchase_credit` on `book_txn`. Line `posting_type` is null on a Purchase, so the null case must not treat a refund as a charge.
+
+Do not match the card account. Amex `1150040000` is the header account the money left. Matching it would count every card charge as lead spend.
+
+Use `book_txn_line`, not the P&L summary and not `book_txn.amount`. The header amount is the first category line only. `txn_date` is the books date. Realtor.com is billed monthly, so the cohort month is that date's `YYYY-MM`. Do not amortize, and do not spread one charge across later months.
+
+`books_sync._backfill_start` defaults to 1 January of the current year unless `integration.config.books_backfill_start` is set. Before trusting ROI, confirm the Utah Life realm has Purchase lines for account `365` back to the program start (`2026-02-01`). If the stored history starts later, set `books_backfill_start` to `2026-02-01` and re-sync. That is a cursor change, not a new importer.
+
+**Utah Life's chart, from the live company.** Account numbers are null; the digits are in the name.
+
+| Role | Id | Name |
+| --- | --- | --- |
+| Expense account, Realtor.com | `365` | `Realtor.com`. Fully qualified `62000 Lead Generation:62100 General Prospecting & Marketing:62130 Internet Lead Generation:Realtor.com`. Parent `363`, `62130 Internet Lead Generation` |
+| Vendor, Realtor.com | `962` | `Realtor.com` |
+| Expense account, Realty.com | `579` | `Realty.com` |
+| Vendor, Realty.com | `1311` | `Realty.com LLC` |
+| Expense account, Zillow | `366` | `Zillow` |
+| Vendor, Zillow | `68` | `Zillow.com` |
+| Vendor, Opcity | `1568` | `Opcity` |
+
+Other internet-lead accounts exist and are not part of the Realtor.com rule: Ylopo `350`, Facebook `386`, Fello `757`, Follow-up Boss `1150040018`, OJO Home `754`, Other - Internet Lead Gen `391`, RedX `492`, Remine `509`, Shilo AI `1150040081`, Sierra `568`, Vulcan 7 `387`. Do not roll them into Realtor.com because they share the parent `62130`.
+
+Classes and departments are not a match key. They could not be listed on the live company, and the only department use found was on bills from 2022. Leave `class_label` off the Utah Life rules. Other tenants may still set it.
 
 **Mapping, per tenant.** New table `lead_source_spend_rule`, many rows per source group:
 
 - `lead_source_group_id`, `tenant_id`
-- `business_id` — which QuickBooks company. This is the realm on that business's `qbo` integration. Utah Life's Realtor.com rules point at the brokerage business, not at Sympli, unless an admin adds a Sympli rule on purpose.
-- Optional `account_qbo_id`. When set, the line's account must equal it.
-- Optional `payee` substring, case-insensitive, tested against `book_txn_line.payee` and `book_txn.payee`.
-- Optional `class_label` substring, case-insensitive, tested against `book_txn_line.class_label`.
-- A rule with no account, payee, or class is invalid. Do not allow a rule that means "all expenses."
-- Within one rule, every field that is set must match (AND). A line is in the group if any rule matches (OR).
+- `business_id` — which QuickBooks company. This is the realm on that business's `qbo` integration. Utah Life's rules point at the brokerage business. Do not point one at Sympli. Sympli's QuickBooks is not linked, and Utah Life's books have no Sympli vendor, customer, or account for this cost.
+- Optional `account_qbo_id`. When set, the line's expense account must equal it. This is the line account, never the header card account.
+- Optional `vendor_qbo_id`. When set, `book_txn.vendor_qbo_id` must equal it.
+- Optional `class_label` substring. Unused for Utah Life.
+- A rule with no account, vendor, or class is invalid. Do not allow a rule that means "all expenses."
+- Within one rule, every field that is set must match (AND). A line is in the group if any rule matches (OR). A line that matches two rules of the same group counts once.
 - A line that matches two groups counts in the first group by `display_order` only. Say so in the settings UI when the admin's rules overlap.
 
-The settings UI lists the connected company's accounts, and the distinct payees and classes already seen on `book_txn_line`, and the admin picks. Suggest rows whose account name contains the group's display name or the 6060/6061 keywords, and leave them unchecked.
+Seed, for the Utah Life brokerage only, two rules on `realtor_com`, OR'd:
 
-**Amount.** For a matched line, add `amount` when `posting_type` is null or `debit`. Subtract it when `posting_type` is `credit` (a credit on an expense account reduces spend). Ignore `BillPayment` lines so a bill and its payment are not both spend. Ignore lines whose `book_txn.qbo_type` is `Transfer`.
+1. `account_qbo_id = 365`. This is the primary rule. It counts a Purchase coded to Realtor.com even when the card payee is blank.
+2. `vendor_qbo_id = 962`. This counts a charge to that vendor that was coded to a different account. A line that is both counts once.
+
+Do not seed account `579` or vendor `1311` until the Realty.com group is activated. Do not seed Zillow. Do not add Opcity vendor `1568` to the Realtor.com rules. Market VIP / Opcity leads are inside the Realtor.com *lead* group (section 6.2). Whether the Opcity *charges* belong in the Realtor.com *spend* is still open. Until that is answered, those purchases stay out, so the lead count can include Opcity leads while the spend does not.
+
+The settings UI lists the connected company's accounts and the vendors already on `book_txn`. The two seeded rules are checked. An admin can add another account from the `62130` list above without a deploy.
+
+**Amount.** For a matched line, start from `book_txn_line.amount`. Add it when `posting_type` is null or `debit`, unless `book_txn.purchase_credit` is true, in which case subtract it. Subtract it when `posting_type` is `credit`. Ignore `BillPayment` lines so a bill and its payment are not both spend. Ignore `Transfer`.
 
 **Cost share.** New table `lead_source_cost_share`:
 
@@ -439,7 +472,7 @@ The settings UI lists the connected company's accounts, and the distinct payees 
 - `bearer_business_id` — the other business that bears part of the cost. For Utah Life's Realtor.com group, seed the business with `key = "sympli"` when it exists.
 - `share_pct` `Numeric(5,2)`. Seed `50.00`. The sum of shares on one group must be between 0 and 100.
 
-This percent is the agreement. It is not a second QuickBooks pull. Gross spend is only the lines the rules match. Net spend is `gross × (1 − share_pct / 100)`. Do not also subtract whatever sits in Sympli's QuickBooks, or the half Sympli pays will be removed twice if that same bill is in both companies.
+This percent is the agreement. It is not a second QuickBooks pull. Gross spend is only the lines the rules match on Utah Life's company. Net spend is `gross × (1 − share_pct / 100)`. There is nothing in Utah Life's books to subtract for Sympli's half, and Sympli's company is not connected. Do not invent a Sympli rule.
 
 **Per cohort month**, once at least one rule exists for the group:
 
@@ -655,7 +688,7 @@ Tabs are declared in `backend/app/services/tabs.py`. A new report should be a vi
 | Cohort tables, maturity, speed, uncontacted | `cohorts.py` | none | **Missing** |
 | Sisu contact lookup by Follow Up Boss id and email, including duplicate contacts, and the id write-back | `cohorts_sisu._lookup_one`, `save_mapping_on_fallback=true` | bulk `get-team-clients` plus email on the transaction. No write to Sisu | **Partial.** Add the lookup and the same write-back |
 | Company dollar formula, EXP risk, agent payment, trans fee | `cohorts_sisu.py` | `team_income` stored as the complement of `agent_commission`, recent deals only | **Partial.** Wrong formula, incomplete history, fee lines not stored |
-| ROI, cost per lead, cost per close | flat `monthly_cost_dollars` per cohort month that had leads | QuickBooks transactions and P&L exist (`book_txn_line`, `pl_line`, `integrations/qbo.py`). Nothing maps a vendor, account, or class to a lead source, and nothing stores a cost share | **Partial.** Build the mapping on `book_txn_line`. Do not reuse the typed monthly cost |
+| ROI, cost per lead, cost per close | flat `monthly_cost_dollars` per cohort month that had leads | Purchases and their expense-account lines are already synced (`books_sync._QBO_TXN_ENTITIES`, `book_txn_line.account_qbo_id`). Vendor id and the Purchase `Credit` flag are dropped. Nothing maps an account to a lead source | **Partial.** Seed account `365` and vendor `962`. Store the vendor id and the credit flag. No new entity type |
 | Eight-stage pipeline, tiers, stuck, predicted close rate | `pipeline.py` | four-step period funnel | **Missing** |
 | What's Working and 72-hour journeys | `pipeline_behavior.py` | none | **Missing** |
 | Referral Flywheel drawer filtered by lead source | not in the legacy app | `AuditDrawer.jsx` plus `lineage.py` flywheel keys. Rows have no lead source | **Missing.** Phase 7. The cards stay unfiltered |
@@ -688,7 +721,7 @@ Conventions to follow: async SQLAlchemy, Alembic revision after the current head
 
 No `monthly_cost` column. Spend rules and cost shares are the tables in section 4.7.
 
-Seed, in the migration or in `seed_ulrg_scorecard.py`'s style of an idempotent data migration, only when a business with `key = 'ulrg'` exists: the two groups in section 6.2, Realtor.com `program_start = 2026-02-01`, Realty.com inactive. When a business with `key = 'sympli'` exists in the same tenant, seed one `lead_source_cost_share` on `realtor_com`: bearer Sympli, `share_pct = 50`. Seed no spend rule. An admin maps the QuickBooks account, vendor, or class. Do not seed other tenants.
+Seed, in the migration or in `seed_ulrg_scorecard.py`'s style of an idempotent data migration, only when a business with `key = 'ulrg'` exists: the two groups in section 6.2, Realtor.com `program_start = 2026-02-01`, Realty.com inactive. On `realtor_com`, seed the two spend rules in section 4.7 (account `365`, vendor `962`). When a business with `key = 'sympli'` exists in the same tenant, seed one `lead_source_cost_share` on `realtor_com`: bearer Sympli, `share_pct = 50`. Do not seed a class, a dollar amount, or a Sympli QuickBooks rule. Do not seed other tenants.
 
 **API.** Under the existing integrations or settings router, business-scoped:
 
@@ -699,7 +732,7 @@ Seed, in the migration or in `seed_ulrg_scorecard.py`'s style of an idempotent d
 
 **UI.** A section on the brokerage settings surface, not a new product tab yet. List, edit variants, edit program start, activate Realty.com, pick QuickBooks lines, and set the cost share. The cost control is the mapper in section 4.7, not a dollar field.
 
-**Acceptance.** A second business can create `zillow` with its own variants and Utah Life's rows do not change. Utah Life's `realtor_com` row matches the seed list and, when Sympli exists, carries a 50% share. Saving a spend rule does not require a redeploy. Tests cover exact, contains, and regex, including that `Realtor.com` does not match `Realty.com` and that `Market VIP via Opcity BLA` matches the Realtor.com group. A rule with no account, payee, or class is rejected. Two shares of 60 do not save.
+**Acceptance.** A second business can create `zillow` with its own variants and Utah Life's rows do not change. Utah Life's `realtor_com` row matches the seed list, has spend rules for account `365` and vendor `962`, and, when Sympli exists, carries a 50% share. A Purchase line on account `365` counts even when `vendor_qbo_id` is null. A line that matches both rules counts once. A line on Amex `1150040000` whose expense account is not `365` and whose vendor is not `962` does not count. A `purchase_credit` line on account `365` reduces the month. Saving a spend rule does not require a redeploy. Tests cover exact, contains, and regex, including that `Realtor.com` does not match `Realty.com` and that `Market VIP via Opcity BLA` matches the Realtor.com lead group. A rule with no account, vendor, or class is rejected. Two shares of 60 do not save. Vendor `1568` is not in the seeded rules.
 
 ### Phase 2. Sync the missing facts
 
@@ -822,7 +855,7 @@ Deal rows (`flywheel_buyers`, `flywheel_captured`, `flywheel_uncaptured`, `flywh
 
 ### Files to touch
 
-Phase 1: a new Alembic revision, `backend/app/models.py`, a small service module, a router included from `backend/app/main.py`, settings UI, tests.
+Phase 1: a new Alembic revision, `backend/app/models.py`, a small service module, a router included from `backend/app/main.py`, settings UI, tests. Also `backend/app/services/books_sync.py` for `vendor_qbo_id` and `purchase_credit` on `book_txn`. Do not add a QuickBooks entity type. `Purchase` is already in `_QBO_TXN_ENTITIES`.
 
 Phase 2: `backend/app/integrations/fub.py`, `backend/app/integrations/sisu.py`, `backend/app/services/fub_sync.py`, `backend/app/services/sync.py`, `backend/app/models.py`, Alembic, `backend/tests/fub_fake.py`, `test_fub_sync.py`, `test_sisu.py`.
 
@@ -855,17 +888,15 @@ Store the comparison as a script under `backend/scripts/`, read-only, printing a
 
 ## 12. Open questions
 
-1. **Which QuickBooks object is the Realtor.com bill?** The live account id, vendor name, and class are not in this repo. `coa_map.py` only knows the words "realtor com" and "lead source" as suggestions. The admin has to confirm the rule. Until that rule exists, ROI stays null.
-2. **How is Sympli's half recorded in QuickBooks?** The 50% share is a setting, not a second pull. It is still unknown whether Sympli's half is a bill in Sympli's own company, a reimbursement or journal on Utah Life's books, a class on the same bill, or an agreement with no entry. If both companies contain the same spend, a rule on each company would double-count. Do not add a Sympli spend rule until someone answers this.
-3. **Annual prepay.** Spend lands in the month of `book_txn.txn_date`. A once-a-year invoice makes one cohort month carry the whole cost and the other months zero. This spec does not amortize. Say so in the UI when a single line is more than twice the median month.
-4. **Does `get-team-clients` already include the Follow Up Boss external id?** The legacy app does not use that endpoint. If the bulk payload has `external_ids` for service `fub`, phase 2 can link without `/v1/contact/external`. That has to be read off a live response; it is not in the mapper.
-5. **Bare source `Realtor`.** `KNOWN_REALTOR_VARIANTS` probes it. The seeded group does not list it, so a contains-match on `Realtor.com` will not keep it. If Utah Life still receives leads with that exact source, add it to the seed variants.
-6. **Realty.com variants.** The group is intentionally empty and inactive. Nobody has recorded which Follow Up Boss strings are Realty.com rather than Realtor.com, other than the CSV bucket test `realty.com` in the source. Do not invent variants.
-7. **Assigned agent.** The live fetch reads `assignedTo` through `_norm`, which stringifies whatever Follow Up Boss returns. Axcion resolves `assignedUserId` to `agent.name`. Parity of the agent table depends on those strings matching. Check one person whose assigned-to object is not a plain string.
-8. **Stage history.** Stuck age is time since `created`, because stage-change history is not synced. If Follow Up Boss exposes it, a later improvement can replace the proxy. Do not block the port on it.
-9. **ISA split.** Only the CSV coaching tab separates ISA calls from agent calls, and only from `users.csv`. The live pipeline does not. Confirm whether the port needs that split. It is not on the production tabs.
-10. **Two company-dollar definitions in one product.** The P&L and `agent_commission` path should keep using team income. This report should use section 4.3. The UI has to name them so a brokerage owner does not add them together.
-11. **`LOSTT` without `lost_reason_id`.** Axcion's Sisu status marks those deals dead. The cohort classifier does not. If Utah Life uses that code, the dead and active counts will disagree until the parity rule is confirmed.
+1. **Opcity spend versus Opcity leads.** Market VIP / Opcity leads count in the Realtor.com lead group. Vendor `1568` (Opcity) is not in the seeded spend rules. Confirm whether those Purchases should be added to the Realtor.com spend, left out, or given their own source group. Until then they stay out.
+2. **Does `get-team-clients` already include the Follow Up Boss external id?** The legacy app does not use that endpoint. If the bulk payload has `external_ids` for service `fub`, phase 2 can link without `/v1/contact/external`. That has to be read off a live response; it is not in the mapper.
+3. **Bare source `Realtor`.** `KNOWN_REALTOR_VARIANTS` probes it. The seeded group does not list it, so a contains-match on `Realtor.com` will not keep it. If Utah Life still receives leads with that exact source, add it to the seed variants.
+4. **Realty.com variants.** The group is intentionally empty and inactive. The QuickBooks account is `579` and the vendor is `1311` (`Realty.com LLC`). Nobody has recorded which Follow Up Boss strings are Realty.com rather than Realtor.com, other than the CSV bucket test `realty.com` in the source. Do not invent variants, and do not seed the spend rule until the group is activated.
+5. **Assigned agent.** The live fetch reads `assignedTo` through `_norm`, which stringifies whatever Follow Up Boss returns. Axcion resolves `assignedUserId` to `agent.name`. Parity of the agent table depends on those strings matching. Check one person whose assigned-to object is not a plain string.
+6. **Stage history.** Stuck age is time since `created`, because stage-change history is not synced. If Follow Up Boss exposes it, a later improvement can replace the proxy. Do not block the port on it.
+7. **ISA split.** Only the CSV coaching tab separates ISA calls from agent calls, and only from `users.csv`. The live pipeline does not. Confirm whether the port needs that split. It is not on the production tabs.
+8. **Two company-dollar definitions in one product.** The P&L and `agent_commission` path should keep using team income. This report should use section 4.3. The UI has to name them so a brokerage owner does not add them together.
+9. **`LOSTT` without `lost_reason_id`.** Axcion's Sisu status marks those deals dead. The cohort classifier does not. If Utah Life uses that code, the dead and active counts will disagree until the parity rule is confirmed.
 
 ## 13. What not to do
 
@@ -873,7 +904,9 @@ Store the comparison as a script under `backend/scripts/`, read-only, printing a
 - Do not call Follow Up Boss or Sisu from a dashboard request.
 - Do not copy `styles.css`, the Utah Life wordmark, or the hard-coded Follow Up Boss host into shared components.
 - Do not put Realtor.com variants, the February 2026 start, the $69 / $49 defaults, or the 50% Sympli share in code that runs for every tenant. Seed them for `ulrg` only.
-- Do not type a monthly lead cost, and do not sum every marketing account into Realtor.com. Spend is the lines an admin mapped.
+- Do not type a monthly lead cost, and do not sum every account under `62130 Internet Lead Generation` into Realtor.com. Spend is account `365` or vendor `962`, plus any rule an admin adds.
+- Do not match the Amex card account `1150040000`. That is the account the charge left, not the expense.
+- Do not match on class or department.
 - Do not filter the flywheel capture-rate cards. The filter is the drawer only.
 - Do not change `metrics._funnel` to exclude or include Trash in order to match a cohort row.
 - Do not store call notes, email bodies, or phone numbers. `has_note` and the primary email are the fields this report uses.
