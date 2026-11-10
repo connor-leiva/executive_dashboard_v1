@@ -2987,6 +2987,15 @@ class AdAccount(Base):
     utm_template: Mapped[str | None] = mapped_column(String(400), nullable=True)
     # Planned weekly spend by brand group label. Null means no plan has been entered.
     weekly_budgets: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # True stops every live write for this account. Previews still run.
+    writes_killed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # ads_management once a validate_only call is accepted; ads_read when Meta refuses the scope;
+    # null until that check has run.
+    write_scope: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    write_scope_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per brand: {on, pause_only, max_daily_spend, max_increase_pct, max_daily_increase_pct,
+    # min_spend, min_impressions}. Missing brand means autopilot is off.
+    autopilot: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     backfill_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -3053,6 +3062,36 @@ class Ad(Base):
         UniqueConstraint("tenant_id", "ad_account_id", "external_id", name="uq_ad_ext"),
         Index("ix_ad_campaign", "tenant_id", "campaign_id"),
     )
+
+
+class AdWrite(Base):
+    """One attempted change to Meta, including previews that were not sent as live writes.
+
+    This is the audit the Ads tab undoes from. The generic audit_log row points here; the
+    before and after live on this row because undo has to restore a budget, not a sentence.
+    """
+    __tablename__ = "ad_write"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    ad_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("user.id"), nullable=True)
+    actor_label: Mapped[str] = mapped_column(String(200), default="Someone")
+    source: Mapped[str] = mapped_column(String(16), default="user")  # user | autopilot | undo
+    action: Mapped[str] = mapped_column(String(32))
+    object_level: Mapped[str] = mapped_column(String(16))            # campaign | adset | ad
+    object_external_id: Mapped[str] = mapped_column(String(64))
+    object_name: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    before: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    after: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    validated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    validation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="preview")  # preview | applied | failed | undone
+    meta_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    undo_of_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AdInsightDaily(Base):

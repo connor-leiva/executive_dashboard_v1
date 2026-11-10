@@ -49,7 +49,7 @@ META = {
     "meta_ads": {"name": "Meta Ads", "provides": ["Spend", "Impressions", "Link clicks", "Leads"],
                  "feeds": ["ads"],
                  "desc": "Paid social delivery, joined through to registrations and enrollments. "
-                         "Reporting only - a System User token with ads_read; never ads_management"},
+                         "A System User token with ads_read and ads_management. Without ads_management, changes stay a preview."},
     "ghl_legacy": {"name": "Old GHL · Charge labels", "provides": ["Charge labels", "Invoice line items"],
                    "feeds": ["forum"],
                    "desc": "The old Spring B GHL (where legacy Stripe is wired) — read-only. Supplies the "

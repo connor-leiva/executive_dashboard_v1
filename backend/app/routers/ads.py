@@ -87,7 +87,22 @@ async def overview(account: str | None = Query(None), period: str = Query("30d")
         return {"connected": False, "accounts": 0,
                 "reason": "No ad account is connected. Add one in Settings -> Integrations."}
     camp = await _campaign(s, user.tenant_id, acct, campaign) if campaign else None
-    return await build_overview(s, user.tenant_id, acct, period, start, end, basis, camp)
+    payload = await build_overview(s, user.tenant_id, acct, period, start, end, basis, camp)
+    if payload.get("connected"):
+        from ..services.ads_write import recommendation_items, scope_block
+        s_day = dt.date.fromisoformat(payload["range"]["start"])
+        e_day = dt.date.fromisoformat(payload["range"]["end"])
+        payload["writes"] = scope_block(acct, user.role)
+        from ..models import AdWrite
+        payload["writes"]["can_undo"] = (await s.scalar(select(AdWrite.id).where(
+            AdWrite.ad_account_id == acct.id, AdWrite.status == "applied").limit(1))) is not None
+        try:
+            payload["recommendations"] = await recommendation_items(s, acct, s_day, e_day)
+        except Exception as e:  # noqa: BLE001 - the page still loads if a verdict cannot be built
+            payload["recommendations"] = []
+            payload["writes"]["detail"] = str(e)[:300]
+        payload["alerts"] = list(payload.get("alerts") or []) + _seat_findings(payload.get("brand_funnels") or {})
+    return payload
 
 
 async def _campaign(s: AsyncSession, tenant_id, acct: AdAccount, campaign_id) -> AdCampaign:
@@ -148,6 +163,7 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         camp = next((c for c in camps.values() if str(c.id) == d["id"]), None) if d["id"] else None
         campaigns.append({**d, "external_id": key,
                           "group": R.classify_campaign(d["name"], rules),
+                          "status": camp.status if camp else None,
                           "daily_budget": float(camp.daily_budget) if camp and camp.daily_budget is not None else None,
                           "lifetime_budget": float(camp.lifetime_budget) if camp and camp.lifetime_budget is not None else None,
                           "ctr": A.ctr(d["link_clicks"], d["impressions"]),
@@ -336,6 +352,25 @@ async def _brand_funnels(s, tenant_id, acct, s_day, e_day, campaigns: list[dict]
     return await build_brand_funnels(
         s, tenant_id, acct.business_id, s_day, e_day,
         ad_bucket(campaigns, forum=True), ad_bucket(campaigns, forum=False))
+
+
+def _seat_findings(funnels: dict) -> list[dict]:
+    """The finding a click dashboard cannot produce: money went out and no one sat down."""
+    out = []
+    for key, label in (("forum", "Forum"), ("edge", "Edge")):
+        ladder = funnels.get(key) or {}
+        spend = float(ladder.get("spend") or 0)
+        rungs = {r.get("key"): r for r in (ladder.get("rungs") or [])}
+        seat = rungs.get("seat") or rungs.get("purchase")
+        member = rungs.get("member") or rungs.get("purchase")
+        if spend <= 0 or not seat or seat.get("missing") or seat.get("n") not in (0, 0.0):
+            continue
+        if member and not member.get("missing") and member.get("n") in (0, 0.0):
+            text = f"{label} spent ${spend:,.0f}, no seats / no enrollments"
+        else:
+            text = f"{label} spent ${spend:,.0f}, no seats"
+        out.append({"tone": "bad", "metric": "seats", "text": text})
+    return out
 
 
 def _alerts(totals: dict, campaigns: list[dict], unmatched: int, thresholds) -> list[dict]:
@@ -703,8 +738,28 @@ async def patch_account(account_id: str, body: dict,
                 raise HTTPException(400, "A weekly budget cannot be negative")
             clean[str(key)[:80]] = num
         body["weekly_budgets"] = clean
+    if "autopilot" in body and body["autopilot"] is not None:
+        raw = body["autopilot"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "autopilot must be an object of brand → settings")
+        clean = {}
+        for key, cfg in raw.items():
+            if not isinstance(cfg, dict):
+                raise HTTPException(400, f"Autopilot for {key} must be an object")
+            clean[str(key)[:80]] = {
+                "on": bool(cfg.get("on")),
+                "pause_only": bool(cfg.get("pause_only")),
+                "max_daily_spend": _opt_num(cfg.get("max_daily_spend")),
+                "max_increase_pct": _opt_num(cfg.get("max_increase_pct")) or 20,
+                "max_daily_increase_pct": _opt_num(cfg.get("max_daily_increase_pct")) or 20,
+                "min_spend": _opt_num(cfg.get("min_spend")) or 25,
+                "min_impressions": int(_opt_num(cfg.get("min_impressions")) or 1000),
+            }
+        body["autopilot"] = clean
+    if "writes_killed" in body:
+        body["writes_killed"] = bool(body["writes_killed"])
     for field in ("group_rules", "lead_actions", "thresholds", "funnel_override", "utm_template",
-                  "weekly_budgets", "status", "timezone_name", "name"):
+                  "weekly_budgets", "autopilot", "writes_killed", "status", "timezone_name", "name"):
         if field in body:
             setattr(acct, field, body[field])
     if "business_key" in body:
@@ -732,3 +787,90 @@ async def delete_account(account_id: str, purge: bool = False,
           {"external_id": ext, "purge": purge})
     await s.commit()
     return {"ok": True, "purged": purge}
+
+
+def _opt_num(value):
+    if value in (None, ""):
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Autopilot amounts must be numbers")
+    if num < 0:
+        raise HTTPException(400, "Autopilot amounts cannot be negative")
+    return num
+
+
+@router.post("/ads/writes/apply")
+async def apply_writes(body: dict, user: User = Depends(require_role("owner", "admin")),
+                       s: AsyncSession = Depends(get_session)):
+    """Apply Scale/Keep/Kill, or a manual pause, budget, duplicate, or tag fix.
+
+    Without ads_management the call is stored as a preview. Meta's validate_only
+    answer, including a refusal, comes back on each result.
+    """
+    from ..services import ads as A
+    from ..services.ads_write import apply_recommendations, execute, scope_block
+    from ..integrations.meta_ads_write import FIX_TAGS
+    acct = await _account(s, user.tenant_id, body.get("account"))
+    s_day, e_day, _ = A.ads_period(body.get("period") or "30d", None, None, acct.timezone_name)
+    dry = bool(body.get("dry_run", True))
+    if body.get("action") == "fix_tagging" and not body.get("external_id"):
+        from ..models import Ad
+        from ..integrations.meta_ads import has_ad_level_tagging
+        ads = (await s.execute(select(Ad).where(
+            Ad.tenant_id == user.tenant_id, Ad.ad_account_id == acct.id))).scalars()
+        targets = [a for a in ads if not has_ad_level_tagging(a.url_tags)][:20]
+        results = []
+        for ad in targets:
+            results.append(await execute(
+                s, acct, actor=user, action="fix_tagging", level="ad",
+                external_id=ad.external_id, reason="Fix tagging",
+                params={"url_tags": FIX_TAGS}, dry_run=dry))
+        block = scope_block(acct, user.role)
+        out = {"results": results, "can_write": block["can_write"],
+               "forced_dry_run": any(r.get("dry_run") for r in results) and not dry,
+               "message": block["message"] or (None if results else "Every synced ad already carries utm_content.")}
+    elif body.get("items"):
+        out = await apply_recommendations(
+            s, acct, user, body["items"], dry_run=dry, start=s_day, end=e_day)
+    else:
+        action = body.get("action")
+        if action == "fix_tagging":
+            action = "fix_tagging"
+            body.setdefault("params", {})["url_tags"] = FIX_TAGS
+        result = await execute(
+            s, acct, actor=user, action=action, level=body.get("level") or "ad",
+            external_id=body.get("external_id") or "", reason=body.get("reason") or action,
+            params=body.get("params") or {}, dry_run=dry)
+        block = scope_block(acct, user.role)
+        out = {"results": [result], "can_write": block["can_write"],
+               "forced_dry_run": result.get("dry_run") and not dry, "message": block["message"]}
+    await s.commit()
+    return out
+
+
+@router.post("/ads/writes/undo")
+async def undo_write(body: dict, user: User = Depends(require_role("owner", "admin")),
+                     s: AsyncSession = Depends(get_session)):
+    from ..services.ads_write import undo_last
+    acct = await _account(s, user.tenant_id, body.get("account"))
+    result = await undo_last(s, acct, user)
+    await s.commit()
+    return result
+
+
+@router.post("/ads/writes/scope")
+async def recheck_scope(body: dict, user: User = Depends(require_role("owner", "admin")),
+                        s: AsyncSession = Depends(get_session)):
+    """Ask Meta, with validate_only, whether this token can manage ads."""
+    from ..security import dec
+    from ..services.ads_write import probe_scope, scope_block
+    acct = await _account(s, user.tenant_id, body.get("account"))
+    integ = await s.get(Integration, acct.integration_id)
+    token = dec(integ.access_token_enc) if integ and integ.access_token_enc else None
+    if not token:
+        raise HTTPException(400, "No Meta token is stored. Reconnect Meta to enable changes.")
+    await probe_scope(s, acct, token)
+    await s.commit()
+    return scope_block(acct, user.role)

@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
 import { BAND, C, FIG, FONT, HEAD, band, compact, mult, num, pct, usd } from "./adsTokens.js";
+import AdsChanges from "./AdsChanges.jsx";
 import CreativeWall from "./CreativeWall.jsx";
 import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
@@ -31,6 +32,7 @@ import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview } from "./useAds.js
 /* The page has a spine: numbered sections and a sticky jump rail. Nothing was deleted to
    shorten it; it was given joints. */
 const SECTIONS = [
+  { id: "changes", n: "00", title: "Changes" },
   { id: "chain", n: "01", title: "The chain" },
   { id: "findings", n: "02", title: "Findings" },
   { id: "sources", n: "03", title: "Where it came from" },
@@ -346,8 +348,9 @@ export default function AdsView() {
         </p>
         <p style={{ fontFamily: FONT, fontSize: 13, color: C.muted, maxWidth: 560,
                     lineHeight: 1.6 }}>
-          You&rsquo;ll need a System User token with <strong>ads_read</strong>. Don&rsquo;t grant
-          ads_management — this module only reads.
+          You&rsquo;ll need a System User token with <strong>ads_read</strong> and{" "}
+          <strong>ads_management</strong>. Until the token includes ads_management, Apply only
+          previews a change.
         </p>
       </Card>
     );
@@ -469,6 +472,10 @@ export default function AdsView() {
 
       {/* The one dark band on the page. The hero is the thesis - spend, and what it contracted -
           so it is the only thing that gets the evergreen ground. */}
+      <div className="wrap" id="changes" style={{ paddingTop: 18 }}>
+        <AdsChanges data={data} onSaved={retry} />
+      </div>
+
       <div className="band">
         <div className="wrap">
           <Hero data={data} adCount={creatives.data?.total ?? 0} />
