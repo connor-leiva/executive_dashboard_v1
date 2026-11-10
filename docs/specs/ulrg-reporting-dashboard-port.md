@@ -12,7 +12,19 @@ The legacy app already has its own build spec, `roi-conversion-dashboard/fub_liv
 
 Rebuild the **production** dashboard: the live Follow Up Boss + Sisu reports. Do not rebuild the request-time fan-out (five Follow Up Boss calls per person on every page load). Axcion already syncs CRM data into Postgres on a worker and serves reports from those rows. Extend that pattern.
 
-Make every Utah Life-specific value a per-tenant, per-business setting. Seed Utah Life (`business.key = "ulrg"`) with the values the legacy app hard-codes, so a parity check can reproduce its numbers. A second tenant must be able to define its own source strings, monthly cost, program start, and fee defaults without a code change.
+Make every Utah Life-specific value a per-tenant, per-business setting. Seed Utah Life (`business.key = "ulrg"`) with the source strings, program start, fee defaults, and the Sympli cost share. A second tenant must be able to define its own source strings, QuickBooks spend mapping, cost share, and program start without a code change.
+
+Lead-source spend is not a typed monthly fee. It is pulled from that tenant's QuickBooks company and then reduced by a configured cost share. See section 4.7.
+
+## Decisions
+
+These replace the earlier open questions. Do not reopen them in implementation.
+
+1. **Spend comes from QuickBooks.** Utah Life's lead spend, including Realtor.com, is in QuickBooks Online. Map accounts, vendors, and classes to a lead-source group per tenant. Do not seed a dollar amount.
+2. **Sympli pays half of Realtor.com.** Each source group can name another business and a share percent. The report shows ROI on gross spend and on spend after that share. Seed Realtor.com at 50% borne by the business with `key = "sympli"`.
+3. **Write Follow Up Boss ids back to Sisu.** When an email fallback is what finds the contact, send `save_mapping_on_fallback=true`, the same as `sisu.get_contact_by_external_id` does today in the legacy app.
+4. **Cohort months use the workspace calendar.** `IntranetWorkspace.timezone` (default `America/Denver`, read by `sync._workspace_tz`). The cohort key is the `YYYY-MM` of `lead.created_at_src`, which `fub.map_person` already stores in that zone. Legacy used UTC. Parity will disagree for leads near a month boundary. That difference is expected.
+5. **Digest settings are per tenant in the UI.** Recipients, ClickUp list, and the model are editable. The only seeded recipient is Connor Leiva. The digest stays off until an admin enables it.
 
 Do not copy credentials out of the legacy tree. `roi-conversion-dashboard/fub_live_dashboard/backend/app/sisu.py` falls back to a real username and API token when env vars are unset. Leave those values there. Axcion already stores integration secrets encrypted on `integration`.
 
@@ -136,7 +148,7 @@ Lead-journey strips show touches on a 0–72 hour axis from `created` (`build_jo
 
 `SettingsView.jsx`: `LeadSourcesAdmin.jsx` (admin), `DigestSettings.jsx` (admin), and sign-out for every signed-in user (`POST /api/auth/logout`).
 
-Lead-source admin (`routes_admin.py`): list including inactive, create, update, soft-delete. Fields: immutable `key` (`^[a-z][a-z0-9_]*$`), display name, monthly cost (0 to 1,000,000), variants (max 50), match mode `exact|contains|regex`, active flag, display order. Changing variants or match mode deletes that group's cohort cache. Changing cost does not.
+Lead-source admin (`routes_admin.py`): list including inactive, create, update, soft-delete. Fields: immutable `key` (`^[a-z][a-z0-9_]*$`), display name, a typed `monthly_cost_dollars` (0 to 1,000,000), variants (max 50), match mode `exact|contains|regex`, active flag, display order. Changing variants or match mode deletes that group's cohort cache. Changing the typed cost does not. Axcion does not keep that typed cost. Section 4.7 replaces it with QuickBooks.
 
 Digest admin: per source group, active flag, send day/hour/minute, timezone (default `America/Denver`), recipients, max agents (1–12, default 6), minimum lead threshold, include-reinforce flag, test send, delivery history, test ClickUp task.
 
@@ -197,7 +209,7 @@ A person is in the report when:
 - `created` parses, and
 - the cohort key is greater than or equal to the program-start month.
 
-Cohort key is `created` formatted `%Y-%m` after timestamps are converted to UTC and then stripped of tzinfo (`_parse_datetime`). It never changes. Junk, wrong-number, and unqualified leads stay in the denominator. There is no exclusion for Follow Up Boss stage `Trash`. Close credit stays with the original lead, not with whichever agent closed it.
+Legacy cohort key is `created` formatted `%Y-%m` after timestamps are converted to UTC and then stripped of tzinfo (`_parse_datetime`). It never changes. **Axcion does not copy that.** The cohort key is the year and month of `lead.created_at_src`, the workspace calendar date already written by `fub.map_person` using `sync._workspace_tz` (`IntranetWorkspace.timezone`, default `America/Denver`). A lead created at 11pm Mountain on 31 January is January in Axcion and February in the legacy report. Junk, wrong-number, and unqualified leads stay in the denominator. There is no exclusion for Follow Up Boss stage `Trash`. Close credit stays with the original lead, not with whichever agent closed it.
 
 **Contact.** `first_outbound_at` is the earliest of: outbound call, outbound text, sent or delivered email, and appointment `start`, each ignored when the timestamp is missing or earlier than `created` (`cohorts_live._fetch_person_payload`). "Contacted" means that timestamp exists. It is not the Follow Up Boss `contacted` boolean.
 
@@ -301,15 +313,10 @@ Per cohort month, with `leads` = FUB leads received and `closes` = Sisu closed t
 | GCI per lead | GCI / leads |
 | Company dollar per lead | company dollar / leads |
 | Company dollar per close | company dollar / closes |
-| Monthly cost | the source group's `monthly_cost_dollars`, once per cohort row |
-| Net profit | company dollar − monthly cost |
-| ROI multiple | company dollar / monthly cost |
-| Cost per lead | monthly cost / leads |
-| Cost per close | monthly cost / closes, or null when there are no closes |
 
-When monthly cost is 0, the five ROI fields are null, not zero.
+The legacy app then applied one flat `monthly_cost_dollars` to every cohort row, skipped ROI when that cost was 0, and set program cost to `monthly cost × the number of cohort rows with leads_received > 0`. Axcion does not do that. Spend, net profit, and both ROI multiples are defined in section 4.7. A date filter still recomputes the header from the visible rows, the way `recomputeSisuMeta` does, so the header cannot keep an unfiltered total.
 
-Program rollup (`sisu_meta`): sum of the closed-transaction dollars. Program cost = monthly cost × the number of cohort rows with `leads_received > 0` (a month with no leads is free). Program net = company-dollar total − program cost. Program ROI = company-dollar total / program cost. The client recomputes this over the **filtered** rows in `recomputeSisuMeta`, so a date filter must not keep the unfiltered header.
+Program rollup of company dollar, GCI, and volume is still the sum of the closed transactions on the visible rows.
 
 `team_income` is documented in the legacy code as "team split + trans fee before adjustments." Axcion's current company-dollar approximation **is** this number. It is the wrong numerator for ROI. See section 7.
 
@@ -403,7 +410,56 @@ Also: first-touch target 5 minutes, floor 15; percent with 5+ attempts target 85
 
 `scheduler.py` enqueues due `digest_configs` every 5 minutes and drains `jobs` every 60 seconds (`SELECT … FOR UPDATE SKIP LOCKED`, 10 jobs, 3 attempts then `failed`). The handler is `digest_handler.handle_weekly_digest`. Selection and prose live in `digest_select.py`, `digest_characterize.py`, `digest_llm.py`, `digest_render.py`. Delivery is email (`mailer.py`) plus, after the email commits, one ClickUp task per agent block (`digest_clickup.py`, `clickup.py`). Unsubscribe is `GET /api/digest/unsubscribe`.
 
-This is a large feature on top of the same universe. It is phase 6. Do not block the dashboard on it.
+This is a large feature on top of the same universe. It is phase 6. Do not block the dashboard on it. Recipients, the ClickUp list, and the model are tenant settings in the Axcion UI (phase 6), not environment variables. The legacy defaults that the UI starts from: timezone `America/Denver` (use `IntranetWorkspace.timezone` instead), max agents 6, minimum lead threshold 1, model `claude-sonnet-4-6` (`digest_llm._DEFAULT_MODEL`), ClickUp list id null so ClickUp stays off (`0005_digest_clickup_columns`).
+
+### 4.7 QuickBooks spend, cost share, and ROI
+
+Axcion already has QuickBooks per business. `Integration.provider = "qbo"` stores the realm and the encrypted tokens. `integrations/qbo.py` does OAuth, the ProfitAndLoss report, the chart of accounts (`accounts`), and CDC of `Purchase`, `Bill`, `JournalEntry`, and the other ledger types. `books_sync.sync_qbo_txns` writes `book_txn` and `book_txn_line`. Each line has `account_qbo_id`, `account_label`, `payee`, `class_label`, `amount`, `posting_type`, and the parent `book_txn.txn_date`. `pl_line` is the period P&L by account name. `coa_map.py` already knows the words "lead buy", "realtor com", "lead source", and "internet lead" as hints for standard accounts 6060 and 6061. Those hints are not Utah Life's account ids. Do not auto-include an account because its name matches.
+
+Use `book_txn_line`, not the P&L summary and not `book_txn.amount`. The header amount is the first category line only, and the model docstring says a multi-line purchase would charge the whole header to line one. `txn_date` is the books date. The cohort month for a line is that date's `YYYY-MM`. Do not convert it through UTC.
+
+**Mapping, per tenant.** New table `lead_source_spend_rule`, many rows per source group:
+
+- `lead_source_group_id`, `tenant_id`
+- `business_id` — which QuickBooks company. This is the realm on that business's `qbo` integration. Utah Life's Realtor.com rules point at the brokerage business, not at Sympli, unless an admin adds a Sympli rule on purpose.
+- Optional `account_qbo_id`. When set, the line's account must equal it.
+- Optional `payee` substring, case-insensitive, tested against `book_txn_line.payee` and `book_txn.payee`.
+- Optional `class_label` substring, case-insensitive, tested against `book_txn_line.class_label`.
+- A rule with no account, payee, or class is invalid. Do not allow a rule that means "all expenses."
+- Within one rule, every field that is set must match (AND). A line is in the group if any rule matches (OR).
+- A line that matches two groups counts in the first group by `display_order` only. Say so in the settings UI when the admin's rules overlap.
+
+The settings UI lists the connected company's accounts, and the distinct payees and classes already seen on `book_txn_line`, and the admin picks. Suggest rows whose account name contains the group's display name or the 6060/6061 keywords, and leave them unchecked.
+
+**Amount.** For a matched line, add `amount` when `posting_type` is null or `debit`. Subtract it when `posting_type` is `credit` (a credit on an expense account reduces spend). Ignore `BillPayment` lines so a bill and its payment are not both spend. Ignore lines whose `book_txn.qbo_type` is `Transfer`.
+
+**Cost share.** New table `lead_source_cost_share`:
+
+- `lead_source_group_id`, `tenant_id`
+- `bearer_business_id` — the other business that bears part of the cost. For Utah Life's Realtor.com group, seed the business with `key = "sympli"` when it exists.
+- `share_pct` `Numeric(5,2)`. Seed `50.00`. The sum of shares on one group must be between 0 and 100.
+
+This percent is the agreement. It is not a second QuickBooks pull. Gross spend is only the lines the rules match. Net spend is `gross × (1 − share_pct / 100)`. Do not also subtract whatever sits in Sympli's QuickBooks, or the half Sympli pays will be removed twice if that same bill is in both companies.
+
+**Per cohort month**, once at least one rule exists for the group:
+
+| Field | Formula |
+| --- | --- |
+| `gross_spend` | Sum of the matched line amounts whose `txn_date` falls in that month. A month with rules and a completed sync and no lines is `0`, not null |
+| `share_pct` | The group's configured share. `0` when there is no share row |
+| `net_spend` | `gross_spend × (1 − share_pct / 100)`, rounded to cents |
+| `cost_per_lead_gross` / `cost_per_lead_net` | Spend / leads, or null when there are no leads |
+| `cost_per_close_gross` / `cost_per_close_net` | Spend / Sisu closes, or null when there are no closes |
+| `net_profit_gross` | company dollar − gross spend |
+| `net_profit_net` | company dollar − net spend |
+| `roi_gross` | company dollar / gross spend, or null when gross spend is 0 |
+| `roi_net` | company dollar / net spend, or null when net spend is 0 |
+
+When the group has no spend rule, all of these are null and the UI says the QuickBooks mapping is not set. Do not show `$0` and an infinite ROI.
+
+Program gross is the sum of `gross_spend` over the visible cohort months, including a month that had spend and no leads. Program net uses the same share percent. This is the opposite of the legacy rule, which dropped empty months and billed a flat fee. Do not compare these ROI figures to the legacy dashboard.
+
+The header shows both. Label them "ROI on full QuickBooks spend" and "ROI after Sympli's share" (use the bearer business's name, not a hard-coded "Sympli", except in the Utah Life seed).
 
 ## 5. External APIs and fields
 
@@ -438,7 +494,7 @@ Base defaults to `https://api.sisu.co/api` (production). Staging was abandoned b
 | `GET /v1/client/commission-info/{id}` | Closed transactions |
 | `GET /v1/client/edit-client/{id}` | Closed transactions, for `trans_fee_amt`, name, and address |
 
-People with no email are not looked up. They show up as unmatched with that reason. `save_mapping_on_fallback=true` **writes** a mapping back into the customer's Sisu account. Axcion's syncs are read-only today. Do not enable that write without an explicit decision (open question 2).
+People with no email are not looked up. They show up as unmatched with that reason. `save_mapping_on_fallback=true` writes the Follow Up Boss person id onto the Sisu contact when the email fallback is what found it. Axcion must do the same write. Do it only on that fallback, only for a lead in an active source group, and only when the id lookup missed. An id that already matches does not need a write. Log each write on the sync run. Do not send the flag for people outside an active source group.
 
 Axcion already calls different Sisu routes: `GET /v1/team/get-team-clients`, `get-team-agents`, `edit-agent`, `get-team-vendors`, and `commission-info` (`backend/app/integrations/sisu.py`). It does not call `/v1/contact/external`.
 
@@ -494,9 +550,9 @@ Seeded for the tenant named `Utah Life Real Estate Group`:
 
 `KNOWN_REALTOR_VARIANTS` adds the bare string `Realtor` on top of the extras. The seed list does not include bare `Realtor`. For Utah Life parity, seed the migration's list, not the regex and not the bare `Realtor` string, unless a parity run shows leads whose source is exactly `Realtor`.
 
-Program start is not on the table. Both `build_cohort_payload_live` and `build_pipeline_universe` use `datetime(2026, 2, 1)`. Put `program_start` on the Axcion source-group row and seed Utah Life's Realtor.com group to `2026-02-01`. Leave Realty.com inactive until someone sets its variants, cost, and start.
+Program start is not on the legacy table. Both `build_cohort_payload_live` and `build_pipeline_universe` use `datetime(2026, 2, 1)`. Put `program_start` on the Axcion source-group row and seed Utah Life's Realtor.com group to `2026-02-01`. Compare that date to `lead.created_at_src`, not to the UTC timestamp. Leave Realty.com inactive until someone sets its variants and start.
 
-Monthly cost is dollars, `numeric(10,2)`. The seed is 0, so ROI fields are null until an admin types the real subscription. The env var `REALTOR_COM_MONTHLY_COST` is only the no-database fallback. The number Utah Life actually pays is **not in the repo**. Parity of net profit and ROI waits on that number (open question 1).
+The legacy `monthly_cost_dollars` column, seeded at 0, is not ported. Spend comes from QuickBooks (section 4.7). The env var `REALTOR_COM_MONTHLY_COST` stays behind in the legacy app.
 
 Opcity and Market VIP are included in Realtor.com on purpose. The comment in `cohorts_live.py` says Move owns Opcity and that 4 of the first 5 confirmed closes arrived as `Market VIP via Opcity BLA`. Do not also create an Opcity group that double-counts those people, unless the tenant's variants are disjoint.
 
@@ -530,7 +586,7 @@ Put each of these on tenant or business configuration. Seed only the Utah Life b
 | Allowlisted admin email | `0002_seed`, `connor.leiva@gmail.com` | Do not re-seed users |
 | Source group `realtor_com` and its variants | `0003_lead_source_groups.py` | As in section 6.2, active |
 | Source group `realty_com` | same | Inactive, empty variants, cost 0 |
-| Monthly cost | column, seeded 0; env fallback only without a database | Leave 0 until the operator enters it |
+| Monthly cost | `monthly_cost_dollars`, seeded 0 | Do not seed a dollar amount. Map QuickBooks lines (section 4.7). Seed a 50% cost share borne by `sympli` on `realtor_com` |
 | Program start | `datetime(2026, 2, 1)` in `cohorts_live.py` | `2026-02-01` on the Realtor.com group |
 | EXP risk defaults | `$69` team, `$49` agent | Those defaults on the brokerage, overridable |
 | Sisu username fallback | `utah-life-real-estate-group` plus a hard-coded token in `sisu.py` | Do not copy. Use the connected integration |
@@ -538,9 +594,9 @@ Put each of these on tenant or business configuration. Seed only the Utah Life b
 | Follow Up Boss deep link | `https://liveutah1.followupboss.com/2/people/view` | The account domain already stored by `fub_sync` |
 | Pipeline industry percentiles and tier cutoffs | `pipeline.py` module constants | Start as product defaults. Move them to settings only if a second tenant needs different bands |
 | Digest 8% / 10% floors | `benchmarks.py` | Phase 6, on the digest config |
-| Timezone | digest default `America/Denver` | Axcion already has a workspace timezone. Cohort **keys** stay on the UTC month of `created`, because that is what the legacy report uses. Do not switch them to Mountain time or January/February boundary leads will move |
+| Timezone | digest default `America/Denver`; cohort keys were UTC | Cohort keys and pipeline windows use `IntranetWorkspace.timezone` via `lead.created_at_src`. Digest send timezone defaults to that same workspace zone |
 | Focus-source list | `metrics.FOCUS_SOURCES` | Not used by the live tabs |
-| ClickUp list and mail-from | digest modules and env | Phase 6, per tenant |
+| ClickUp list, recipients, model | digest columns and `DIGEST_LLM_MODEL` | Phase 6, editable per source group. Seed one recipient, Connor Leiva, and leave the list id empty |
 
 `scripts/sisu_dump_jason_urban.py` and the other `backend/scripts/sisu_*.py` files are one-off audits against named people and transactions. They are not product behavior.
 
@@ -594,18 +650,19 @@ Tabs are declared in `backend/app/services/tabs.py`. A new report should be a vi
 | Appointments with start and outcome | same | not synced. Sisu has `appt_set_date` and `appt_met_date` on the transaction only | **Missing** for leads that never became a Sisu file |
 | Follow Up Boss deals | same | not synced | Partial. Sisu covers closed and under contract. Offer and showing still need the Follow Up Boss stage or a deal row |
 | Follow Up Boss `price` | person payload | not in `PERSON_FIELDS` | **Missing.** What's Working median price only |
-| Lead-source groups, variants, match mode, monthly cost | `lead_source_groups` | none. Sympli `lead_bucket` is a different column and merges the two brands | **Missing** |
+| Lead-source groups, variants, match mode | `lead_source_groups` | none. Sympli `lead_bucket` is a different column and merges the two brands | **Missing** |
 | Program start per source | hard-coded 2026-02-01 | none | **Missing** |
 | Cohort tables, maturity, speed, uncontacted | `cohorts.py` | none | **Missing** |
-| Sisu contact lookup by Follow Up Boss id and email, including duplicate contacts | `cohorts_sisu._lookup_one` | bulk `get-team-clients` plus email on the transaction | **Partial.** Email join exists as a field. The id mapping and the duplicate-contact merge do not |
+| Sisu contact lookup by Follow Up Boss id and email, including duplicate contacts, and the id write-back | `cohorts_sisu._lookup_one`, `save_mapping_on_fallback=true` | bulk `get-team-clients` plus email on the transaction. No write to Sisu | **Partial.** Add the lookup and the same write-back |
 | Company dollar formula, EXP risk, agent payment, trans fee | `cohorts_sisu.py` | `team_income` stored as the complement of `agent_commission`, recent deals only | **Partial.** Wrong formula, incomplete history, fee lines not stored |
-| ROI, cost per lead, cost per close | same, from monthly cost | none for lead sources. Ads ROAS is a different system | **Missing** |
+| ROI, cost per lead, cost per close | flat `monthly_cost_dollars` per cohort month that had leads | QuickBooks transactions and P&L exist (`book_txn_line`, `pl_line`, `integrations/qbo.py`). Nothing maps a vendor, account, or class to a lead source, and nothing stores a cost share | **Partial.** Build the mapping on `book_txn_line`. Do not reuse the typed monthly cost |
 | Eight-stage pipeline, tiers, stuck, predicted close rate | `pipeline.py` | four-step period funnel | **Missing** |
 | What's Working and 72-hour journeys | `pipeline_behavior.py` | none | **Missing** |
+| Referral Flywheel drawer filtered by lead source | not in the legacy app | `AuditDrawer.jsx` plus `lineage.py` flywheel keys. Rows have no lead source | **Missing.** Phase 7. The cards stay unfiltered |
 | CSV source funnel and coaching | `metrics.py` | not present, and hidden in legacy production | Do not port the files. Optional later, from stored events |
 | Exports | browser CSV of the tables on screen | transaction drill export elsewhere | **Missing** for these tables |
 | Settings UI for sources and cost | `LeadSourcesAdmin.jsx` | integration settings, not source groups | **Missing** |
-| Weekly digest, LLM writeup, ClickUp tasks | `digest_*.py` | none of this pipeline | **Missing.** Phase 6 |
+| Weekly digest, LLM writeup, ClickUp tasks | `digest_*.py`. Recipients, list id, and model were database and env settings and are not in the export | none of this pipeline | **Missing.** Phase 6. Recipients, ClickUp list, and model are UI settings. Seed Connor Leiva as the only recipient |
 | Request-time cache of the whole universe | `cohort_cache` | not needed if facts are in Postgres | Do not port the cache table. Aggregates must be cheap enough to compute per request, with a normal query cache only if a profile says so |
 | Trash excluded from leads | not excluded in cohorts | `_funnel` excludes stage `Trash` | Keep both behaviors in their own reports |
 | `status_code == LOSTT` counts as dead | not in the cohort classifier | `classify_status` in `integrations/sisu.py` | Use the legacy order for this report so parity holds |
@@ -622,24 +679,27 @@ Conventions to follow: async SQLAlchemy, Alembic revision after the current head
 **Data.** New table `lead_source_group`:
 
 - `id`, `tenant_id`, `business_id`
-- `key`, `display_name`, `monthly_cost` `Numeric(10,2)` default 0
+- `key`, `display_name`
 - `variants` JSON list, `match_mode` `exact|contains|regex` default `contains`
 - `program_start` date, nullable
 - `is_active`, `display_order`
 - `exp_risk_team_default` Numeric default 69, `exp_risk_agent_default` Numeric default 49
 - unique `(tenant_id, business_id, key)`
 
-Seed, in the migration or in `seed_ulrg_scorecard.py`'s style of an idempotent data migration, only when a business with `key = 'ulrg'` exists: the two groups in section 6.2, Realtor.com `program_start = 2026-02-01`, Realty.com inactive. Do not seed other tenants.
+No `monthly_cost` column. Spend rules and cost shares are the tables in section 4.7.
+
+Seed, in the migration or in `seed_ulrg_scorecard.py`'s style of an idempotent data migration, only when a business with `key = 'ulrg'` exists: the two groups in section 6.2, Realtor.com `program_start = 2026-02-01`, Realty.com inactive. When a business with `key = 'sympli'` exists in the same tenant, seed one `lead_source_cost_share` on `realtor_com`: bearer Sympli, `share_pct = 50`. Seed no spend rule. An admin maps the QuickBooks account, vendor, or class. Do not seed other tenants.
 
 **API.** Under the existing integrations or settings router, business-scoped:
 
 - `GET /api/v1/businesses/{business_id}/lead-sources` active groups, any user who can see the business
 - `POST`, `PATCH`, `DELETE` for owner and admin. Delete is soft: `is_active=false` and prefix `key` with `deleted_`, matching `lead_sources.soft_delete_group`
-- Validate key, cost, match mode, and variant count the way `routes_admin.py` does
+- Validate key, match mode, and variant count the way `routes_admin.py` does
+- `GET` and `PUT` of spend rules and cost shares for that group. Reject a rule with no account, payee, and class. Reject shares that sum past 100
 
-**UI.** A section on the brokerage settings surface, not a new product tab yet. List, edit variants, edit monthly cost, edit program start, activate Realty.com.
+**UI.** A section on the brokerage settings surface, not a new product tab yet. List, edit variants, edit program start, activate Realty.com, pick QuickBooks lines, and set the cost share. The cost control is the mapper in section 4.7, not a dollar field.
 
-**Acceptance.** A second business can create `zillow` with its own variants and cost and Utah Life's rows do not change. Utah Life's `realtor_com` row matches the seed list. Cost edits do not require a redeploy. Tests cover exact, contains, and regex, including that `Realtor.com` does not match `Realty.com` and that `Market VIP via Opcity BLA` matches the Realtor.com group.
+**Acceptance.** A second business can create `zillow` with its own variants and Utah Life's rows do not change. Utah Life's `realtor_com` row matches the seed list and, when Sympli exists, carries a 50% share. Saving a spend rule does not require a redeploy. Tests cover exact, contains, and regex, including that `Realtor.com` does not match `Realty.com` and that `Market VIP via Opcity BLA` matches the Realtor.com group. A rule with no account, payee, or class is rejected. Two shares of 60 do not save.
 
 ### Phase 2. Sync the missing facts
 
@@ -671,35 +731,35 @@ Widen enrichment for transactions that join to an in-scope lead, not only year-t
 
 **Linkage.** Add `lead_id` nullable on `transaction`, set when:
 
-1. The Sisu client payload already carries an external id under service `fub` equal to `lead.external_id`, if `get-team-clients` returns it. Inspect one real payload before assuming it does (open question 3). If it does not, call `GET /v1/contact/external` only for leads in an active source group that are still unmatched, and store the resulting Sisu contact id on the lead (`sisu_contact_id`). Do not pass `save_mapping_on_fallback` unless open question 2 is answered yes.
+1. The Sisu client payload already carries an external id under service `fub` equal to `lead.external_id`, if `get-team-clients` returns it. Inspect one real payload before assuming it does. If it does not, call `GET /v1/contact/external` only for leads in an active source group that are still unmatched, and store the resulting Sisu contact id on the lead (`sisu_contact_id`). When the lookup has to fall back to email, pass `save_mapping_on_fallback=true`, matching the legacy client. Do not pass it when the id lookup already hit.
 2. Else lowercased primary email equals `transaction.buyer_email` or `buyer_email2`.
 3. If that email hits several Sisu contacts, attach the transactions from all of them, deduped by `transaction.external_id`. This is the duplicate-contact case in `_lookup_one`.
 
 Index `(tenant_id, lead_id)` and `(tenant_id, business_id, buyer_email)`.
 
-**Acceptance.** After a sync against the fakes: a call with duration 0 and a note is `is_live`; a call with duration 0 and no note is not; an outbound text is `try`; a person created before `program_start` is not required for the activity backfill. `company_dollar` on a fixture with GCI 10000, trans fee 295, EXP 69 and 49, agent payment 7000 equals `10000 + 295 - 69 - 49 - 7000 = 3177`. A fixture with no EXP lines uses 69 and 49 and `exp_risk_source=default`. Existing dashboard tests (`test_dashboard.py`, `test_sisu.py`, `test_fub_sync.py`) still pass. `agent_commission` for a deal that already had `team_income` is unchanged.
+**Acceptance.** After a sync against the fakes: a call with duration 0 and a note is `is_live`; a call with duration 0 and no note is not; an outbound text is `try`; a person created before `program_start` is not required for the activity backfill. `company_dollar` on a fixture with GCI 10000, trans fee 295, EXP 69 and 49, agent payment 7000 equals `10000 + 295 - 69 - 49 - 7000 = 3177`. A fixture with no EXP lines uses 69 and 49 and `exp_risk_source=default`. Existing dashboard tests (`test_dashboard.py`, `test_sisu.py`, `test_fub_sync.py`) still pass. `agent_commission` for a deal that already had `team_income` is unchanged. The email-fallback request includes `save_mapping_on_fallback=true`. The id-hit request does not.
 
 ### Phase 3. Cohort report
 
 **Service.** `backend/app/services/lead_source_report.py`. Pure functions over rows already in Postgres. Inputs: tenant, business, source-group key, optional cohort start and end. No HTTP to Follow Up Boss or Sisu on the request.
 
-Port `aggregate_cohorts` and the Sisu rollup in section 4.2 and 4.3 without changing a formula. Cohort key from `lead.src_created_at` in UTC, not from `created_at_src` (that date is the workspace calendar date and will disagree near midnight Mountain time).
+Port `aggregate_cohorts` and the Sisu rollup in section 4.2 and 4.3 without changing those formulas. The cohort key is `lead.created_at_src` formatted `%Y-%m` (workspace calendar), not the UTC month of `src_created_at`. Spend and ROI follow section 4.7, not the legacy flat fee.
 
 Contacted and speed come from `crm_activity`, not from `lead.contacted`. Appointment set and held come from appointment rows plus the stage substrings in section 4.2. Closed, under contract, GCI, volume, and company dollar come from linked `transaction` rows classified with the **legacy** order (do not treat `LOSTT` as lost unless `lost_reason_id` or `archive_ts` is set; persist those two signals if they are not already implied by `status`).
 
 People with no email stay in the denominator and in the unmatched list.
 
-ROI uses the group's monthly cost. Months with zero leads add nothing to program cost. Return the per-transaction audit rows and the unmatched list (cap the unmatched payload at 50, and return the total).
+Return gross and net spend, both ROI multiples, and both net-profit figures from section 4.7. A month with QuickBooks spend and no leads still counts in the program total. Return the per-transaction audit rows and the unmatched list (cap the unmatched payload at 50, and return the total).
 
 **API.** `GET /api/v1/businesses/{business_id}/lead-sources/{key}/cohorts?start=YYYY-MM&end=YYYY-MM`. 404 when the group is missing or inactive. 403 when the user cannot see the business.
 
-**UI.** A report page on the brokerage, linked from the existing lead-to-close panel so the period funnel and the cohort report are visibly different. Source picker, month range, the three tables, the header KPIs, the audit drawers, Export CSV of the visible rows. Maturity badges follow `show_conversion`, `muted_conversion`, and `industry_comparable`. Empty Realty.com (inactive, or active with no variants) shows an empty state, not an error.
+**UI.** A report page on the brokerage, linked from the existing lead-to-close panel so the period funnel and the cohort report are visibly different. Source picker, month range, the three tables, the header KPIs (company dollar, gross spend, net spend, both ROIs), the audit drawers, Export CSV of the visible rows. Maturity badges follow `show_conversion`, `muted_conversion`, and `industry_comparable`. Empty Realty.com (inactive, or active with no variants) shows an empty state, not an error. A group with no spend rule shows the company-dollar figures and a mapping-needed state instead of `$0` ROI.
 
-**Acceptance.** Given a fixture of ten February leads and the transactions in the company-dollar example, the February row matches leads, contacted, speed bucket, set, held, Sisu closed, company dollar, and ROI to the cent. A lead with stage `Trash` is still in `leads_received`. A `Realty.com` source is absent from the Realtor.com report. Filtering to one month changes program cost to a single monthly cost and does not change that cohort's age. Tests live next to `test_dashboard.py` and do not call the network.
+**Acceptance.** Given a fixture of ten February leads and the transactions in the company-dollar example, the February row matches leads, contacted, speed bucket, set, held, Sisu closed, and company dollar to the cent. A lead with `created_at_src` of 31 January is in `2026-01` even if `src_created_at` is 1 February UTC. A lead with stage `Trash` is still in `leads_received`. A `Realty.com` source is absent from the Realtor.com report. A February `book_txn_line` of `$4,000` on the mapped account, with a 50% share, yields gross spend `4000`, net spend `2000`, and ROI on each. A March line is not in the February row. A credit `posting_type` reduces the spend. No spend rule yields null ROI, not zero. Tests live next to `test_dashboard.py` and do not call the network.
 
 ### Phase 4. Team and agent pipeline
 
-**Service.** Port `classify_stage`, cumulative counts, stuck, tiers, bottleneck, predicted close rate, and the speed histogram from `pipeline.py`. Use Sisu `company` state from the linked transactions (`closed` beats `under_contract` beats `lost` beats `active`). Date presets filter on UTC `created`, with the same five windows as `_pipeline_preset_specs`. Precompute on the server if that is simpler than shipping every lead to the browser; the legacy client did it only because the cache key could not afford a refetch. Axcion can aggregate in SQL or Python per request. Results must match the preset boundaries, including last-4-months as "the first of the month, rolled back four months" in `main.py`.
+**Service.** Port `classify_stage`, cumulative counts, stuck, tiers, bottleneck, predicted close rate, and the speed histogram from `pipeline.py`. Use Sisu `company` state from the linked transactions (`closed` beats `under_contract` beats `lost` beats `active`). Date presets filter on `lead.created_at_src`, with the same five windows as `_pipeline_preset_specs` interpreted in the workspace calendar. Precompute on the server if that is simpler than shipping every lead to the browser; the legacy client did it only because the cache key could not afford a refetch. Axcion can aggregate in SQL or Python per request. Results must match the preset boundaries, including last-4-months as "the first of the month, rolled back four months" in `main.py`.
 
 Stuck still uses time since `created`, not a stage-entered timestamp, until Follow Up Boss stage history is synced. Say that in the UI the way the legacy code comments it, in one sentence, so a 40-day-old "met" lead is not described as having sat in met for 40 days if that is only a proxy.
 
@@ -717,9 +777,48 @@ Port `compute_metric_set`, `build_journey`, and `build_whats_working_payload`. S
 
 ### Phase 6. Weekly digest
 
-Only after phases 3 and 4 match Utah Life. Port the behavior of `digest_select.py` and `benchmarks.py`, with the floor and target rates stored on a per-source digest config so they are not Connor's numbers for every tenant. Email through the existing Axcion mail path (`docs/resend-axcion-runbook.md`), not a second SMTP stack. ClickUp is optional and off until the tenant supplies a list id. Do not call an LLM until the deterministic selection matches; the legacy path already has a fallback when the model fails (`digest_llm.py`). Unsubscribe must be honored.
+Only after phases 3 and 4 match Utah Life on counts. Port the behavior of `digest_select.py` and `benchmarks.py`. Store the floor and target rates, the schedule, the recipients, the ClickUp list id, the ClickUp default assignee, the optional agent map, and the model name on a per-source digest config. Email through the existing Axcion mail path (`docs/resend-axcion-runbook.md`), not a second SMTP stack. The model defaults to `claude-sonnet-4-6` and is editable; an empty API key still takes the deterministic fallback in `digest_llm.py`. ClickUp runs only when that config's list id is non-empty. The token is a tenant secret, not a field in the spec and not a value copied from the legacy env. Unsubscribe must be honored.
 
-**Acceptance.** A config set to Monday 06:00 `America/Denver` enqueues one job per week, a second tick does not send twice (unique on config + week ending), and a failed send retries at most three times. No ClickUp call when the list id is empty.
+**UI.** On the same settings surface as the source group: active flag, day and time, timezone (default the workspace zone), recipient list, max agents, minimum leads, include-reinforce, the six floor and target rates, ClickUp list id, ClickUp assignee, and model. Test send and delivery history, matching `DigestSettings.jsx`.
+
+**Seed.** For the Utah Life tenant's `realtor_com` group only, one config with `is_active = false` and a single recipient: the tenant user whose name is `Connor Leiva`, otherwise the address `connor.leiva@gmail.com`. No other recipient. ClickUp list id null. Do not send on deploy.
+
+**Acceptance.** A config set to Monday 06:00 in the workspace zone enqueues one job per week, a second tick does not send twice (unique on config + week ending), and a failed send retries at most three times. No ClickUp call when the list id is empty. The seeded row has one recipient and is inactive. Changing the model on the config is what the next send uses, not a redeployed env var.
+
+### Phase 7. Lead source on the Referral Flywheel drawer
+
+This can ship once phases 1 and 2 are in. It does not wait on the cohort page. The headline flywheel cards stay as they are. Only the drawer filters.
+
+The drawer is `frontend/src/AuditDrawer.jsx`. The flywheel cards in `frontend/src/CommandCenter.jsx` call `onDrill` with these keys, and `backend/app/services/lineage.py` builds the rows:
+
+| Key | What each row is |
+| --- | --- |
+| `flywheel_buyers` | A financeable ULRG buy-side closing |
+| `flywheel_captured` | One of those that Sympli financed |
+| `flywheel_uncaptured` | One of those financed elsewhere |
+| `flywheel_agent_referrals` | That agent's Sympli-financed closings |
+| `flywheel_vendor_no_loan` | Picked Sympli in Sisu, no funded loan |
+| `flywheel_sympli_referred` | A funded Sympli loan credited to Utah Life |
+| `flywheel_sympli_linked` | One of those matched to a ULRG closing |
+| `flywheel_referral_no_deal` | One of those with no ULRG closing |
+| `flywheel_zero_referrals` | An agent, not a deal |
+
+**Attribution.** One function, shared with the cohort report, `group_for_deal(transaction, lead, groups)`:
+
+1. If the transaction's linked lead has `origin`, test it with the group's matcher (section 6.2).
+2. Else test `transaction.lead_type` with the same matcher.
+3. If two active groups match, the one with the lower `display_order` wins.
+4. Otherwise the row is `unassigned`.
+
+Deal rows (`flywheel_buyers`, `flywheel_captured`, `flywheel_uncaptured`, `flywheel_agent_referrals`, `flywheel_vendor_no_loan`) get `lead_source_key` and `lead_source_label` from that function. Loan rows get them from the matched ULRG transaction when there is one, and `unassigned` when there is not. `flywheel_referral_no_deal` will usually be unassigned, because there is no ULRG deal to read. Do not invent a source from Arive.
+
+`flywheel_zero_referrals` stays a list of agents. Do not put a lead-source chip on an agent. Do not filter that drawer.
+
+**Payload.** On the deal and loan flywheel responses, add `lead_sources`: the active groups for the brokerage plus `{key: "unassigned", label: "Unassigned"}`, each with a count of rows. Each row carries `lead_source_key`.
+
+**UI.** In `AuditDrawer.jsx`, when `d.lead_sources` is present and has more than one key with a count, show a chip row in the same style as the existing ULRG / Other filter (`srcFilter`). Default is All. Choosing Realtor.com shows only rows with that key and updates the "N records" line. The card the user clicked does not change. The chip label is the group's `display_name`, so a tenant without Realtor.com does not see that word.
+
+**Acceptance.** A closing whose linked lead `origin` is `Realtor.com MVIP` appears under the Realtor.com chip and disappears when the drawer is set to Realty.com. A closing with no lead and no matching `lead_type` appears only under All and Unassigned. The Sympli 50% share is not computed in this drawer. The capture-rate card is the same number before and after the filter. `flywheel_zero_referrals` has no chips. A test builds the rows from fixtures and does not call Follow Up Boss, Sisu, or QuickBooks.
 
 ### Files to touch
 
@@ -727,9 +826,11 @@ Phase 1: a new Alembic revision, `backend/app/models.py`, a small service module
 
 Phase 2: `backend/app/integrations/fub.py`, `backend/app/integrations/sisu.py`, `backend/app/services/fub_sync.py`, `backend/app/services/sync.py`, `backend/app/models.py`, Alembic, `backend/tests/fub_fake.py`, `test_fub_sync.py`, `test_sisu.py`.
 
-Phase 3–5: `backend/app/services/lead_source_report.py` (new), a router, `frontend/src/CommandCenter.jsx` or a sibling report component, `frontend/src/api.js` if that is how calls are made, tests. Register the view in `tabs.py` if it is a nav tab.
+Phase 3–5: `backend/app/services/lead_source_report.py` (new), a router, `frontend/src/CommandCenter.jsx` or a sibling report component, `frontend/src/api.js` if that is how calls are made, tests. Register the view in `tabs.py` if it is a nav tab. Spend reads `book_txn_line` only. Do not add a QuickBooks call on the report request.
 
-Phase 6: worker job in `backend/app/worker.py`, mail, models for config and deliveries. Do not start this in the same change as phase 3.
+Phase 6: worker job in `backend/app/worker.py`, mail, models for config and deliveries, settings UI. Do not start this in the same change as phase 3.
+
+Phase 7: `backend/app/services/lineage.py` and `frontend/src/AuditDrawer.jsx`. This is the one change allowed inside the flywheel drawer. Do not change the capture-rate math in `metrics.py`.
 
 Do not modify `metrics._funnel`, the scorecard resolvers, or the ads funnel except to link out to the new report.
 
@@ -742,9 +843,9 @@ Run these after phases 2 and 3, and again after phase 4, against the connected U
 3. `avg_time_to_contact_minutes` within 0.1 minutes. Percents within 0.1.
 4. Sisu `sisu_closed_count`, `sisu_under_contract_count`, `sisu_matched_count` exact. Unmatched ids listed on both sides, ignoring order.
 5. Per closed transaction that both sides list: GCI, volume, trans fee, agent payment, and company dollar within `$0.01`. `exp_risk_source` agrees. Where both used the default, both used 69 and 49.
-6. Header company-dollar total within `$0.01` of the sum of the cohort rows. Program cost equals monthly cost times the number of non-empty cohort months. If monthly cost is still 0, both sides show null ROI, not zero. Enter the real cost in both places before comparing net profit.
+6. Header company-dollar total within `$0.01` of the sum of the cohort rows. Do not compare ROI or program cost to the legacy dashboard. The legacy figure is a flat fee times nonempty months. Axcion's figure is QuickBooks. Separately, for one finished month, gross spend equals the sum of the mapped `book_txn_line` amounts, and net spend is half of that while the Sympli share is 50.
 7. A person whose source is `Realty.com` appears in neither report. A person whose source is `Market VIP via Opcity BLA` appears in the Realtor.com report.
-8. A person created on 31 Jan 2026 UTC is absent. A person created on 1 Feb 2026 UTC is in `2026-02`. Spot-check one lead created between 17:00 and 24:00 America/Denver so the UTC cohort month is the one being asserted, not the Mountain date.
+8. Cohort month is the workspace date. A lead created at 11pm America/Denver on 31 January is `2026-01` in Axcion and `2026-02` in the legacy report. Count those boundary leads, list them, and do not file them as failures. Leads created between 00:00 and 17:00 Mountain should match the legacy month.
 9. Pipeline, same window `all_time`: per agent, stage counts, tier, stuck count, pickup rate, and predicted close rate match. Then repeat for `rolling_30` and `ytd`.
 10. The existing Command Center funnel for the same calendar month is **not** required to match the cohort row. Record both, and explain a difference that is the Trash exclusion or the date basis (section 7) rather than "fixing" the card.
 
@@ -754,25 +855,26 @@ Store the comparison as a script under `backend/scripts/`, read-only, printing a
 
 ## 12. Open questions
 
-1. **Monthly cost.** The repo seeds `$0`. Net profit and ROI cannot be checked until someone enters the Realtor.com and, later, Realty.com subscription amounts. Are those amounts flat per month, including months with no leads, or only months that received leads? The code bills only months that have at least one lead.
-2. **May Axcion write Sisu mappings?** The legacy lookup sends `save_mapping_on_fallback=true`, which creates Follow Up Boss id mappings inside the customer's Sisu. Axcion syncs are read-only. Default for the port: do not write. Confirm before turning it on.
-3. **Does `get-team-clients` already include the Follow Up Boss external id?** The legacy app does not use that endpoint. If the bulk payload has `external_ids` for service `fub`, phase 2 can link without `/v1/contact/external`. That has to be read off a live response; it is not in the mapper.
-4. **Bare source `Realtor`.** `KNOWN_REALTOR_VARIANTS` probes it. The seeded group does not list it, so a contains-match on `Realtor.com` will not keep it. If Utah Life still receives leads with that exact source, add it to the seed variants.
-5. **Realty.com variants.** The group is intentionally empty and inactive. Nobody has recorded which Follow Up Boss strings are Realty.com rather than Realtor.com, other than the CSV bucket test `realty.com` in the source. Do not invent variants.
-6. **Assigned agent.** The live fetch reads `assignedTo` through `_norm`, which stringifies whatever Follow Up Boss returns. Axcion resolves `assignedUserId` to `agent.name`. Parity of the agent table depends on those strings matching. Check one person whose assigned-to object is not a plain string.
-7. **Cohort month timezone.** Legacy uses UTC. The rest of Axcion uses the workspace calendar date. This spec keeps UTC for parity. If the business wants Mountain months, that is a product change and the parity numbers will move for evening leads.
+1. **Which QuickBooks object is the Realtor.com bill?** The live account id, vendor name, and class are not in this repo. `coa_map.py` only knows the words "realtor com" and "lead source" as suggestions. The admin has to confirm the rule. Until that rule exists, ROI stays null.
+2. **How is Sympli's half recorded in QuickBooks?** The 50% share is a setting, not a second pull. It is still unknown whether Sympli's half is a bill in Sympli's own company, a reimbursement or journal on Utah Life's books, a class on the same bill, or an agreement with no entry. If both companies contain the same spend, a rule on each company would double-count. Do not add a Sympli spend rule until someone answers this.
+3. **Annual prepay.** Spend lands in the month of `book_txn.txn_date`. A once-a-year invoice makes one cohort month carry the whole cost and the other months zero. This spec does not amortize. Say so in the UI when a single line is more than twice the median month.
+4. **Does `get-team-clients` already include the Follow Up Boss external id?** The legacy app does not use that endpoint. If the bulk payload has `external_ids` for service `fub`, phase 2 can link without `/v1/contact/external`. That has to be read off a live response; it is not in the mapper.
+5. **Bare source `Realtor`.** `KNOWN_REALTOR_VARIANTS` probes it. The seeded group does not list it, so a contains-match on `Realtor.com` will not keep it. If Utah Life still receives leads with that exact source, add it to the seed variants.
+6. **Realty.com variants.** The group is intentionally empty and inactive. Nobody has recorded which Follow Up Boss strings are Realty.com rather than Realtor.com, other than the CSV bucket test `realty.com` in the source. Do not invent variants.
+7. **Assigned agent.** The live fetch reads `assignedTo` through `_norm`, which stringifies whatever Follow Up Boss returns. Axcion resolves `assignedUserId` to `agent.name`. Parity of the agent table depends on those strings matching. Check one person whose assigned-to object is not a plain string.
 8. **Stage history.** Stuck age is time since `created`, because stage-change history is not synced. If Follow Up Boss exposes it, a later improvement can replace the proxy. Do not block the port on it.
 9. **ISA split.** Only the CSV coaching tab separates ISA calls from agent calls, and only from `users.csv`. The live pipeline does not. Confirm whether the port needs that split. It is not on the production tabs.
-10. **Digest recipients, ClickUp list, and the model.** Not in the source as tenant data; they are settings an admin saved in the database, which this export does not include. Phase 6 cannot be parity-checked until those are re-entered.
-11. **Two company-dollar definitions in one product.** The P&L and `agent_commission` path should keep using team income. This report should use section 4.3. The UI has to name them so a brokerage owner does not add them together.
-12. **`LOSTT` without `lost_reason_id`.** Axcion's Sisu status marks those deals dead. The cohort classifier does not. If Utah Life uses that code, the dead and active counts will disagree until the parity rule is confirmed.
+10. **Two company-dollar definitions in one product.** The P&L and `agent_commission` path should keep using team income. This report should use section 4.3. The UI has to name them so a brokerage owner does not add them together.
+11. **`LOSTT` without `lost_reason_id`.** Axcion's Sisu status marks those deals dead. The cohort classifier does not. If Utah Life uses that code, the dead and active counts will disagree until the parity rule is confirmed.
 
 ## 13. What not to do
 
 - Do not port the CSV extractor, `FUB_EXPORT_DIR`, or the three local-only tabs as a file drop.
 - Do not call Follow Up Boss or Sisu from a dashboard request.
 - Do not copy `styles.css`, the Utah Life wordmark, or the hard-coded Follow Up Boss host into shared components.
-- Do not put Realtor.com variants, the February 2026 start, or the $69 / $49 defaults in code that runs for every tenant. Seed them for `ulrg` only.
+- Do not put Realtor.com variants, the February 2026 start, the $69 / $49 defaults, or the 50% Sympli share in code that runs for every tenant. Seed them for `ulrg` only.
+- Do not type a monthly lead cost, and do not sum every marketing account into Realtor.com. Spend is the lines an admin mapped.
+- Do not filter the flywheel capture-rate cards. The filter is the drawer only.
 - Do not change `metrics._funnel` to exclude or include Trash in order to match a cohort row.
 - Do not store call notes, email bodies, or phone numbers. `has_note` and the primary email are the fields this report uses.
 - Do not print or commit the fallback token in `roi-conversion-dashboard/fub_live_dashboard/backend/app/sisu.py`.
