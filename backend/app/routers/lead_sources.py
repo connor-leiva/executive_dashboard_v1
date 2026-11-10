@@ -347,3 +347,197 @@ async def whats_working(key: str, gkey: str, window: str = Query("all_time", pat
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)
     return await build(s, user.tenant_id, b, g, window=window)
+
+
+# ── weekly digest (phase 6) ──────────────────────────────────────────────────────────────────
+
+class DigestIn(BaseModel):
+    is_active: bool | None = None
+    send_weekday: int | None = None
+    send_hour: int | None = None
+    send_minute: int | None = None
+    timezone: str | None = None
+    recipients: list[str] | None = None
+    max_agents: int | None = None
+    min_leads: int | None = None
+    include_reinforce: bool | None = None
+    benchmarks: dict | None = None
+    clickup_list_id: str | None = None
+    clickup_assignee: str | None = None
+    agent_map: dict | None = None
+    model: str | None = None
+    clickup_token: str | None = None          # write-only: stored encrypted, never read back
+
+
+_EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
+async def _digest_view(s, user, g):
+    from ..models import Integration, LeadSourceDigest
+    from ..services import lead_source_digest as ld
+    from ..services.sync import _workspace_tz
+    d = (await s.execute(select(LeadSourceDigest).where(
+        LeadSourceDigest.tenant_id == user.tenant_id, LeadSourceDigest.lead_source_group_id == g.id))).scalars().first()
+    token_set = bool((await s.execute(select(Integration.id).where(
+        Integration.tenant_id == user.tenant_id, Integration.provider == "clickup",
+        Integration.access_token_enc.is_not(None)))).first())
+    tz = await _workspace_tz(s, user.tenant_id)
+    return d, ld.digest_dict(d, token_set=token_set, default_tz=getattr(tz, "key", str(tz)))
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/digest")
+async def get_digest(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                     s: AsyncSession = Depends(get_session)):
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    return (await _digest_view(s, user, g))[1]
+
+
+@router.put("/businesses/{key}/lead-sources/{gkey}/digest")
+async def put_digest(key: str, gkey: str, body: DigestIn, user: User = Depends(require_role(*ADMIN_ROLES)),
+                     s: AsyncSession = Depends(get_session)):
+    import re
+    from zoneinfo import ZoneInfo
+    from ..models import Integration, LeadSourceDigest
+    from ..security import enc
+    from ..services import lead_source_digest as ld
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    d, _view = await _digest_view(s, user, g)
+    if d is None:
+        d = LeadSourceDigest(tenant_id=user.tenant_id, lead_source_group_id=g.id, is_active=False,
+                             recipients=[], unsubscribed=[], model=ld.DEFAULT_MODEL)
+        s.add(d)
+    f = body.model_dump(exclude_unset=True)
+    try:
+        if "send_weekday" in f and not (0 <= int(f["send_weekday"]) <= 6):
+            raise ls.InvalidGroup("The day is Monday to Sunday.")
+        if "send_hour" in f and not (0 <= int(f["send_hour"]) <= 23):
+            raise ls.InvalidGroup("The hour is 0 to 23.")
+        if "send_minute" in f and not (0 <= int(f["send_minute"]) <= 59):
+            raise ls.InvalidGroup("The minute is 0 to 59.")
+        if f.get("timezone"):
+            try:
+                ZoneInfo(f["timezone"])
+            except Exception:  # noqa: BLE001
+                raise ls.InvalidGroup(f"{f['timezone']} is not a time zone name.") from None
+        if "max_agents" in f and not (1 <= int(f["max_agents"]) <= 12):
+            raise ls.InvalidGroup("Agents per digest is 1 to 12.")
+        if "min_leads" in f and not (1 <= int(f["min_leads"]) <= 100):
+            raise ls.InvalidGroup("The minimum is 1 to 100 leads.")
+        if "recipients" in f:
+            emails = []
+            for e in f["recipients"] or []:
+                e = str(e).strip().lower()
+                if not e:
+                    continue
+                if not re.match(_EMAIL, e):
+                    raise ls.InvalidGroup(f"{e} is not an email address.")
+                if e not in emails:
+                    emails.append(e)
+            if len(emails) > 25:
+                raise ls.InvalidGroup("At most 25 recipients.")
+            f["recipients"] = emails
+        if "benchmarks" in f and f["benchmarks"] is not None:
+            for k, v in (f["benchmarks"].get("transitions") or {}).items():
+                if k not in ld.DEFAULT_BENCHMARKS["transitions"]:
+                    raise ls.InvalidGroup(f"Unknown funnel step {k}.")
+                for side in ("floor", "target"):
+                    if side in v and not (0 < float(v[side]) <= 1):
+                        raise ls.InvalidGroup("Each rate is between 0 and 100%.")
+        if "model" in f and not (f["model"] or "").strip():
+            f["model"] = ld.DEFAULT_MODEL
+    except (ls.InvalidGroup, ValueError, TypeError) as e:
+        _bad(e)
+    token = f.pop("clickup_token", None)
+    for name, value in f.items():
+        setattr(d, name, value.strip() if isinstance(value, str) else value)
+    if token is not None:
+        integ = (await s.execute(select(Integration).where(Integration.tenant_id == user.tenant_id,
+                                                           Integration.provider == "clickup"))).scalars().first()
+        if integ is None:
+            integ = Integration(tenant_id=user.tenant_id, provider="clickup", business_id=None, status="connected")
+            s.add(integ)
+        integ.access_token_enc = enc(token.strip()) if token.strip() else None
+        integ.status = "connected" if token.strip() else "disconnected"
+    audit(s, user.tenant_id, user.id, "lead_source.digest_saved", "lead_source_group", g.id,
+          {"business": b.key, "key": g.key, "fields": sorted(f) + (["clickup_token"] if token is not None else [])},
+          category="Config", summary=f"Weekly digest for {g.display_name} saved")
+    await s.commit()
+    return (await _digest_view(s, user, g))[1]
+
+
+@router.post("/businesses/{key}/lead-sources/{gkey}/digest/test")
+async def test_digest(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                      s: AsyncSession = Depends(get_session)):
+    """Send this week's digest now, to its recipients, marked as a test. Off or on, it sends."""
+    from ..models import LeadSourceDigestDelivery
+    from ..services import lead_source_digest as ld
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    d, _v = await _digest_view(s, user, g)
+    if d is None or not d.recipients:
+        raise HTTPException(400, "Add a recipient and save before sending a test.")
+    tz = await ld.tz_of(s, d)
+    week = ld.week_ending(dt.datetime.now(dt.timezone.utc).astimezone(tz))
+    row = LeadSourceDigestDelivery(tenant_id=user.tenant_id, digest_id=d.id, run_key=f"test:{uuid.uuid4().hex}",
+                                   week_ending=week, is_test=True, status="queued")
+    s.add(row)
+    await s.commit()
+    row = await ld.send(s, row)
+    return _delivery_dict(row)
+
+
+@router.post("/businesses/{key}/lead-sources/{gkey}/digest/clickup-test")
+async def test_clickup(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                       s: AsyncSession = Depends(get_session)):
+    from ..services import lead_source_digest as ld
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    d, _v = await _digest_view(s, user, g)
+    if d is None or not (d.clickup_list_id or "").strip():
+        raise HTTPException(400, "Set a ClickUp list and save before testing it.")
+    out = await ld.clickup_tasks(s, d, [{"agent": "Test", "tier": "coach", "headline": f"{g.display_name} digest test",
+                                         "body": "A test task from Axcion's weekly digest settings. Safe to delete."}],
+                                 dt.date.today())
+    if not out or out[0].get("error") or (out[0].get("status") or 500) >= 300:
+        raise HTTPException(400, (out[0].get("error") if out else None) or f"ClickUp answered {out[0].get('status')}.")
+    return {"ok": True, "task_id": out[0].get("id")}
+
+
+def _delivery_dict(r) -> dict:
+    return {"id": str(r.id), "week_ending": r.week_ending.isoformat(), "is_test": r.is_test, "status": r.status,
+            "attempts": r.attempts, "last_error": r.last_error, "recipients": r.recipients or [],
+            "subject": r.subject, "model_used": r.model_used, "agents": r.agents or [],
+            "clickup_tasks": r.clickup_tasks or [],
+            "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None}
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/digest/deliveries")
+async def digest_deliveries(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                            s: AsyncSession = Depends(get_session)):
+    from ..models import LeadSourceDigestDelivery
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    d, _v = await _digest_view(s, user, g)
+    if d is None:
+        return {"deliveries": []}
+    rows = (await s.execute(select(LeadSourceDigestDelivery).where(
+        LeadSourceDigestDelivery.tenant_id == user.tenant_id, LeadSourceDigestDelivery.digest_id == d.id)
+        .order_by(LeadSourceDigestDelivery.created_at.desc()).limit(20))).scalars().all()
+    return {"deliveries": [_delivery_dict(r) for r in rows]}
+
+
+class UnsubIn(BaseModel):
+    token: str
+
+
+@router.post("/public/lead-sources/digest/unsubscribe")
+async def digest_unsubscribe(body: UnsubIn, s: AsyncSession = Depends(get_session)):
+    """The link in every digest email. No sign-in: the signed token names the digest and address."""
+    from ..services import lead_source_digest as ld
+    email = await ld.unsubscribe(s, body.token)
+    if email is None:
+        raise HTTPException(400, "This unsubscribe link has expired or isn't valid.")
+    return {"ok": True, "email": email}

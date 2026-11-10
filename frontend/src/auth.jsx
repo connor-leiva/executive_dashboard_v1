@@ -8,6 +8,7 @@ import Settings from "./Settings.jsx";
 import { AcceptInvite, ResetPassword } from "./PublicAuth.jsx";
 import ShareScorecard from "./ulrg/ShareScorecard.jsx";
 import ShareDesk from "./ShareDesk.jsx";
+import DigestUnsubscribe from "./leadsources/DigestUnsubscribe.jsx";
 import { loadBrandOnce } from "./palette.js";
 import { AuthShell, ErrorNote, Field, Handoff, PasswordField, PrimaryButton, RememberMe,
          useChrome } from "./auth/AuthShell.jsx";
@@ -175,6 +176,7 @@ export function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/share/:token" element={<ShareScorecard />} />       {/* public embed — no login */}
         <Route path="/desk/:token" element={<ShareDesk />} />             {/* rep's own Sales Desk — no login */}
+        <Route path="/digest/unsubscribe" element={<DigestUnsubscribe />} /> {/* the digest email's link — no login */}
         {needsLogin ? (
           <Route path="*" element={<Login onLogin={() => setAuthed(true)} />} />
         ) : (

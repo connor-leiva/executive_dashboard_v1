@@ -794,6 +794,9 @@ async def seed():
         # fixture's brokerage is keyed `ulrg`, so it gets them, and no other tenant does.
         from .services.lead_sources import seed_ulrg
         await s.run_sync(lambda sync_s: seed_ulrg(sync_s, tenant.id))
+        await s.flush()
+        from .services.lead_source_digest import seed_ulrg_digest
+        await seed_ulrg_digest(s, tenant.id)
 
         await s.commit()
 

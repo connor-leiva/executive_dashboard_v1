@@ -486,6 +486,29 @@ async def marketing_delivery_tick():
         print(f"[marketing_delivery] sent={sent} failed={failed}", flush=True)
 
 
+async def lead_source_digest_tick():
+    """Every five minutes: queue the week's lead-source digest for each active config whose send time
+    has passed, then send what is queued (at most three attempts a delivery). The week's row is
+    unique per config, so a second tick in the same week sends nothing. Inactive configs -- and
+    every config is seeded inactive -- are never queued."""
+    from .services import lead_source_digest as ld
+    async with SessionLocal() as s:
+        allowed = set(await syncable_tenant_ids(s))
+    try:
+        async with SessionLocal() as s:
+            made = await ld.enqueue_due(s)
+            for row in made:
+                if row.tenant_id not in allowed:
+                    row.status, row.last_error = "skipped", "Workspace suspended or syncs frozen."
+            await s.commit()
+        async with SessionLocal() as s:
+            sent = await ld.drain(s)
+        if made or sent:
+            print(f"[lead_source_digest] queued={len(made)} attempted={sent}", flush=True)
+    except Exception as e:  # noqa: BLE001 -- never kill the scheduler
+        print(f"[lead_source_digest] {type(e).__name__}: {e}", flush=True)
+
+
 async def platform_audit_prune():
     """Monthly: delete operator audit entries past retention (OPERATOR-CONSOLE-SPEC §4.2). The
     console tells an operator the trail is kept 400 days; this is what makes that true."""
@@ -592,6 +615,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # one indexed query that usually returns nothing.
     sched.add_job(beat(marketing_delivery_tick), "interval", minutes=1,
                   next_run_time=dt.datetime.now())
+    sched.add_job(beat(lead_source_digest_tick), "interval", minutes=5)
     sched.add_job(beat(platform_audit_prune), "cron", day=1, hour=3, minute=30, timezone=_tz)
     # Hourly and always registered: it returns at once until platform billing is switched on, which
     # is a setting in the operator console rather than a deploy.

@@ -17,6 +17,7 @@ import { T } from "../theme.js";
 import { getJSON, postJSON, patchJSON, putJSON, delJSON } from "../api.js";
 import { Card, SBtn } from "./kit.jsx";
 import { Pill } from "../books/ui.jsx";
+import DigestCard from "./DigestCard.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
@@ -251,7 +252,13 @@ function SpendCard({ bizKey, group, bizName }) {
   const shareTotal = shares.reduce((a, sh) => a + (Number(sh.share_pct) || 0), 0);
   const bearerOptions = view.businesses.filter((b) => b.key !== bizKey);
   const qb = view.quickbooks;
-  const startsLate = qb.history_starts && group.program_start && qb.history_starts > group.program_start;
+  // By MONTH, as the report reads spend: history from 3 February covers a 1 February program.
+  const startsLate = qb.history_starts && group.program_start && qb.history_starts.slice(0, 7) > group.program_start.slice(0, 7);
+  const accountLabel = (a) => {
+    const parts = (a.path || "").split(":").map((x) => x.trim()).filter(Boolean);
+    const parent = parts.length > 1 ? parts[parts.length - 2] : null;
+    return [a.name, parent, a.id].filter(Boolean).join(" · ");
+  };
 
   const setRule = (i, patch) => { setRules(rules.map((r, j) => (j === i ? { ...r, ...patch } : r))); setSaved(false); };
   const setShare = (i, patch) => { setShares(shares.map((r, j) => (j === i ? { ...r, ...patch } : r))); setSaved(false); };
@@ -306,7 +313,7 @@ function SpendCard({ bizKey, group, bizName }) {
               <option value="">Any account</option>
               {r.account_qbo_id && !accounts.some((a) => a.id === r.account_qbo_id) && (
                 <option value={r.account_qbo_id}>{accountName(r.account_qbo_id)}</option>)}
-              {accounts.map((a) => <option key={`${a.business_id}:${a.id}`} value={a.id}>{a.path} · {a.id}</option>)}
+              {accounts.map((a) => <option key={`${a.business_id}:${a.id}`} value={a.id} title={a.path}>{accountLabel(a)}</option>)}
             </select>
             <select style={cell} value={r.vendor_qbo_id || ""} disabled={!view.can_edit}
               onChange={(e) => setRule(i, { vendor_qbo_id: e.target.value || null })} aria-label="Vendor">
@@ -487,6 +494,7 @@ export default function LeadSourceSettings() {
           <GroupEditor bizKey={bizKey} group={group} creating={false} onSaved={(key) => load(key)}
             onDeleted={() => { setParams({ business: bizKey }); load(); }} />
           <SpendCard bizKey={bizKey} group={group} bizName={biz.name} />
+          <DigestCard bizKey={bizKey} group={group} />
         </>
       )}
     </>
