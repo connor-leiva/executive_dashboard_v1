@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as SyncSession
 
 from app.db import SessionLocal, engine
 from app.models import (Base, BookTxn, Business, Integration, MetricRecord, ScorecardGoal,
-                        ScorecardGroup, ScorecardMetric, Tenant)
+                        ScorecardGroup, ScorecardMetric, ScorecardValue, Tenant)
 from app.services import scorecard_resolvers as R
 from app.services.scorecard import build_scorecard, miss_streak
 from app.services.springb_enterprise import CORE_SLUGS, apply_enterprise
@@ -70,7 +70,7 @@ async def test_seed_is_additive_and_covers_the_fifty_two(board):
         slugs = {m.slug for m in rows if m.slug in CORE_SLUGS}
         assert slugs == set(CORE_SLUGS)
         vip = next(m for m in rows if m.slug == "vip")
-        assert vip.name == "VIP guests added"
+        assert vip.name == "VIP Guests Added"
         assert vip.resolver_key == "forum_vip_guests_seats"
         assert vip.goal == Decimal("7")
         assert vip.tier == "l10"
@@ -162,6 +162,30 @@ async def test_as_of_and_books_and_cash(board):
         assert await R.sb_net_cash(s, e["tid"], e["bid"], ws, we) == 60
         # a past week does not get today's headcount written over it
         assert await R.sb_active_members(s, e["tid"], e["bid"], old, old + dt.timedelta(days=6)) is R.UNAVAILABLE
+
+
+async def test_title_case_rename_leaves_the_value(board):
+    """A stored sentence-case label moves to the catalog name. The week's number stays."""
+    e = board
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: _apply(c, e["tid"]))
+    async with SessionLocal() as s:
+        vip = (await s.execute(select(ScorecardMetric).where(
+            ScorecardMetric.tenant_id == e["tid"], ScorecardMetric.slug == "vip"))).scalar_one()
+        vip.name = "VIP guests added"
+        week = dt.date(2026, 11, 2)
+        s.add(ScorecardValue(tenant_id=e["tid"], metric_id=vip.id, week_start=week,
+                             value=Decimal("3"), source="resolver"))
+        await s.commit()
+        vid = vip.id
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: _apply(c, e["tid"]))
+    async with SessionLocal() as s:
+        vip = await s.get(ScorecardMetric, vid)
+        stored = (await s.execute(select(ScorecardValue).where(
+            ScorecardValue.metric_id == vid))).scalar_one()
+        assert vip.name == "VIP Guests Added"
+        assert stored.value == Decimal("3") and stored.source == "resolver"
 
 
 async def test_build_marks_the_enterprise_board(board):

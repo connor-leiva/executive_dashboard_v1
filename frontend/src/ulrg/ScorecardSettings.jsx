@@ -2,7 +2,7 @@
    full name and upload a headshot. Periods + per-period goals land here next. */
 import { useState, useEffect } from "react";
 import { patchJSON, putJSON, postJSON, getJSON, uploadFile, fileUrl } from "../api.js";
-import { C, FD, FB, FM } from "./scorecardMath.js";
+import { C, FD, FB, FM, titleCase } from "./scorecardMath.js";
 
 const _label = { fontFamily: FM, fontSize: 12, color: C.muted, marginBottom: 8 };
 const _field = { fontFamily: FB, fontSize: 13, color: C.ink, background: C.parchment, border: `1px solid ${C.hair}`, borderRadius: 8, padding: "6px 9px" };
@@ -115,7 +115,7 @@ function MeasurablesEditor({ scope = "ulrg", groups = [], onChanged }) {
     } catch (e) { setState("error"); }
   }
 
-  if (rows === null) return <div style={{ ..._label, marginTop: 18 }}>Loading measurables…</div>;
+  if (rows === null) return <div style={{ ..._label, marginTop: 18 }}>Loading Measurables…</div>;
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
       <div style={_label}>Measurables · add, rename or remove</div>
@@ -201,7 +201,7 @@ function RoutingEditor({ scope = "ulrg", onChanged }) {
   if (metrics === null) return <div style={{ ..._label, marginTop: 18 }}>Loading routing…</div>;
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Auto-sync routing · what feeds each measurable</div>
+      <div style={_label}>Auto-Sync Routing · What Feeds Each Measurable</div>
       <div style={{ fontFamily: FB, fontSize: 12, color: C.muted, marginBottom: 10 }}>
         Point a measurable at a data source and filters. The number doesn’t change until the next sync; preview first to see it matches.
       </div>
@@ -216,7 +216,7 @@ function RoutingEditor({ scope = "ulrg", onChanged }) {
                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer" }}>
                 <span style={{ color: C.muted, fontFamily: FM, fontSize: 12, width: 12 }}>{open ? "▾" : "▸"}</span>
                 <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 13, color: C.body }}>
-                  <span style={{ color: C.muted, fontSize: 12 }}>{m.group} · </span>{m.name}
+                  <span style={{ color: C.muted, fontSize: 12 }}>{titleCase(m.group)} · </span>{titleCase(m.name)}
                 </span>
                 <span style={tag}>{label}</span>
               </div>
@@ -419,14 +419,14 @@ function GoalsEditor({ scope = "ulrg", onChanged }) {
   if (periods === null) return null;
   if (!periods.length) return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Goals per period</div>
+      <div style={_label}>Goals Per Period</div>
       <div style={{ fontFamily: FB, fontSize: 12, color: C.muted }}>Add a measurement period first.</div>
     </div>
   );
 
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Goals per period</div>
+      <div style={_label}>Goals Per Period</div>
       <select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ ..._field, minWidth: 220 }}>
         {periods.map((p) => <option key={p.key} value={p.key}>{p.key} ({p.start} → {p.end})</option>)}
       </select>
@@ -448,7 +448,7 @@ function GoalsEditor({ scope = "ulrg", onChanged }) {
               return (
                 <div key={g.metric_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ flex: "1 1 auto", fontFamily: FB, fontSize: 13, color: C.body }}>
-                    <span style={{ color: C.muted, fontSize: 12 }}>{g.group} · </span>{g.name}
+                    <span style={{ color: C.muted, fontSize: 12 }}>{titleCase(g.group)} · </span>{titleCase(g.name)}
                     {g.type === "rate" && <span style={{ color: C.muted, fontSize: 12 }}> (%)</span>}
                   </span>
                   <input type="number" step="0.1" value={g.goal} aria-label={`${g.name} weekly goal`}
@@ -489,7 +489,7 @@ function PeriodsEditor({ onChanged }) {
 
   return (
     <div style={{ marginTop: 20, borderTop: `1px solid ${C.hair}`, paddingTop: 16 }}>
-      <div style={_label}>Measurement periods · sprints</div>
+      <div style={_label}>Measurement Periods · Sprints</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {periods.map((p, i) => (
           <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

@@ -10,6 +10,7 @@ import {
   T, FONT, NUM, EASE, DUR, LBL, Chevron,
   W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK,
 } from "./l10tokens.jsx";
+import { titleCase } from "./scorecardMath.js";
 import ScorecardRow from "./ScorecardRow.jsx";
 import DrillDrawer from "./DrillDrawer.jsx";
 import MoveCard from "./MoveCard.jsx";
@@ -177,7 +178,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
       return [
         pack("p-l10", "On the L10", mine.filter((r) => r.tier === "l10")),
         pack("p-dept", "Department", mine.filter((r) => r.tier === "dept" || r.tier === "monthly" || r.tier === "event")),
-        pack("p-tasks", "On-time tasks", mine.filter((r) => r.tier === "person")),
+        pack("p-tasks", "On-Time Tasks", mine.filter((r) => r.tier === "person")),
       ].filter(Boolean);
     }
     return groups;
@@ -199,7 +200,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
     return (
       <div className="l10" style={{ fontFamily: FONT, color: T.ink }}>
         <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, padding: "44px 28px", textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>No measurables yet</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>No Measurables Yet</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>This scorecard hasn't been configured. Seed the measurables to see the grid.</div>
         </div>
       </div>
@@ -258,7 +259,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
               {depts.map((d) => (
                 <button key={d.key} type="button" onClick={() => setDeptKey(d.key)} className="l10-btn" aria-pressed={deptKey === d.key}
                   style={{ font: "inherit", fontSize: 12, fontWeight: deptKey === d.key ? 600 : 500, padding: "4px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${deptKey === d.key ? T.forest : T.line}`, background: deptKey === d.key ? T.paper : "transparent", color: deptKey === d.key ? T.ink : T.inkSoft }}>
-                  {d.name}
+                  {titleCase(d.name)}
                 </button>
               ))}
             </div>
@@ -276,7 +277,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
           <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
               <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>
-                {enterprise ? (lens === "l10" ? "L10 Scorecard" : lens === "departments" ? (depts.find((d) => d.key === deptKey) || {}).name || "Departments" : lens === "people" ? "People" : "Elsewhere") : "L10 Scorecard"}
+                {enterprise ? (lens === "l10" ? "L10 Scorecard" : lens === "departments" ? titleCase((depts.find((d) => d.key === deptKey) || {}).name) || "Departments" : lens === "people" ? "People" : "Elsewhere") : "L10 Scorecard"}
               </h2>
               <span style={{ fontSize: 13, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {enterprise && lens === "departments" && (depts.find((d) => d.key === deptKey) || {}).reviewed
@@ -299,7 +300,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
               <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
                 {sprints.length ? (
                   <>
-                    {[["4", "4 wks"], ["full", "Full sprint"], ["todate", `${(sprints.find((s) => s.current) || sprints[sprints.length - 1]).key} to date`]].map(([id, label]) => {
+                    {[["4", "4 Wks"], ["full", "Full Sprint"], ["todate", `${(sprints.find((s) => s.current) || sprints[sprints.length - 1]).key} to Date`]].map(([id, label]) => {
                       const on = id === rangeId;
                       return (
                         <button key={id} onClick={() => setRangeId(id)} className="l10-btn" style={{
@@ -311,10 +312,10 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                       );
                     })}
                     {sprints.filter((s) => !s.current).length > 0 && (
-                      <select aria-label="Earlier sprint" value={rangeId === "past" ? pastKey : ""}
+                      <select aria-label="Earlier Sprint" value={rangeId === "past" ? pastKey : ""}
                         onChange={(e) => { setPastKey(e.target.value); setRangeId(e.target.value ? "past" : "todate"); }}
                         style={{ font: "inherit", fontSize: 12, border: "none", background: rangeId === "past" ? T.paper : "transparent", color: rangeId === "past" ? T.ink : T.muted, borderRadius: 5, padding: "4px 8px", cursor: "pointer" }}>
-                        <option value="">Earlier sprint</option>
+                        <option value="">Earlier Sprint</option>
                         {sprints.filter((s) => !s.current).map((s) => <option key={s.key} value={s.key}>{s.key}</option>)}
                       </select>
                     )}
@@ -341,14 +342,14 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                 })}
               </div>
               <span style={{ ...NUM, fontSize: 12, color: T.faint, whiteSpace: "nowrap" }}>
-                {countedN === shownDesc.length ? `${countedN} week${countedN === 1 ? "" : "s"} counted` : `${countedN} of ${shownDesc.length} weeks counted`}{qtdThin ? " · quarter just turned" : ""}
+                {countedN === shownDesc.length ? `${countedN} Week${countedN === 1 ? "" : "s"} Counted` : `${countedN} of ${shownDesc.length} Weeks Counted`}{qtdThin ? " · quarter just turned" : ""}
               </span>
             </div>
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
                 <input type="checkbox" checked={onlyOff} onChange={(e) => setOnlyOff(e.target.checked)} style={{ width: 14, height: 14, accentColor: T.forest, cursor: "pointer" }} />
-                Only what is off
+                Only What Is Off
               </label>
               {isAdmin && (
                 <button
@@ -427,7 +428,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
 
           {/* -------------------------------- footer ----------------------------- */}
           <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 20px", borderTop: `1px solid ${T.line}`, background: T.rail, flexWrap: "wrap" }}>
-            {[["At or above goal", T.good], ["Within 20%", T.warn], ["Off pace", T.bad]].map(([label, c]) => (
+            {[["At or Above Goal", T.good], ["Within 20%", T.warn], ["Off Pace", T.bad]].map(([label, c]) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: c, opacity: 0.85 }} />
                 <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
@@ -489,10 +490,10 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
       {cumOpen && (
         <div style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.shell, borderRight: `1px solid ${T.line}` }}>
           <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, ...LBL }}>Actual</div>
-          <div style={{ width: C_PACE, flexShrink: 0, ...LBL }}>Pace to goal</div>
+          <div style={{ width: C_PACE, flexShrink: 0, ...LBL }}>Pace to Goal</div>
           <div style={{ width: C_TREND, flexShrink: 0, ...LBL, textAlign: "right" }}>Trend</div>
           <div style={{ width: C_GAP, flexShrink: 0, ...LBL, textAlign: "right" }}>Gap</div>
-          <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, ...LBL }}>To recover</div>
+          <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, ...LBL }}>To Recover</div>
         </div>
       )}
 
@@ -530,10 +531,10 @@ function GroupBar({ group, width, off }) {
         {o && (src
           ? <img src={src} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,253,249,0.25)", flexShrink: 0 }} />
           : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.paper, whiteSpace: "nowrap" }}>{titleCase(group.name)}</span>
         {o && o.name && <span style={{ fontSize: 12, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
         <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: group.season || off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
-          {group.season || `${off} off pace`}
+          {group.season ? titleCase(group.season) : `${off} Off Pace`}
         </span>
       </div>
     </div>
@@ -551,7 +552,7 @@ function EscalationStrip({ escalations, checks, idsAfter }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", borderBottom: `1px solid ${T.line}`, background: T.rail }}>
       <div style={{ flex: "1 1 280px", padding: "12px 20px" }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>Escalated from the 1:1s</div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Escalated From the 1:1s</div>
         {escalations.length === 0 ? (
           <p style={{ margin: "4px 0 0", fontSize: 12.5, color: T.muted, lineHeight: 1.45 }}>
             Nothing yet. A department or personal number goes here after {idsAfter} weeks off its goal.
@@ -560,7 +561,7 @@ function EscalationStrip({ escalations, checks, idsAfter }) {
           <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
             {escalations.map((e) => (
               <li key={e.id} style={{ fontSize: 12.5, color: T.inkSoft, padding: "3px 0" }}>
-                <strong style={{ color: T.ink }}>{e.measurable}</strong> · {e.streak} weeks · {e.owner || "—"}
+                <strong style={{ color: T.ink }}>{titleCase(e.measurable)}</strong> · {e.streak} weeks · {e.owner || "—"}
               </li>
             ))}
           </ul>
@@ -568,11 +569,11 @@ function EscalationStrip({ escalations, checks, idsAfter }) {
       </div>
       {checks.length > 0 && (
         <div style={{ flex: "2 1 360px", padding: "12px 20px", borderLeft: `1px solid ${T.line}` }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Data checks</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Data Checks</div>
           <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
             {checks.map((c) => (
               <li key={c.id} style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.45, padding: "3px 0" }}>
-                <strong style={{ color: T.ink }}>{c.measurable}.</strong> {c.check}
+                <strong style={{ color: T.ink }}>{titleCase(c.measurable)}.</strong> {c.check}
               </li>
             ))}
           </ul>
@@ -609,26 +610,26 @@ function UpdatesPanel({ groups, weeks, canEdit, onSaved, onlyNonWeekly }) {
   return (
     <div style={{ marginTop: 16, background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, overflow: "hidden" }}>
       <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.line}` }}>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>Reviewed when it updates</div>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>Reviewed When It Updates</div>
         <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}>Monthly and per-event numbers. Type a figure and save it onto that week.</div>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <tbody>
             {rows.map((r) => {
-              const anchors = (r.anchors && r.anchors.length) ? r.anchors : [{ label: "This period", date: current }];
+              const anchors = (r.anchors && r.anchors.length) ? r.anchors : [{ label: "This Period", date: current }];
               return (
                 <tr key={r.id} style={{ borderTop: `1px solid ${T.lineSoft}` }}>
-                  <td style={{ padding: "10px 16px", fontWeight: 500, whiteSpace: "nowrap" }}>{r.measurable}</td>
+                  <td style={{ padding: "10px 16px", fontWeight: 500, whiteSpace: "nowrap" }}>{titleCase(r.measurable)}</td>
                   <td style={{ padding: "10px 8px", color: T.muted, whiteSpace: "nowrap" }}>{(r.owner && r.owner.initials) || ""}</td>
-                  <td style={{ padding: "10px 8px", color: T.faint }}>{r.goal == null ? "Goal not set" : `${r.direction === "lte" ? "≤" : "≥"} ${r.goal}`}</td>
+                  <td style={{ padding: "10px 8px", color: T.faint }}>{r.goal == null ? "Goal Not Set" : `${r.direction === "lte" ? "≤" : "≥"} ${r.goal}`}</td>
                   {anchors.map((a) => {
                     const start = a.date ? mondayOf(a.date) : current;
                     const have = valueOn(r, start);
                     const key = `${r.id}:${start}`;
                     return (
                       <td key={a.label} style={{ padding: "8px" }}>
-                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 4 }}>{a.label}{have != null ? ` · ${have}` : ""}</div>
+                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 4 }}>{titleCase(a.label)}{have != null ? ` · ${have}` : ""}</div>
                         {canEdit && !r.auto && (
                           <span style={{ display: "inline-flex", gap: 6 }}>
                             <input aria-label={`${r.measurable} ${a.label}`} value={drafts[key] || ""} onChange={(e) => setDrafts({ ...drafts, [key]: e.target.value })}

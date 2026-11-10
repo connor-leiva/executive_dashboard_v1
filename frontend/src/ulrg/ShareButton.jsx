@@ -37,7 +37,7 @@ export default function ShareButton({ scope = "ulrg" }) {
     return (
       <button onClick={make} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}
               title="Create a read-only link to embed in ClickUp">
-        {busy ? "Creating…" : err ? "Try again" : "Share to ClickUp"}
+        {busy ? "Creating…" : err ? "Try Again" : "Share to ClickUp"}
       </button>
     );
   }

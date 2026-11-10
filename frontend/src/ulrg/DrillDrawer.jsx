@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { getJSON, postJSON } from "../api.js";
 import { T, NUM, FONT, LBL } from "./l10tokens.jsx";
-import { fmtMoney } from "./scorecardMath.js";
+import { fmtMoney, titleCase } from "./scorecardMath.js";
 
 const muted = { fontSize: 13, color: T.muted, padding: "8px 0" };
 
@@ -18,7 +18,7 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
         boxShadow: "-8px 0 30px -12px rgba(20,35,28,0.45)", display: "flex", flexDirection: "column", fontFamily: FONT }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.line}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: T.ink }}>{r.measurable}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: T.ink }}>{titleCase(r.measurable)}</div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{label}{r.owner && r.owner.initials ? ` · ${r.owner.initials}` : ""}</div>
             {r.provenance_detail && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 6, lineHeight: 1.45 }}>{r.provenance_detail}</div>}
           </div>
@@ -80,7 +80,7 @@ function Records({ r, ws, we }) {
     return () => { ok = false; };
   }, [r.id, ws, we]);
 
-  if (recs === null) return <div style={muted}>Loading records…</div>;
+  if (recs === null) return <div style={muted}>Loading Records…</div>;
   if (restricted) return <div style={muted}>The agent-level detail behind this number is limited to leadership.</div>;
   if (!recs.length && !groups.length && !excluded.length) {
     return <div style={muted}>{summary || `No records from ${src} in this window.`}</div>;
@@ -106,7 +106,7 @@ function Records({ r, ws, we }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
         <div style={LBL}>{attach
           ? `${capped} of ${recs.length} used ${vendor} · ${pct}%`
-          : `${recs.length} record${recs.length === 1 ? "" : "s"} · from ${src}`}</div>
+          : `${recs.length} Record${recs.length === 1 ? "" : "s"} · From ${src}`}</div>
         <div style={{ display: "flex", gap: 2, background: T.shell, borderRadius: 6, padding: 2, flexShrink: 0 }}>
           {["name", "date"].map((k) => (
             <button key={k} onClick={() => setSort(k)} style={{
@@ -133,7 +133,7 @@ function Records({ r, ws, we }) {
       )) : sorted.map((x) => <RecordLine key={`${x.id}-${x.date}`} x={x} attach={attach} vendor={vendor} />)}
       {excluded.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div style={LBL}>Excluded from the total</div>
+          <div style={LBL}>Excluded From the Total</div>
           <div style={{ fontSize: 12, color: T.muted, margin: "4px 0 6px" }}>Journal entries and transfers are listed here and left out of the cell.</div>
           {excluded.map((x) => <RecordLine key={`x-${x.id}-${x.date}`} x={x} attach={false} vendor={vendor} />)}
         </div>
@@ -163,7 +163,7 @@ function ManualWeeks({ drill, canEdit, onSaved }) {
 
   return (
     <>
-      <div style={{ ...LBL, marginBottom: 6 }}>Hand-entered{canEdit ? " · edit any week" : ""}</div>
+      <div style={{ ...LBL, marginBottom: 6 }}>Hand-Entered{canEdit ? " · Edit Any Week" : ""}</div>
       <div style={{ ...muted, marginTop: 0 }}>This number is typed by hand. There is no source feed behind it.</div>
       {weeks.map((w) => (
         <div key={w.start} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.lineSoft}` }}>

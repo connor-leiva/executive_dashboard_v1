@@ -65,3 +65,48 @@ export function fmtMoney(v, { cents = false, compact = false } = {}) {
   return `${sign}$${body}`;
 }
 export const isPct = (row) => row.type === "rate" || row._pct;
+
+// Title case for scorecard names and headings. Matches backend/app/services/titlecase.py.
+// Notes and other sentences are not passed through here.
+const SMALL = new Set(["a", "an", "the", "and", "or", "of", "in", "to", "vs.", "vs", "at", "by", "for"]);
+const KEEP = {
+  vip: "VIP", ghl: "GHL", cpl: "CPL", ids: "IDS", qtd: "QTD", eos: "EOS",
+  clickup: "ClickUp", meta: "Meta", stripe: "Stripe", forum: "Forum",
+  becollective: "beCollective", quickbooks: "QuickBooks", zoom: "Zoom",
+  axcion: "Axcion", mighty: "Mighty", dallas: "Dallas", scottsdale: "Scottsdale",
+  sb: "SB", ga: "GA", mrr: "MRR", ytd: "YTD", cac: "CAC", revshare: "RevShare",
+};
+
+function titleToken(raw, force) {
+  if (/[a-z]/.test(raw) && /[A-Z]/.test(raw.slice(1))) return raw;
+  if (/^[A-Z][A-Z0-9]{1,}$/.test(raw)) return raw;
+  if (/^\$[\d,.]+[KMB]?$/i.test(raw)) return raw;
+  if (/\d/.test(raw)) return raw;
+  const key = raw.replace(/^[^A-Za-z]+|[^A-Za-z.]+$/g, "");
+  if (!key) return raw;
+  const lower = key.toLowerCase();
+  if (KEEP[lower]) return raw.replace(key, KEEP[lower]);
+  if (!force && SMALL.has(lower)) return raw.replace(key, lower);
+  return raw.replace(key, lower.charAt(0).toUpperCase() + lower.slice(1));
+}
+
+function titleWord(raw, force) {
+  if (raw.includes("-") && raw.replace(/-/g, "") !== "") {
+    return raw.split("-").map((bit, i) => titleToken(bit, i ? true : force)).join("-");
+  }
+  return titleToken(raw, force);
+}
+
+export function titleCase(text) {
+  if (text == null || String(text).trim() === "") return text;
+  const parts = String(text).split(/(\s+)/);
+  const words = parts.filter((p) => p && !/^\s+$/.test(p));
+  const last = words.length - 1;
+  let n = 0;
+  return parts.map((part) => {
+    if (!part || /^\s+$/.test(part)) return part;
+    const out = titleWord(part, n === 0 || n === last);
+    n += 1;
+    return out;
+  }).join("");
+}
