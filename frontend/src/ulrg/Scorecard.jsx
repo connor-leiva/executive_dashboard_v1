@@ -474,13 +474,12 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
           aria-expanded={cumOpen}
           style={{
             marginLeft: 12, display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 9px 0 7px",
-            border: `1px solid ${cumOpen ? T.forest : T.line}`, background: cumOpen ? T.forest : "transparent",
-            color: cumOpen ? T.paper : T.inkSoft, borderRadius: 5, cursor: "pointer", font: "inherit",
+            border: `1px solid ${T.forest}`, background: T.forest,
+            color: T.paper, borderRadius: 5, cursor: "pointer", font: "inherit",
             fontSize: 12, fontWeight: 600,
-            transition: `background 220ms ${EASE}, border-color 220ms ${EASE}, color 220ms ${EASE}`,
           }}
         >
-          <Chevron open={cumOpen} size={10} color={cumOpen ? T.paper : T.muted} />
+          <Chevron open={cumOpen} size={10} color={T.paper} />
           Cumulative
         </button>
         <div style={{ marginLeft: "auto", marginRight: 10, display: "flex", alignItems: "center", gap: 12 }}>
