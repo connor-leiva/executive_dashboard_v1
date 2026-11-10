@@ -367,10 +367,18 @@ def _blank_goal(value) -> bool:
     return value is None or float(value) == 0
 
 
-def apply_enterprise(session: Session) -> dict:
-    """Upsert the enterprise board onto every membership business. Does not delete values."""
+def apply_enterprise(session: Session, tenant_id=None) -> dict:
+    """Upsert the enterprise board onto membership businesses. Does not delete values.
+
+    `tenant_id` limits the pass to one tenant. The migration leaves it unset so every
+    membership business is seeded; tests pass their own tenant so a shared database's
+    other companies stay as they are.
+    """
     created = adopted = retired = 0
-    businesses = session.scalars(select(Business).where(Business.kind == "membership")).all()
+    q = select(Business).where(Business.kind == "membership")
+    if tenant_id is not None:
+        q = q.where(Business.tenant_id == tenant_id)
+    businesses = session.scalars(q).all()
     for biz in businesses:
         groups = {g.key: g for g in session.scalars(select(ScorecardGroup).where(
             ScorecardGroup.tenant_id == biz.tenant_id, ScorecardGroup.business_id == biz.id)).all()}

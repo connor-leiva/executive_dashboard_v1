@@ -49,9 +49,9 @@ async def board():
         yield {"tid": t.id, "bid": b.id}
 
 
-def _apply(sync_conn):
+def _apply(sync_conn, tenant_id):
     sess = SyncSession(bind=sync_conn)
-    stats = apply_enterprise(sess)
+    stats = apply_enterprise(sess, tenant_id=tenant_id)
     sess.flush()
     return stats
 
@@ -59,10 +59,10 @@ def _apply(sync_conn):
 async def test_seed_is_additive_and_covers_the_fifty_two(board):
     e = board
     async with engine.begin() as conn:
-        stats = await conn.run_sync(_apply)
+        stats = await conn.run_sync(lambda c: _apply(c, e["tid"]))
     assert stats["created"] > 40
     async with engine.begin() as conn:
-        again = await conn.run_sync(_apply)
+        again = await conn.run_sync(lambda c: _apply(c, e["tid"]))
     assert again["created"] == 0
     async with SessionLocal() as s:
         rows = (await s.execute(select(ScorecardMetric).where(
@@ -166,7 +166,7 @@ async def test_as_of_and_books_and_cash(board):
 
 async def test_build_marks_the_enterprise_board(board):
     async with engine.begin() as conn:
-        await conn.run_sync(_apply)
+        await conn.run_sync(lambda c: _apply(c, board["tid"]))
     async with SessionLocal() as s:
         payload = await build_scorecard(s, board["tid"], board["bid"], 13, today=dt.date(2026, 11, 10))
     assert payload["enterprise"] is True and payload["ids_after"] == 2

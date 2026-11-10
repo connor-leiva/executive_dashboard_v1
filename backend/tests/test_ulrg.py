@@ -195,14 +195,15 @@ def test_springb_seed_strings_fit_their_columns():
     from app import seed_springb_scorecard as sb
     from app.models import ScorecardMetric, ScorecardGroup
     name_len = ScorecardMetric.__table__.c.name.type.length
-    note_len = ScorecardMetric.__table__.c.note.type.length
+    note_len = ScorecardMetric.__table__.c.note.type.length  # None once the column is TEXT
     gname_len = ScorecardGroup.__table__.c.name.type.length
     data = json.load(open(sb._DATA_PATH, encoding="utf-8"))
     for g in data["groups"]:
         assert len(g["name"]) <= (gname_len or 10**9), g["name"]
         for m in g["metrics"]:
             assert len(m["name"]) <= name_len, m["name"]
-            assert len(m.get("note") or "") <= note_len, m["name"]
+            if note_len is not None:
+                assert len(m.get("note") or "") <= note_len, m["name"]
 
 
 async def test_springb_is_a_separate_board_with_its_own_access_and_no_leak():
