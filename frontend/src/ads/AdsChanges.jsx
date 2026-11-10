@@ -65,6 +65,29 @@ export default function AdsChanges({ data, onSaved }) {
     }
   }
 
+  async function checkAccess() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!API_BASE) {
+        setResult({ message: "This preview has no Meta token to check.", results: [] });
+        return;
+      }
+      const out = await postJSON("/ads/writes/scope", { account: data.account?.id });
+      setResult({
+        message: out.can_write
+          ? "Meta accepted the check. Changes can be applied."
+          : (out.detail || out.reconnect || "Reconnect Meta to enable changes"),
+        results: [],
+      });
+      onSaved?.();
+    } catch (e) {
+      setError(e.message || "Meta did not accept the access check.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function undo() {
     setBusy(true);
     setError(null);
@@ -113,6 +136,11 @@ export default function AdsChanges({ data, onSaved }) {
             ? "This token includes ads_management. Preview checks the change with Meta before Apply sends it."
             : (writes.detail || "The saved token can read this account. Apply runs as a preview until you reconnect a token that includes ads_management.")}
         </p>
+        {!writes.can_write && (
+          <button type="button" className="per" style={{ marginTop: 10 }} disabled={busy} onClick={checkAccess}>
+            Check access
+          </button>
+        )}
       </div>
 
       {items.map((item) => {
