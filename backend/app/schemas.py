@@ -174,6 +174,9 @@ class AreaPayload(BaseModel):
     # Where the funnel's stages come from, when that is not the default "Follow Up Boss · Sisu": on a
     # SkySlope business the top comes from Sisu or Follow Up Boss and the bottom from SkySlope.
     funnel_source: str | None = None
+    # What the business IS (services/roles). A brokerage's page carries the lead-source reports
+    # whatever the tenant named it, so the client decides on this rather than on the key "ulrg".
+    kind: str | None = None
 
 
 class CompositionSeg(BaseModel):

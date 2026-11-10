@@ -40,6 +40,9 @@ _sleep = asyncio.sleep
 PERSON_FIELDS = ",".join((
     "id", "name", "firstName", "lastName", "stage", "source", "contacted", "assignedUserId",
     "created", "updated", "lastActivity", "emails",
+    # One number, for What's Working's median-price row (lead-source spec phase 5). Not a reason
+    # to keep anything else from the person payload.
+    "price",
 ))
 
 
@@ -234,4 +237,91 @@ def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
         "src_created_at": created,
         "src_updated_at": parse_ts(p.get("updated")),
         "last_activity_at": parse_ts(p.get("lastActivity")),
+        "price": coerce_price(p.get("price")),
     }
+
+
+def coerce_price(value) -> float | None:
+    """FUB's `price`: sometimes a number, sometimes "$485,000", often absent. None unless positive."""
+    if value in (None, "", 0, "0") or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if value > 0 else None
+    cleaned = str(value).replace("$", "").replace(",", "").strip()
+    try:
+        v = float(cleaned)
+    except ValueError:
+        return None
+    return v if v > 0 else None
+
+
+# ── activity: calls, texts, email events, appointments (lead-source spec §4.5, phase 2) ─────
+#
+# Read per PERSON (`personId`), because that is the filter every one of these endpoints is
+# documented to take and the one the legacy report used. The sync only ever asks for people inside
+# an active lead-source group, a bounded slice per run (services/fub_sync._activity).
+#
+# NOTHING BUT FACTS. A call keeps its direction, time, duration and whether it carried a note; the
+# note itself, the recording and the numbers are dropped here, before anything is stored.
+
+ACTIVITY_ENDPOINTS = (
+    ("call", "/calls", "calls"),
+    ("text", "/textMessages", "textMessages"),
+    ("email", "/emEvents", "emEvents"),
+    ("appointment", "/appointments", "appointments"),
+)
+LIVE_OUTCOMES = ("met", "kept", "completed")
+SENT_EMAIL = ("sent", "delivered")
+
+
+def _direction(row: dict) -> str:
+    d = str(row.get("direction") or "").strip().lower()
+    if d in ("outbound", "inbound"):
+        return d
+    inc = row.get("isIncoming")
+    if isinstance(inc, bool):
+        return "inbound" if inc else "outbound"
+    if str(inc).strip().lower() in ("true", "1"):
+        return "inbound"
+    if str(inc).strip().lower() in ("false", "0"):
+        return "outbound"
+    return "unknown"
+
+
+def map_activity(kind: str, row: dict, person_id) -> dict | None:
+    """One FUB activity row as a crm_activity row, or None when it is not a touch at all.
+
+    The live rules, verbatim from the legacy report (and its reason): a call is LIVE when it has a
+    duration OR a note. FUB's manually logged calls report duration 0 even when a conversation
+    happened -- the audit that found it was a 0-second call noted "Spoke to Bryn / looking for 2 to
+    3 bed up to 350K" -- and a voicemail almost never gets a note. Texts and sent emails are always
+    an attempt. An appointment is live when its outcome is met, kept or completed.
+    """
+    ext = row.get("id")
+    if ext in (None, ""):
+        return None
+    base = {"kind": kind, "external_id": str(ext)[:64], "person_external_id": str(person_id)[:64],
+            "duration_sec": None, "has_note": False, "outcome": None, "is_live": False}
+    if kind == "call":
+        try:
+            dur = float(row.get("duration") or 0)
+        except (TypeError, ValueError):
+            dur = 0.0
+        has_note = bool(str(row.get("note") or "").strip())
+        return {**base, "channel": "call", "direction": _direction(row),
+                "occurred_at": parse_ts(row.get("created")), "duration_sec": dur,
+                "has_note": has_note, "is_live": dur > 0 or has_note}
+    if kind == "text":
+        return {**base, "channel": "text", "direction": _direction(row),
+                "occurred_at": parse_ts(row.get("created"))}
+    if kind == "email":
+        if str(row.get("type") or row.get("event_type") or "").strip().lower() not in SENT_EMAIL:
+            return None                                # opens and clicks are the reader, not a touch
+        return {**base, "channel": "email", "direction": "outbound",
+                "occurred_at": parse_ts(row.get("occurred") or row.get("created"))}
+    if kind == "appointment":
+        outcome = str(row.get("outcome") or "").strip().lower() or None
+        return {**base, "channel": "appt", "direction": "unknown",
+                "occurred_at": parse_ts(row.get("start") or row.get("startTime")),
+                "outcome": clip(outcome, 60), "is_live": outcome in LIVE_OUTCOMES}
+    return None

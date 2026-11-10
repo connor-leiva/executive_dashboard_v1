@@ -38,6 +38,9 @@ class FakeFub:
         self.identity = {"account": {"id": 777, "domain": "acme"},
                          "user": {"id": 1, "name": "Owner", "email": "owner@acme.test"}}
         self.smart_lists: list[dict] = []     # {"id": 35, "name": "01. Recently Active"}
+        # Activity, read per person (`personId`) the way the lead-source walk reads it.
+        self.activity: dict[str, list[dict]] = {"calls": [], "textMessages": [], "emEvents": [],
+                                                "appointments": []}
 
     # ── routing ──────────────────────────────────────────────────────────────────────────
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -63,6 +66,12 @@ class FakeFub:
             return self._page("people", self._people(params), params)
         if path == "/smartLists":
             return self._page("smartlists", self.smart_lists, params)
+        if path.lstrip("/") in self.activity:
+            key = path.lstrip("/")
+            rows = self.activity[key]
+            if "personId" in params:
+                rows = [r for r in rows if str(r.get("personId")) == str(params["personId"])]
+            return self._page(key, rows, params)
         if path == "/tasks":
             if self.refuse_due_start and "dueStart" in params:
                 return httpx.Response(400, json={"errorMessage": "Invalid dueStart"})
@@ -146,3 +155,20 @@ def fake(monkeypatch):
         return None
     monkeypatch.setattr(fub, "_sleep", _no_wait)
     return server
+
+
+def call(i, *, person_id, created, duration=0, note="", outbound=True):
+    return {"id": i, "personId": person_id, "created": created, "duration": duration, "note": note,
+            "isIncoming": not outbound}
+
+
+def text(i, *, person_id, created, outbound=True):
+    return {"id": i, "personId": person_id, "created": created, "isIncoming": not outbound}
+
+
+def em_event(i, *, person_id, occurred, kind="sent"):
+    return {"id": i, "personId": person_id, "occurred": occurred, "type": kind}
+
+
+def appointment(i, *, person_id, start, outcome=None):
+    return {"id": i, "personId": person_id, "start": start, "outcome": outcome}

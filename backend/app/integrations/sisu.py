@@ -27,6 +27,9 @@ from dataclasses import dataclass
 
 from ..config import settings
 
+# Installed by tests (an httpx.MockTransport) for the per-contact calls below. None = the network.
+TRANSPORT: httpx.AsyncBaseTransport | None = None
+
 GET_TEAM_CLIENTS = "/v1/team/get-team-clients"
 GET_TEAM_VENDORS = "/v1/team/get-team-vendors"
 SIDE = {"b": "buy", "s": "sell"}
@@ -374,7 +377,31 @@ def map_client(c: dict) -> dict:
         "signed_date": parse_dt(c.get("signed_dt")),        # buyer/listing agreement signed → Clients Signed
         "lead_date": parse_dt(c.get("lead_dt")),
         "listing_date": parse_dt(c.get("listing_dt")),
+        # Lead-source report (spec §4.3): volume prefers closed_volume_amt, the opposite of
+        # sale_price above, and "lost" is the two explicit signals, not status code LOSTT.
+        "closed_volume": _money(c.get("closed_volume_amt")) or _money(c.get("trans_amt")),
+        "lost_signal": bool(c.get("lost_reason_id") or c.get("archive_ts")),
+        # The Follow Up Boss person this client is mapped to, IF the bulk feed carries Sisu's
+        # external ids (open question §12.1 -- unconfirmed on a live payload). When present it is the
+        # cheapest possible link; when absent the contact lookup below does the work.
+        "fub_person_id": fub_external_id(c),
     }
+
+
+def fub_external_id(c: dict, service: str | None = None) -> str | None:
+    """The FUB person id among a Sisu record's external ids, under service `fub`, else None."""
+    want = (service or settings.SISU_EXTERNAL_SERVICE or "fub").lower()
+    rows = c.get("external_ids") or c.get("external_contacts") or []
+    if isinstance(rows, dict):
+        rows = [{"external_service_id": k, "external_contact_id": v} for k, v in rows.items()]
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        svc = str(row.get("external_service_id") or row.get("service") or "").lower()
+        ext = row.get("external_contact_id") or row.get("id")
+        if svc == want and ext not in (None, ""):
+            return str(ext).split("_")[-1][:64]          # an old "{account}_{id}" mapping too
+    return None
 
 
 # ── Net GCI (company dollar) via the per-deal commission-info endpoint ──
@@ -463,3 +490,147 @@ async def enrich_commissions(creds: SisuCreds, mapped: list[dict], concurrency: 
     if progress:
         progress(len(targets), len(targets))
     return sum(1 for t in targets if t.get("agent_commission") is not None)
+
+
+# ── the lead-source report's company dollar (spec §4.3) ─────────────────────────────────────
+#
+#   company dollar = GCI + transaction fee − EXP risk (team) − EXP risk (agent) − agent payment
+#
+# Not `team_income`, which is GCI split before the adjustments and is what agent_commission above
+# is built from. Both are stored; only this one is labelled "Company dollar" on the report.
+
+def exp_risk_fees(ci: dict) -> tuple[float, float]:
+    """(team side, agent side) from every adjustment whose category names EXP Risk Management.
+    The larger is the team's, the smaller the agent's; one line is the team's alone; none is (0, 0)
+    so the caller falls back to the group's defaults."""
+    amounts: list[float] = []
+    for bucket in ((ci or {}).get("adjustments") or {}).values():
+        if not isinstance(bucket, list):
+            continue
+        for item in bucket:
+            if "exp risk management" not in str((item or {}).get("category") or "").lower():
+                continue
+            amt = _num(item.get("adjustment_value") or item.get("amount") or item.get("value")
+                       or item.get("total_amount"))
+            if amt > 0:
+                amounts.append(amt)
+    if not amounts:
+        return 0.0, 0.0
+    if len(amounts) == 1:
+        return amounts[0], 0.0
+    amounts.sort(reverse=True)
+    return amounts[0], amounts[1]
+
+
+def agent_payment(ci: dict) -> float:
+    finals = ((ci or {}).get("summaries") or {}).get("final") or {}
+    return sum(_num((v or {}).get("value")) for v in finals.values() if (v or {}).get("external_type") == 2)
+
+
+def commission_lines(*, gci: float | None, summary_trans_fee: float | None, ci: dict | None,
+                     detail: dict | None, exp_team_default: float, exp_agent_default: float) -> dict:
+    """Every stored commission line for one CLOSED deal, and the company dollar built from them.
+
+    The transaction fee comes from edit-client when it has one (Sisu's accounting fills it there
+    reliably) and from the summary feed otherwise. A missing EXP line takes the group's default and
+    says so in `exp_risk_source`, which the audit drawer shows beside the figure.
+    """
+    ci = ci or {}
+    gci_v = float(gci or 0)
+    fee = _num((detail or {}).get("trans_fee_amt")) or float(summary_trans_fee or 0)
+    team, agent = exp_risk_fees(ci)
+    source = "api" if team > 0 else "default"
+    if team == 0:
+        team = float(exp_team_default or 0)
+    if agent == 0:
+        agent = float(exp_agent_default or 0)
+    pay = agent_payment(ci)
+    rebates = ci.get("rebates") or {}
+    referral = sum(_num((b or {}).get("team")) for b in rebates.values() if isinstance(b, dict))
+    return {
+        "trans_fee": round(fee, 2),
+        "adjusted_gci": round(_num(ci.get("adjusted_gci")) if ci.get("adjusted_gci") is not None else gci_v, 2),
+        "team_income": team_income(ci) if ci else None,
+        "agent_payment": round(pay, 2),
+        "exp_risk_team": round(team, 2),
+        "exp_risk_agent": round(agent, 2),
+        "exp_risk_source": source,
+        "referral_fee_out": round(referral, 2),
+        "company_dollar": round(gci_v + fee - team - agent - pay, 2),
+    }
+
+
+# ── per-contact calls, for the lead-source report's join (spec §5.2, phase 2) ───────────────
+
+def contact_client(creds: SisuCreds) -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=creds.base, auth=creds.auth, timeout=30, transport=TRANSPORT,
+                             headers={"accept": "application/json"})
+
+
+async def _get(c: httpx.AsyncClient, path: str, params=None) -> dict | None:
+    """GET with Sisu's 429 backoff (6s, 12s, 18s). None on a 404 or an app-level error envelope."""
+    for attempt in range(4):
+        r = await c.get(path, params=params)
+        if r.status_code == 429 and attempt < 3:
+            await _sleep(6 * (attempt + 1))
+            continue
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        body = r.json() or {}
+        if isinstance(body, dict) and body.get("status_code") not in (0, None):
+            return None
+        return body
+    return None
+
+
+async def _sleep(seconds: float) -> None:       # a seam, so a test does not wait
+    await asyncio.sleep(seconds)
+
+
+async def contact_by_fub_id(c: httpx.AsyncClient, fub_person_id: str, email: str | None,
+                            service: str = "fub") -> tuple[dict | None, bool]:
+    """Resolve a FUB person to a Sisu contact. Returns (contact or None, mapping_was_saved).
+
+    TWO REQUESTS AT MOST, so the write-back happens exactly when it should. The first asks by the
+    FUB id alone. Only when that misses, and the person has an email, does the second ask again
+    with `fallback_email` and `save_mapping_on_fallback=true` -- which writes the FUB id onto the
+    Sisu contact the email found, so the next lookup hits by id. A contact that already matches by
+    id is never written to.
+    """
+    base = {"external_contact_id": str(fub_person_id), "external_service_id": service,
+            "allowed_statuses": "N"}
+    hit = await _get(c, "/v1/contact/external", base)
+    if hit and hit.get("contact"):
+        return hit["contact"], False
+    if not email:
+        return None, False
+    found = await _get(c, "/v1/contact/external", {**base, "fallback_email": email.strip().lower(),
+                                                   "save_mapping_on_fallback": "true"})
+    contact = (found or {}).get("contact")
+    return (contact, True) if contact else (None, False)
+
+
+async def contact_transactions(c: httpx.AsyncClient, contact_id) -> list[dict]:
+    body = await _get(c, f"/v1/contact/{contact_id}/transactions")
+    return list((body or {}).get("transactions") or [])
+
+
+async def contacts_by_email(c: httpx.AsyncClient, email: str) -> list[dict]:
+    body = await _get(c, "/v1/contact", {"email": email.strip().lower(), "per_page": 25})
+    return list((body or {}).get("contacts") or [])
+
+
+async def commission_info(c: httpx.AsyncClient, client_id) -> dict:
+    body = await _get(c, f"/v1/client/commission-info/{client_id}")
+    return (body or {}).get("commission_info") or {}
+
+
+async def client_detail(c: httpx.AsyncClient, client_id) -> dict:
+    body = await _get(c, f"/v1/client/edit-client/{client_id}")
+    return (body or {}).get("client") or {}
+
+
+def txn_id_of(tx: dict) -> str | None:
+    tid = tx.get("client_id") or tx.get("transaction_id") or tx.get("id")
+    return str(tid)[:64] if tid not in (None, "") else None

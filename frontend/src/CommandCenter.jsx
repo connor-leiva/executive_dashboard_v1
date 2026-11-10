@@ -7,10 +7,12 @@ import { useBecollective } from "./useBecollective.js";
 import { useEdge } from "./useEdge.js";
 import { getJSON, getToken, logout, postJSON, tenantHeaders } from "./api.js";
 import AuditDrawer from "./AuditDrawer.jsx";
+import { Bars, Card, Eyebrow, OpTile, PanelLabel, Segmented, Skel, SkeletonCard, Source, SourceTag, StatTile, sentence } from "./panels.jsx";
 import RosterDrawer from "./RosterDrawer.jsx";
 import Financials from "./Financials.jsx";
 import TransactionsPanel, { SampleBanner } from "./TransactionsPanel.jsx";
 import UlrgTabs from "./ulrg/UlrgTabs.jsx";
+import { BrokerageTabs } from "./leadsources/LeadSources.jsx";
 import BrandScorecardTabs from "./BrandScorecardTabs.jsx";
 import ForumShell from "./ForumShell.jsx";
 import ForumView, { BeCollectivePlaceholder, BC_DECK_SLOTS } from "./ForumView.jsx";
@@ -117,63 +119,8 @@ function Dot({ status }) {
   );
 }
 
-function Source({ name }) {
-  return (
-    <span style={{
-      fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, color: T.slate,
-      background: T.parchment, border: `1px solid ${T.line}`, borderRadius: 5, padding: "2px 7px",
-    }}>{name}</span>
-  );
-}
-
-/* Sentence case for labels that arrive Title Cased ("Combined Profit" -> "Combined profit"),
-   leaving acronyms (GCI, NOI) alone. */
-const sentence = (str) => String(str || "").split(" ")
-  .map((w, i) => (i === 0 || /^[A-Z0-9]{2,}$/.test(w) ? w : w.toLowerCase())).join(" ");
-
 /* The Portfolio strip's four figures, by metric key (services/metrics._scorecards). */
 const STRIP_KEYS = new Set(["combined_profit", "gci", "units_closed", "pending"]);
-
-/* Where a figure came from, as one muted tag in the data face. The name is the server's
-   (Scorecard.source), in the same words as the source list in the top bar: a client-side guess
-   would call a SkySlope brokerage's closings "Sisu", and SkySlope's own name is not ours to show.
-   No source, no tag: a seeded placeholder came from no system. */
-function SourceTag({ of, onDark }) {
-  if (!of) return null;
-  return (
-    <span style={{
-      fontFamily: "var(--font-data)", fontSize: 11, letterSpacing: "0.01em", lineHeight: "16px",
-      color: onDark ? T.onDarkMute : T.tertiary, padding: "0 6px", borderRadius: 4,
-      border: `1px solid ${onDark ? "rgba(239,240,236,0.14)" : T.line}`, whiteSpace: "nowrap",
-    }}>{of}</span>
-  );
-}
-
-function Eyebrow({ children, onDark }) {
-  return (
-    <div style={{
-      fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 500,
-      color: onDark ? T.onDarkMute : T.tertiary,
-    }}>{children}</div>
-  );
-}
-
-function PanelLabel({ children, accent }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-      <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate }}>
-        {children}
-      </span>
-    </div>
-  );
-}
-
-function Card({ children, style }) {
-  // border-box so the 22px padding sits INSIDE the width — several cards carry a
-  // minWidth: 300 that would otherwise render 344 and overflow a phone column.
-  return <div style={{ boxSizing: "border-box", background: T.white, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, ...style }}>{children}</div>;
-}
 
 /* ── P&L ───────────────────────────────────────────────────── */
 
@@ -235,41 +182,7 @@ function PLEmpty({ area }) {
   );
 }
 
-function OpTile({ d, onDrill }) {
-  const clickable = Boolean(d.key) && Boolean(onDrill);
-  const Tag = clickable ? "button" : "div";
-  return (
-    <Tag onClick={clickable ? () => onDrill(d.key) : undefined} className={clickable ? "cc-card cc-optile" : undefined}
-      style={{ display: "block", textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
-        border: "none", background: T.parchment, borderRadius: 10, padding: "12px 13px", cursor: clickable ? "pointer" : "default" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, fontWeight: 500 }}>{sentence(d.label)}</span>
-        {clickable && <span style={{ marginLeft: "auto", fontSize: 12, color: T.muted }}>↗</span>}
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
-        {d.sub && <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted }}>{d.sub}</span>}
-      </div>
-    </Tag>
-  );
-}
 
-function Bars({ rows, accent }) {
-  const max = Math.max(...rows.map((r) => r.v));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ width: 108, fontFamily: "var(--font-text)", fontSize: 12, color: T.slate, textAlign: "right" }}>{r.label}</span>
-          <div style={{ flex: 1, height: 22, background: T.parchment, borderRadius: 5, overflow: "hidden" }}>
-            <div style={{ width: `${(r.v / max) * 100}%`, height: "100%", background: accent, opacity: 0.4 + 0.6 * (r.v / max), borderRadius: 5 }} />
-          </div>
-          <span style={{ width: 42, fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 600, color: T.ink, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.v}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /* Interactive loan pipeline (Sympli): a Total / By LO / By source toggle over a
    pivot of the {stage, lo, source} cells. Every bar + cell drills to its loans,
@@ -357,22 +270,12 @@ function LoanPipeline({ funnel, pipeline, accent, onDrill }) {
   };
 
   const MODES = [["total", "Total"], ["lo", "By loan officer"], ["source", "By source"]];
-  const seg = (on) => ({
-    fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, cursor: "pointer",
-    border: "none", borderRadius: 6, padding: "5px 11px",
-    background: on ? T.white : "transparent", color: on ? T.teal : T.muted,
-    boxShadow: on ? "0 1px 3px rgba(0,46,44,.12)" : "none",
-  });
 
   return (
     <div>
       <style>{`.cc-pcell:hover{ background:${T.meadowBg}; }`}</style>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <div style={{ display: "inline-flex", gap: 3, background: T.parchment, borderRadius: 8, padding: 3 }}>
-          {MODES.map(([m, label]) => (
-            <button key={m} onClick={() => setMode(m)} style={seg(mode === m)}>{label}</button>
-          ))}
-        </div>
+        <Segmented options={MODES} value={mode} onChange={setMode} label="Pipeline view" />
       </div>
       {mode === "total" && <StageBars stages={stages} totals={totals} accent={accent} onCell={(s) => drill(s)} />}
       {mode === "lo" && (cells.length
@@ -559,26 +462,10 @@ function Overview({ data, onOpen, onDrill }) {
           </span>
         </div>
         <div className="cc-score">
-          {strip.map((s, i) => {
-            const clickable = Boolean(s.key) && Boolean(onDrill);
-            const Tag = clickable ? "button" : "div";
-            return (
-              <Tag key={i} onClick={clickable ? () => onDrill(s.key) : undefined}
-                className={clickable ? "cc-card" : undefined}
-                style={{
-                  textAlign: "left", width: "100%", minWidth: 0, boxSizing: "border-box", margin: 0, font: "inherit",
-                  background: T.white, border: `1px solid ${T.line}`,
-                  borderRadius: 14, padding: 20, cursor: clickable ? "pointer" : "default",
-                }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, fontWeight: 500 }}>{sentence(s.label)}</span>
-                  <span style={{ marginLeft: "auto" }}><SourceTag of={s.source} /></span>
-                </div>
-                <div style={{ fontFamily: "var(--font-data)", fontSize: 32, fontWeight: 500, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
-                <div style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, marginTop: 8 }}>{s.sub}</div>
-              </Tag>
-            );
-          })}
+          {strip.map((s, i) => (
+            <StatTile key={i} label={s.label} source={s.source} value={s.value} sub={s.sub}
+              onClick={s.key && onDrill ? () => onDrill(s.key) : undefined} />
+          ))}
         </div>
       </div>
 
@@ -665,7 +552,7 @@ function LoanOfficers({ los, onDrill }) {
   );
 }
 
-function AreaDetail({ area, onDrill, period }) {
+function AreaDetail({ area, onDrill, period, onLeadSources }) {
   const a = area;
   // Three-lens financials for ULRG (Sisu) and Sympli (Arive commissions vs booked).
   const hasThreeLens = a.key === "ulrg" || a.key === "sympli";
@@ -726,6 +613,15 @@ function AreaDetail({ area, onDrill, period }) {
           {a.key === "sympli" && a.loan_pipeline
             ? <LoanPipeline funnel={a.funnel} pipeline={a.loan_pipeline} accent={a.accent} onDrill={onDrill} />
             : <Bars rows={a.funnel} accent={a.accent} />}
+          {onLeadSources && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.line}` }}>
+              <span style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, flex: "1 1 260px", lineHeight: 1.5 }}>
+                Each step counted in the period it happened. To follow one month of arrivals from a lead source to their closes, use the cohort report.
+              </span>
+              <button type="button" onClick={onLeadSources} style={{ fontFamily: "var(--font-text)", fontSize: 13, fontWeight: 600, color: T.teal,
+                background: "none", border: "none", padding: 0, cursor: "pointer", whiteSpace: "nowrap" }}>Cohorts by lead source →</button>
+            </div>
+          )}
         </Card>
       )}
     </div>
@@ -1044,18 +940,7 @@ function Splash({ label, tone }) {
 
 /* ── states: skeletons, error, user menu ─────────────────────── */
 
-function Skel({ w = "100%", h = 12, r = 8, style }) {
-  return <span className="cc-skel" style={{ display: "block", width: w, height: h, borderRadius: r, ...style }} />;
-}
 
-function SkeletonCard({ h = 96 }) {
-  return (
-    <div style={{ background: T.white, border: `1px solid ${T.line}`, borderRadius: 12, padding: 16 }}>
-      <Skel w="55%" h={10} style={{ marginBottom: 14 }} />
-      <Skel w="72%" h={h > 110 ? 30 : 24} />
-    </div>
-  );
-}
 
 function SkeletonDashboard() {
   return (
@@ -1241,10 +1126,12 @@ export default function CommandCenter() {
   const becollective = useBecollective(periodKeyStr, hasTab("becollective"));
   const edge = useEdge(periodKeyStr, hasTab("edge"));
   const [view, setView] = useState("overview");
+  // The brokerage page's sub-tab, held here so its overview can open Lead sources.
+  const [brokerSub, setBrokerSub] = useState("overview");
   // Off-canvas rail on phones/tablets. Selecting a destination closes it, so the drawer
   // never sits over the content you just asked for.
   const [navOpen, setNavOpen] = useState(false);
-  const goTo = (k) => { setView(k); setNavOpen(false); };
+  const goTo = (k) => { setView(k); setNavOpen(false); setBrokerSub("overview"); };
   const [refreshing, setRefreshing] = useState(false);
   const [drill, setDrill] = useState(null);       // { key, business, agentId, lo, stage, source } for the audit drawer
   const onDrill = (key, business, agentId, lo, opts) => setDrill(key ? { key, business, agentId, lo, ...(opts || {}) } : null);
@@ -1344,7 +1231,8 @@ export default function CommandCenter() {
           deckSlots={BC_DECK_SLOTS} drillBusiness="springb" rosterKey="edge_roster" />} />
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" && areas?.ulrg) content = <UlrgTabs role={user?.role}
-    overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} />} />;
+    businessKey={areas.ulrg.key} businessName={areas.ulrg.name} sub={brokerSub} onSub={setBrokerSub}
+    overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} onLeadSources={() => setBrokerSub("lead_sources")} />} />;
   else if (activeView === "sympli") content = <BrandScorecardTabs scope="sympli" role={user?.role}
     overview={<AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />} />;
   else if (activeView === "flywheel") content = <Flywheel flywheel={flywheel} onDrill={onDrill} />;
@@ -1361,6 +1249,9 @@ export default function CommandCenter() {
   );
   else if (activeView === "ai_employees") content = <AIEmployees data={ai.data} loading={ai.loading} error={ai.error} reload={ai.reload} role={user?.role} />;
   else if (activeView === "onboarding") content = <Onboarding data={onb.data} loading={onb.loading} error={onb.error} reload={onb.reload} apply={onb.apply} onPickPlan={setOnbPlanId} />;
+  else if (areas && areas[activeView]?.kind === "real_estate") content = <BrokerageTabs
+    businessKey={areas[activeView].key} businessName={areas[activeView].name} sub={brokerSub} onSub={setBrokerSub}
+    overview={<AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} onLeadSources={() => setBrokerSub("lead_sources")} />} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
 
   return (
@@ -1378,6 +1269,11 @@ export default function CommandCenter() {
         .cc-score { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
         .cc-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .cc-twocol { display: flex; gap: 18px; flex-wrap: wrap; align-items: stretch; }
+        /* Lead-source report tables: a selectable row takes the surface step, like a hovered card. */
+        .ls-row:hover > td { background: ${T.parchment} !important; }
+        .ls-funnel { display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); gap: 10px; }
+        @media (max-width: 1180px) { .ls-funnel { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+        @media (max-width: 560px) { .ls-funnel { grid-template-columns: repeat(2, minmax(0,1fr)); } }
         .cc-skel { background: linear-gradient(90deg, ${T.line} 25%, ${T.parchment} 50%, ${T.line} 75%); background-size: 800px 100%; animation: cc-shimmer 1.4s linear infinite; }
         @keyframes cc-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
         @keyframes cc-spin { to { transform: rotate(360deg); } }

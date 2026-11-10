@@ -1087,7 +1087,7 @@ async def build_dashboard(s: AsyncSession, tenant_id: uuid.UUID, period: str) ->
             revenue=rev, noi=noi, margin=margin, trend=_trend(b), pl=pl, ops=ops, funnel=funnel,
             loan_officers=los, loan_pipeline=pipeline_cells,
             transactions_source=txn_source if txn_source == "skyslope" else None, sample=txn_sample,
-            funnel_source=funnel_source,
+            funnel_source=funnel_source, kind=b.kind,
         )
 
     # One membership entity, several views: its area splits into The Forum (the operational
