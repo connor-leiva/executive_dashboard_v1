@@ -60,6 +60,8 @@ function CohortTable({ rows, header, spend, onRow, filename }) {
                  "Under contract", "Closed", "Dead", "Active", "Matched", "Closed", "Company dollar", "Spend", "Net spend", "ROI", "Conversion"];
   const watch = (on) => (on ? { color: T.daffodilText, fontWeight: 600 } : {});
   const dash = (r, v) => (r.spend_only ? "—" : v);
+  // Twenty columns: a step tighter than the house table so the program fits a laptop without scrolling.
+  const tdc = { ...td, paddingLeft: 6, paddingRight: 6 }, thc = { ...th, paddingLeft: 6, paddingRight: 6 };
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
@@ -75,13 +77,13 @@ function CohortTable({ rows, header, spend, onRow, filename }) {
           <thead>
             <tr>
               {groups.map(([g, span], i) => (
-                <th key={i} colSpan={span} style={{ ...th, ...(i === 0 ? sticky : {}), textAlign: "center", color: T.tertiary,
+                <th key={i} colSpan={span} style={{ ...thc, ...(i === 0 ? sticky : {}), textAlign: "center", color: T.tertiary,
                   fontWeight: 500, borderBottom: g ? `1px solid ${T.line}` : "none", padding: "0 8px 6px" }}>{g}</th>
               ))}
             </tr>
             <tr>
               {heads.map((h, i) => (
-                <th key={i} style={{ ...th, ...(i === 0 ? { ...sticky, paddingLeft: 20 } : {}), textAlign: i < 2 ? "left" : "right",
+                <th key={i} style={{ ...thc, ...(i === 0 ? { ...sticky, paddingLeft: 20 } : {}), textAlign: i < 2 ? "left" : "right",
                   whiteSpace: "normal", verticalAlign: "bottom", lineHeight: 1.3, paddingRight: i === heads.length - 1 ? 20 : 8 }}>{h}</th>
               ))}
             </tr>
@@ -92,26 +94,26 @@ function CohortTable({ rows, header, spend, onRow, filename }) {
               return (
                 <tr key={r.cohort_key} onClick={r.spend_only ? undefined : () => onRow(r)} className={r.spend_only ? undefined : "ls-row"}
                     style={{ cursor: r.spend_only ? "default" : "pointer" }} title={r.spend_only ? undefined : `The ${r.leads_received} leads behind ${r.cohort_month}`}>
-                  <td style={{ ...td, ...sticky, paddingLeft: 20, fontWeight: 600 }}>{r.cohort_month}</td>
-                  <td style={{ ...td, textAlign: "left" }} title={r.spend_only ? undefined : `${r.cohort_age_months} months old`}><Pill tone={m.tone}>{m.label}</Pill></td>
-                  <td style={td}>{dash(r, fmt.count(r.leads_received))}</td>
-                  <td style={td} title={`${r.contacted_count} of ${r.leads_received}`}>{dash(r, fmt.pct(r.contacted_pct))}</td>
-                  <td style={{ ...td, ...watch(r.flag_slow_contact) }} title={r.flag_slow_contact ? "Average first touch is over 30 minutes" : undefined}>{fmt.minutes(r.avg_time_to_contact_minutes)}</td>
-                  <td style={td}>{dash(r, fmt.pct(r.pct_contacted_5min))}</td>
-                  <td style={{ ...td, ...watch(r.flag_low_24hr_contact) }} title={r.flag_low_24hr_contact ? "Under 85% contacted within a day" : undefined}>{dash(r, fmt.pct(r.pct_contacted_24hr))}</td>
-                  <td style={td} title={`${r.appts_set_count} set · ${fmt.pct(r.appts_set_pct)} of leads`}>{dash(r, r.appts_set_count)}</td>
-                  <td style={td} title={`${r.appts_held_count} held · ${fmt.pct(r.appts_held_pct)} of set`}>{dash(r, r.appts_held_count)}</td>
-                  <td style={td}>{dash(r, r.under_contract_count)}</td>
-                  <td style={td}>{dash(r, r.closed_count)}</td>
-                  <td style={td}>{dash(r, r.dead_count)}</td>
-                  <td style={td}>{dash(r, r.active_count)}</td>
-                  <td style={td} title={`${r.sisu_matched_count} people · ${fmt.pct(r.sisu_match_rate)}`}>{dash(r, fmt.pct(r.sisu_match_rate))}</td>
-                  <td style={td}>{r.sisu_closed_count ?? 0}</td>
-                  <td style={{ ...td, fontFamily: FM }} title={r.sisu_gci_dollars ? `${fmt.plainMoney(r.sisu_gci_dollars)} GCI` : undefined}>{fmt.plainMoney(r.sisu_company_dollar_dollars)}</td>
-                  <td style={{ ...td, fontFamily: FM }}>{spend.mapped ? fmt.plainMoney(r.gross_spend) : "—"}</td>
-                  <td style={{ ...td, fontFamily: FM, color: T.slate }}>{spend.mapped ? fmt.plainMoney(r.net_spend) : "—"}</td>
-                  <td style={{ ...td, fontFamily: FM }}>{fmt.mult(r.roi_gross)}</td>
-                  <td style={{ ...td, color: c.color, paddingRight: 20 }} title={c.title}>{c.text}</td>
+                  <td style={{ ...tdc, ...sticky, paddingLeft: 20, fontWeight: 600 }}>{r.cohort_month}</td>
+                  <td style={{ ...tdc, textAlign: "left" }} title={r.spend_only ? undefined : `${r.cohort_age_months} months old`}><Pill tone={m.tone}>{m.label}</Pill></td>
+                  <td style={tdc}>{dash(r, fmt.count(r.leads_received))}</td>
+                  <td style={tdc} title={`${r.contacted_count} of ${r.leads_received}`}>{dash(r, fmt.pct(r.contacted_pct))}</td>
+                  <td style={{ ...tdc, ...watch(r.flag_slow_contact) }} title={r.flag_slow_contact ? "Average first touch is over 30 minutes" : undefined}>{fmt.minutes(r.avg_time_to_contact_minutes)}</td>
+                  <td style={tdc}>{dash(r, fmt.pct(r.pct_contacted_5min))}</td>
+                  <td style={{ ...tdc, ...watch(r.flag_low_24hr_contact) }} title={r.flag_low_24hr_contact ? "Under 85% contacted within a day" : undefined}>{dash(r, fmt.pct(r.pct_contacted_24hr))}</td>
+                  <td style={tdc} title={`${r.appts_set_count} set · ${fmt.pct(r.appts_set_pct)} of leads`}>{dash(r, r.appts_set_count)}</td>
+                  <td style={tdc} title={`${r.appts_held_count} held · ${fmt.pct(r.appts_held_pct)} of set`}>{dash(r, r.appts_held_count)}</td>
+                  <td style={tdc}>{dash(r, r.under_contract_count)}</td>
+                  <td style={tdc}>{dash(r, r.closed_count)}</td>
+                  <td style={tdc}>{dash(r, r.dead_count)}</td>
+                  <td style={tdc}>{dash(r, r.active_count)}</td>
+                  <td style={tdc} title={`${r.sisu_matched_count} people · ${fmt.pct(r.sisu_match_rate)}`}>{dash(r, fmt.pct(r.sisu_match_rate))}</td>
+                  <td style={tdc}>{r.sisu_closed_count ?? 0}</td>
+                  <td style={{ ...tdc, fontFamily: FM }} title={r.sisu_gci_dollars ? `${fmt.plainMoney(r.sisu_gci_dollars)} GCI` : undefined}>{fmt.plainMoney(r.sisu_company_dollar_dollars)}</td>
+                  <td style={{ ...tdc, fontFamily: FM }}>{spend.mapped ? fmt.plainMoney(r.gross_spend) : "—"}</td>
+                  <td style={{ ...tdc, fontFamily: FM, color: T.slate }}>{spend.mapped ? fmt.plainMoney(r.net_spend) : "—"}</td>
+                  <td style={{ ...tdc, fontFamily: FM }}>{fmt.mult(r.roi_gross)}</td>
+                  <td style={{ ...tdc, color: c.color, paddingRight: 20 }} title={c.title}>{c.text}</td>
                 </tr>
               );
             })}
@@ -124,7 +126,7 @@ function CohortTable({ rows, header, spend, onRow, filename }) {
                               15: fmt.plainMoney(header.company_dollar),
                               16: header.gross_spend == null ? "—" : fmt.plainMoney(header.gross_spend),
                               17: header.net_spend == null ? "—" : fmt.plainMoney(header.net_spend), 18: fmt.mult(header.roi_gross) }[i];
-                  return <td key={i} style={{ ...td, ...(i === 0 ? { ...sticky, paddingLeft: 20 } : {}), borderBottom: "none",
+                  return <td key={i} style={{ ...tdc, ...(i === 0 ? { ...sticky, paddingLeft: 20 } : {}), borderBottom: "none",
                     borderTop: `2px solid ${T.evergreen}`, fontWeight: 600, fontFamily: i >= 15 && i <= 18 ? FM : FB }}>{v ?? ""}</td>;
                 })}
               </tr>
