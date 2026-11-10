@@ -42,13 +42,15 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
   const [d, setD] = useState(null);
   const [err, setErr] = useState(false);
   const [srcFilter, setSrcFilter] = useState("all");   // all | ULRG | OTHER (loan drawers)
+  const [lsFilter, setLsFilter] = useState("all");     // all | a lead-source key | unassigned (flywheel drawers)
 
   useEffect(() => {
-    if (preset) { setD(preset); setErr(false); setSrcFilter("all"); return; }
+    if (preset) { setD(preset); setErr(false); setSrcFilter("all"); setLsFilter("all"); return; }
     if (!metricKey) return;
     setD(null);
     setErr(false);
     setSrcFilter("all");
+    setLsFilter("all");
     if (!API_BASE) return; // sample mode → show the note below
     const q = `/metrics/${metricKey}/detail?period=${period}`
       + (business ? `&business=${encodeURIComponent(business)}` : "")
@@ -77,7 +79,15 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
   const srcCount = { ULRG: allRows.filter((r) => r.seg === "ULRG").length,
                      OTHER: allRows.filter((r) => r.seg === "OTHER").length };
   const mixed = srcCount.ULRG > 0 && srcCount.OTHER > 0;
-  const shown = mixed && srcFilter !== "all" ? allRows.filter((r) => r.seg === srcFilter) : allRows;
+  const bySeg = mixed && srcFilter !== "all" ? allRows.filter((r) => r.seg === srcFilter) : allRows;
+  // Lead-source chips (the flywheel's deal and loan drawers). Only when more than one source actually
+  // has rows -- a drawer that is all one source has nothing to filter. The card that opened it is
+  // untouched: this narrows the list, never the headline number. Labels are the tenant's own group
+  // names, so a workspace without Realtor.com never reads the word.
+  const lsChips = (d?.lead_sources || []).filter((c) => c.count > 0);
+  const lsOn = lsChips.length > 1;
+  const shown = lsOn && lsFilter !== "all" ? bySeg.filter((r) => r.lead_source_key === lsFilter) : bySeg;
+  const narrowed = (mixed && srcFilter !== "all") || (lsOn && lsFilter !== "all");
   const srcSeg = (k, on) => ({
     fontFamily: "var(--font-text)", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "none",
     borderRadius: 6, padding: "4px 10px", background: on ? T.white : "transparent",
@@ -131,7 +141,14 @@ export default function AuditDrawer({ metricKey, business, agentId, lo, stage, s
                   ))}
                 </div>
               )}
-              {d.count != null && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, margin: "16px 0 4px" }}>{shown.length}{mixed && srcFilter !== "all" ? ` of ${allRows.length}` : ""} record{shown.length === 1 ? "" : "s"}</div>}
+              {lsOn && (
+                <div role="group" aria-label="Lead source" style={{ display: "flex", flexWrap: "wrap", gap: 3, background: T.parchment, borderRadius: 8, padding: 3, marginTop: mixed ? 8 : 16, width: "fit-content", maxWidth: "100%" }}>
+                  {[["all", `All ${allRows.length}`], ...lsChips.map((c) => [c.key, `${c.label} ${c.count}`])].map(([k, label]) => (
+                    <button key={k} onClick={() => setLsFilter(k)} aria-pressed={lsFilter === k} style={{ ...srcSeg(k, lsFilter === k), color: lsFilter === k ? T.ink : T.muted }}>{label}</button>
+                  ))}
+                </div>
+              )}
+              {d.count != null && <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, margin: "16px 0 4px" }}>{shown.length}{narrowed ? ` of ${allRows.length}` : ""} record{shown.length === 1 ? "" : "s"}</div>}
               {shown.length === 0 && !d.report_url && <div style={{ ...muted, marginTop: 14 }}>No records for this period.</div>}
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                 {shown.map((r) => {

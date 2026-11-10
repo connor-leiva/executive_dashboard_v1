@@ -107,6 +107,40 @@ async def _closed(s, tenant_id, start, end):
     return (await s.execute(q)).scalars().all()
 
 
+async def _lead_source_tags(s, tenant_id, ulrg, pairs) -> list[dict] | None:
+    """Tag each flywheel drawer row with the lead source its deal came from (spec phase 7).
+
+    `pairs` is [(row, transaction or None)]. The transaction's linked lead's Follow Up Boss source is
+    tested against the brokerage's active lead-source groups; with no lead, Sisu's `lead_type` is;
+    two matching groups go to the lower display order; nothing matching is `unassigned`
+    (lead_sources.group_for, the same function the cohort report reads). A loan with no ULRG deal
+    is unassigned -- nothing is invented from Arive.
+
+    Returns the chip list -- every active group plus Unassigned, each with its row count -- or None
+    when the brokerage has no lead-source groups, in which case the drawer shows no chips at all.
+    The flywheel's headline numbers never pass through here.
+    """
+    from ..models import Lead
+    from . import lead_sources as ls
+    groups = await ls.groups_for_business(s, tenant_id, ulrg.id)
+    if not groups:
+        return None
+    lead_ids = {t.lead_id for _r, t in pairs if t is not None and t.lead_id}
+    origin = {}
+    if lead_ids:
+        origin = dict((await s.execute(select(Lead.id, Lead.origin).where(
+            Lead.tenant_id == tenant_id, Lead.id.in_(lead_ids)))).all())
+    counts: dict[str, int] = {}
+    for row, t in pairs:
+        g = (ls.group_for(origin.get(t.lead_id) if t.lead_id else None, t.lead_type, groups)
+             if t is not None else dict(ls.UNASSIGNED))
+        row["lead_source_key"], row["lead_source_label"] = g["key"], g["label"]
+        counts[g["key"]] = counts.get(g["key"], 0) + 1
+    chips = [{"key": g.key, "label": g.display_name, "count": counts.get(g.key, 0)} for g in groups]
+    chips.append({**ls.UNASSIGNED, "count": counts.get("unassigned", 0)})
+    return chips
+
+
 _TXN_LABEL = {"units_closed": "Units Closed", "gci": "Total GCI",
               "volume": "Volume", "avg_price": "Avg Sale Price"}
 _FINANCIAL = {"combined_profit", "revenue", "noi", "gross_profit", "opex", "cogs"}
@@ -1279,7 +1313,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                      "r1": money(t.sale_price)} for t in financeable]
             return {"label": "ULRG buyer closings", "source": "Sisu",
                     "computed_as": f"Financeable buy-side ULRG closings (cash excluded), {span()}.",
-                    "count": len(rows), "rows": rows}
+                    "count": len(rows), "rows": rows,
+                    "lead_sources": await _lead_source_tags(s, tenant_id, ulrg, list(zip(rows, financeable)))}
 
         captured, elsewhere = [], []
         for t in financeable:
@@ -1298,7 +1333,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": "Financed via Sympli", "source": "Arive × Sisu",
                     "computed_as": f"Captured = the ULRG agent picked Sympli, or the buyer matches a "
                                    f"funded Sympli loan, {span()}.",
-                    "count": len(rows), "rows": rows}
+                    "count": len(rows), "rows": rows,
+                    "lead_sources": await _lead_source_tags(s, tenant_id, ulrg, list(zip(rows, captured)))}
 
         # financed elsewhere — name the competing lender from the vendor directory
         rows = [{"id": str(t.id), "name": bname(t), "tone": "watch",
@@ -1306,7 +1342,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                  "r1": money(t.sale_price), "r2": t.address} for t in elsewhere]
         return {"label": "Financed elsewhere", "source": "Sisu",
                 "computed_as": f"Financeable ULRG buyers Sympli didn't win — by lender, {span()}.",
-                "count": len(rows), "rows": rows}
+                "count": len(rows), "rows": rows,
+                "lead_sources": await _lead_source_tags(s, tenant_id, ulrg, list(zip(rows, elsewhere)))}
 
     # ── flywheel: the call list (zero-referral agents) + per-agent referral detail ──
     if key in {"flywheel_zero_referrals", "flywheel_agent_referrals"}:
@@ -1367,7 +1404,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": f"{aname} · Sympli referrals",
                     "source": "Arive × Sisu",
                     "computed_as": f"This agent's ULRG buyers who financed with Sympli, {span()}.",
-                    "count": len(rows), "rows": rows}
+                    "count": len(rows), "rows": rows,
+                    "lead_sources": await _lead_source_tags(s, tenant_id, ulrg,
+                                                            list(zip(rows, [t for t, _ln in recs])))}
 
         # zero-referral call list: producing agents (closed a deal) who referred nobody.
         caps, closed_ct = {}, {}
@@ -1439,8 +1478,14 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                 return loan_by_phone[t.buyer_phone]
             return None
 
-        # Which funded loans matched a ULRG closing this period (borrower link).
-        matched_ids = {ln.external_id for t in buys if (ln := linked(t))}
+        # Which funded loans matched a ULRG closing this period (borrower link), and to which deal --
+        # the loan's lead source is that deal's.
+        deal_for_loan = {}
+        for t in buys:
+            ln = linked(t)
+            if ln is not None:
+                deal_for_loan.setdefault(ln.external_id, t)
+        matched_ids = set(deal_for_loan)
 
         def money(n):
             return f"${float(n or 0):,.0f}"
@@ -1460,7 +1505,8 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
             return {"label": "Picked Sympli, no loan", "source": "Sisu × Arive",
                     "computed_as": f"ULRG buyers whose agent chose a Sympli vendor, but no funded "
                                    f"Sympli loan matches the borrower, {span()}. Reconcile these.",
-                    "count": len(rows), "rows": rows}
+                    "count": len(rows), "rows": rows,
+                    "lead_sources": await _lead_source_tags(s, tenant_id, ulrg, list(zip(rows, recs)))}
 
         # the three loan-side numbers: referred, linked, and the no-deal gap.
         in_period = [f for f in funded if f.occurred_on and start <= f.occurred_on <= end]
@@ -1492,7 +1538,9 @@ async def metric_detail(s: AsyncSession, tenant_id, key: str, period: str,
                "flywheel_sympli_linked": "…of those, the ones whose borrower matches a ULRG closing",
                "flywheel_referral_no_deal": "…and the ones with NO matching ULRG closing — the gap to reconcile"}[key]
         return {"label": label, "source": "Arive × Sisu",
-                "computed_as": f"{how}, {span()}.", "count": len(rows), "rows": rows}
+                "computed_as": f"{how}, {span()}.", "count": len(rows), "rows": rows,
+                "lead_sources": await _lead_source_tags(
+                    s, tenant_id, ulrg, [(row, deal_for_loan.get(f.external_id)) for row, f in zip(rows, recs)])}
 
     # ── three-lens financials (the Sisu deals behind the P&L rows) ──
     if key in ("fin_closed", "fin_projected"):
