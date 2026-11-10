@@ -268,6 +268,10 @@ _TXN_UPDATE_KEYS = [
     "buyer_email", "mortgage_vid", "title_vid", "buyer_email2", "buyer_phone",
     "agent_id", "contract_date", "close_date", "expected_close_date",
     "appt_set_date", "appt_met_date", "signed_date", "lead_date", "listing_date", "sisu_status_code", "lead_type",
+    # Lead-source report (spec §4.3). The commission lines (trans_fee, company_dollar, ...) and
+    # lead_id are NOT here: services/lead_source_sync writes them, and a bulk re-sync must not
+    # blank them.
+    "closed_volume", "lost_signal",
 ]
 
 
@@ -382,7 +386,11 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
              appt_set_date=t.get("appt_set_date"), appt_met_date=t.get("appt_met_date"),
              signed_date=t.get("signed_date"), lead_date=t.get("lead_date"),
              listing_date=t.get("listing_date"),
-             sisu_status_code=t.get("sisu_status_code"))
+             sisu_status_code=t.get("sisu_status_code"),
+             # In _TXN_UPDATE_KEYS since 0098, but never in the row, so every sync wrote NULL over
+             # it and the lending board's lead-source rows stayed "Sisu hasn't re-synced lead_type".
+             lead_type=t.get("lead_type"),
+             closed_volume=t.get("closed_volume"), lost_signal=t.get("lost_signal"))
         for t in mapped
     ]
     if activity_only:
@@ -390,6 +398,20 @@ async def sync_sisu(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     await _upsert_many(s, Transaction, txn_rows, ["tenant_id", "source", "external_id"],
                        _TXN_UPDATE_KEYS)
     print(f"[sisu] upserted {len(txn_rows)} transactions", flush=True)
+
+    # The lead-source report's join and commission lines, for people inside an active lead-source
+    # group only, bounded per run. Isolated: the report must never cost the dashboard its deals.
+    # Last run's record goes first, so a pass that fails below cannot leave it standing as if it
+    # were this run's.
+    integ.config = {k: v for k, v in (integ.config or {}).items() if k != "lead_source_last_run"}
+    if not activity_only:
+        try:
+            from .lead_source_sync import after_sisu
+            stats = await after_sisu(s, tenant_id, integ, creds, mapped)
+            print(f"[sisu] lead sources: {stats}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            await s.rollback()
+            print(f"[sisu] lead-source pass skipped: {type(e).__name__}: {e}", flush=True)
     return len(agent_rows) + len(txn_rows)
 
 
@@ -2153,6 +2175,10 @@ async def _sync_integration(s: AsyncSession, tenant_id, integ: Integration, peri
         records = None
         if integ.provider == "sisu":
             records = await sync_sisu(s, tenant_id, integ)
+            # The lead-source pass's own record: lookups, links, commission reads, and the FUB ids
+            # it wrote back to Sisu contacts (spec §5.2 asks for each write to be on the run).
+            extra_stats = (integ.config or {}).get("lead_source_last_run")
+            extra_key = "lead_sources"
         elif integ.provider == "fub":
             records = await sync_fub(s, tenant_id, integ)
             # What each pass read, and which path it took (`dueStart` accepted, the backfill's

@@ -1478,10 +1478,37 @@ class Transaction(Base):
     listing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     sisu_status_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     lead_type: Mapped[str | None] = mapped_column(String(80), nullable=True)   # Sisu lead_type — the deal's lead source
+    # ── lead-source reporting: the commission lines and the lead join (spec §4.3, §7, phase 2) ──
+    # TWO COMPANY DOLLARS. `agent_commission` above is GCI − team_income, which is what the P&L
+    # lenses read and keep reading. `company_dollar` here is the lead-source report's formula:
+    #   GCI + trans fee − EXP risk (team) − EXP risk (agent) − agent payment
+    # They are different numbers, labelled differently on screen, and never added together.
+    trans_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    adjusted_gci: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    team_income: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    agent_payment: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    exp_risk_team: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    exp_risk_agent: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    exp_risk_source: Mapped[str | None] = mapped_column(String(8), nullable=True)   # api | default
+    referral_fee_out: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    company_dollar: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Sisu `closed_volume_amt`, else `trans_amt` -- the report's volume. `sale_price` above prefers
+    # them the other way round, and the cards that read it keep doing so.
+    closed_volume: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Sisu set `lost_reason_id` or `archive_ts`. `status` also calls a deal dead on status code LOSTT
+    # alone; the cohort report's classifier does not, so it needs the two signals on their own.
+    lost_signal: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    commission_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The Follow Up Boss lead this deal came from, when the report could tell (Sisu contact id or
+    # email). Nullable on purpose: most of the brokerage's deals are not from a tracked source.
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("lead.id", ondelete="SET NULL"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_txn_src_ext"),
         Index("ix_txn_business_status", "tenant_id", "business_id", "status"),
+        Index("ix_txn_lead", "tenant_id", "lead_id"),
+        Index("ix_txn_buyer_email", "tenant_id", "business_id", "buyer_email"),
     )
 
 
@@ -1525,6 +1552,18 @@ class Lead(Base):
     src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # ── lead-source reporting (docs/specs/ulrg-reporting-dashboard-port.md, phase 2) ──
+    # Only ever set for a lead inside an active lead-source group: the activity walk and the Sisu
+    # contact lookup are bounded to those people, never the whole CRM.
+    #   activity_synced_at  when this person's calls, texts, email events and appointments were
+    #                       last read into crm_activity
+    #   sisu_contact_id     the Sisu contact /v1/contact/external resolved this person to
+    #   sisu_checked_at     when that lookup last ran, hit or miss, so a miss is not retried every run
+    #   price               FUB's `price`, for What's Working's median-price row only
+    activity_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sisu_contact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sisu_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_lead_src_ext"),
         Index("ix_lead_follow_up", "tenant_id", "agent_id", "contacted"),
@@ -1553,6 +1592,196 @@ class CrmTask(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_crm_task_src_ext"),
         Index("ix_crm_task_agent_due", "tenant_id", "agent_id", "due_on"),
+    )
+
+
+class CrmActivity(Base):
+    """One CRM touch on one person: a call, a text, an email event, or an appointment.
+
+    THE FACTS THE LEAD-SOURCE REPORT NEEDS AND THE LEAD ROW DOES NOT HOLD. Speed to lead, "was this
+    person contacted", stuck leads and every What's Working median are read off these rows
+    (docs/specs/ulrg-reporting-dashboard-port.md §4.2, §4.5). The legacy dashboard fetched them from
+    Follow Up Boss on every page load; here the full sync stores them and the report reads Postgres.
+
+    NO CONTENT. `has_note` is whether a call carried a note, because a duration-0 call with a note is
+    a real conversation logged by hand (the rule in §4.5). The note itself, the recording, the email
+    body and the phone number are never stored.
+
+    `external_id` is unique per KIND, not per account: Follow Up Boss numbers calls and texts
+    independently, so call 101 and text 101 are different events.
+    """
+    __tablename__ = "crm_activity"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    source: Mapped[str] = mapped_column(String(24), default="fub")
+    kind: Mapped[str] = mapped_column(String(16))                  # call | text | email | appointment
+    external_id: Mapped[str] = mapped_column(String(64))
+    person_external_id: Mapped[str] = mapped_column(String(64))    # the lead's external_id
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    direction: Mapped[str] = mapped_column(String(10), default="unknown")   # outbound | inbound | unknown
+    is_live: Mapped[bool] = mapped_column(Boolean, default=False)
+    duration_sec: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    has_note: Mapped[bool] = mapped_column(Boolean, default=False)
+    outcome: Mapped[str | None] = mapped_column(String(60), nullable=True)  # appointments, lowercased
+    channel: Mapped[str] = mapped_column(String(8))                # call | text | email | appt
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source", "kind", "external_id", name="uq_crm_activity_src"),
+        Index("ix_crm_activity_person", "tenant_id", "person_external_id"),
+    )
+
+
+class LeadSourceGroup(Base):
+    """A named set of CRM source strings the lead-source report treats as one channel.
+
+    Per tenant AND per business, because the strings are one CRM account's vocabulary: Utah Life's
+    Follow Up Boss calls its Realtor.com leads "Realtor.com MVIP" and "Market VIP via Opcity BLA", and
+    a second brokerage's account calls them something else (§6.2). Nothing about a group is in code.
+
+    `program_start` is the first cohort month the report counts, compared to `lead.created_at_src`
+    (the workspace's calendar date), never to the UTC timestamp.
+
+    THERE IS NO COST COLUMN. Spend is read from the business's QuickBooks lines through
+    `LeadSourceSpendRule` and reduced by `LeadSourceCostShare` (§4.7). A typed monthly fee was what
+    the legacy app had, and it billed a flat number against every month that had leads.
+    """
+    __tablename__ = "lead_source_group"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(64))
+    display_name: Mapped[str] = mapped_column(String(120))
+    variants: Mapped[list] = mapped_column(JSONType, default=list)
+    match_mode: Mapped[str] = mapped_column(String(10), default="contains")   # exact | contains | regex
+    program_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+    # Used when Sisu's commission-info carries no "EXP Risk Management" adjustment (§4.3). Zero for a
+    # new group: the fee is eXp Realty's, and $69 / $49 are what Utah Life's seed sets, not a product
+    # default every brokerage would be charged (§13).
+    exp_risk_team_default: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    exp_risk_agent_default: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_id", "key", name="uq_lead_source_group_key"),
+    )
+
+
+class LeadSourceSpendRule(Base):
+    """Which QuickBooks lines are this group's spend.
+
+    Every field that is set must match (AND); a line is in the group when ANY of the group's rules
+    matches it (OR), and counts once however many rules it matches. A rule with nothing set would
+    mean "every expense" and is refused, here and in the API.
+
+    `account_qbo_id` is the LINE's expense account (`book_txn_line.account_qbo_id`), never the header
+    card or bank account the money left: matching the card would count every charge on it.
+    `vendor_qbo_id` is the header vendor (`book_txn.vendor_qbo_id`), because a Purchase's line payee
+    is usually blank. `business_id` names the QuickBooks company, by the business whose `qbo`
+    integration holds that realm.
+    """
+    __tablename__ = "lead_source_spend_rule"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    lead_source_group_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("lead_source_group.id", ondelete="CASCADE"), index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"))
+    account_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    vendor_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    class_label: Mapped[str | None] = mapped_column(String(200), nullable=True)   # substring
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("account_qbo_id IS NOT NULL OR vendor_qbo_id IS NOT NULL "
+                        "OR class_label IS NOT NULL", name="ck_lead_source_spend_rule_not_empty"),
+    )
+
+
+class LeadSourceCostShare(Base):
+    """Another business bearing part of a group's spend, by agreement.
+
+    A percent, not a second QuickBooks pull: net spend is gross × (1 − Σ share / 100). The shares on
+    one group sum to 100 or less. Utah Life's Realtor.com spend is half borne by Sympli, and nothing
+    in Utah Life's books records that half (§4.7).
+    """
+    __tablename__ = "lead_source_cost_share"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    lead_source_group_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("lead_source_group.id", ondelete="CASCADE"), index=True)
+    bearer_business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id", ondelete="CASCADE"))
+    share_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    __table_args__ = (
+        UniqueConstraint("lead_source_group_id", "bearer_business_id", name="uq_lead_source_cost_share"),
+        CheckConstraint("share_pct >= 0 AND share_pct <= 100", name="ck_lead_source_cost_share_pct"),
+    )
+
+
+class LeadSourceDigest(Base):
+    """The weekly coaching email for one lead-source group (§4.6, phase 6).
+
+    Every value the legacy app kept in environment variables or code is a column here, edited in
+    Settings: the schedule, the recipients, the ClickUp list, the model, and the coaching bar (the
+    floor and target rate for each funnel transition). Off until an admin turns it on.
+
+    `timezone` NULL means the workspace's own zone (`IntranetWorkspace.timezone`). The ClickUp token
+    is not here: it is a tenant secret on an `integration` row (provider `clickup`).
+    """
+    __tablename__ = "lead_source_digest"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    lead_source_group_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("lead_source_group.id", ondelete="CASCADE"), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    send_weekday: Mapped[int] = mapped_column(SmallInteger, default=0)    # 0 = Monday
+    send_hour: Mapped[int] = mapped_column(SmallInteger, default=6)
+    send_minute: Mapped[int] = mapped_column(SmallInteger, default=0)
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recipients: Mapped[list] = mapped_column(JSONType, default=list)
+    unsubscribed: Mapped[list] = mapped_column(JSONType, default=list)
+    max_agents: Mapped[int] = mapped_column(SmallInteger, default=6)
+    min_leads: Mapped[int] = mapped_column(SmallInteger, default=1)
+    include_reinforce: Mapped[bool] = mapped_column(Boolean, default=True)
+    # {"lead_contacted": {"floor": 0.85, "target": 0.90}, ...} plus the speed/attempt/channel bars.
+    benchmarks: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    clickup_list_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    clickup_assignee: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent_map: Mapped[dict | None] = mapped_column(JSONType, nullable=True)   # agent name -> ClickUp user id
+    model: Mapped[str] = mapped_column(String(80), default="claude-sonnet-4-6")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class LeadSourceDigestDelivery(Base):
+    """One send of a digest: the scheduled one for a week, or a test.
+
+    `run_key` is what makes a week send once: `week:2026-11-09` for the scheduled delivery of the week
+    ending that day, `test:<uuid>` for each test send. A second tick for the same week finds the row
+    and does nothing. `attempts` stops at three, then the row is `failed`.
+    """
+    __tablename__ = "lead_source_digest_delivery"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    digest_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("lead_source_digest.id", ondelete="CASCADE"), index=True)
+    run_key: Mapped[str] = mapped_column(String(64))
+    week_ending: Mapped[date] = mapped_column(Date)
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(12), default="queued")   # queued | sent | failed | skipped
+    attempts: Mapped[int] = mapped_column(SmallInteger, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recipients: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    subject: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    agents: Mapped[list | None] = mapped_column(JSONType, nullable=True)        # names in the email
+    clickup_tasks: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("digest_id", "run_key", name="uq_lead_source_digest_run"),
     )
 
 
@@ -1659,6 +1888,12 @@ class BookTxn(Base):
     txn_date: Mapped[date] = mapped_column(Date)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     payee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The payee's QuickBooks id: `EntityRef.value` on a Purchase, `VendorRef.value` on a Bill. The
+    # name above is for people; this is what a lead-source spend rule matches (spec §4.7).
+    vendor_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # A Purchase with `Credit: true` is a refund to the card, not more spend. Its lines carry no
+    # posting type, so this flag is the only thing that tells a refund from a charge.
+    purchase_credit: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     memo: Mapped[str | None] = mapped_column(Text, nullable=True)
     account_label: Mapped[str | None] = mapped_column(String(200), nullable=True)   # current category
     account_qbo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)

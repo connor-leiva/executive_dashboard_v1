@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     # Measured on the first live account: 1,300 pages in 252 s, so 300 is about a minute a run and
     # its 130,000 people are walked in five.
     FUB_BACKFILL_PAGES_PER_RUN: int = 300
+    # Lead-source reporting (docs/specs/ulrg-reporting-dashboard-port.md, phase 2). Activity is read
+    # per person, and only for people inside an active lead-source group -- never the whole CRM, and
+    # never on the quick tick. Four FUB calls a person, so 120 people is about 480 requests, inside a
+    # full sync's budget at FUB's 125 per 10 seconds. A backlog drains over a few runs.
+    FUB_ACTIVITY_PEOPLE_PER_RUN: int = 120
+    # Sisu, for the same people: contact lookups (/v1/contact/external) and the commission lines of
+    # their closed deals (commission-info + edit-client), each bounded per run.
+    SISU_CONTACT_LOOKUPS_PER_RUN: int = 150
+    SISU_COMMISSION_READS_PER_RUN: int = 150
 
     # Sunburst, Sisu's coaching product. Facts about Sisu, the same for every workspace, so they are
     # platform settings rather than anything a customer configures. The HOST is swappable because

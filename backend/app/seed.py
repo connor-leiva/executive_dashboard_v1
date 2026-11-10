@@ -790,6 +790,11 @@ async def seed():
         # tenant can never drift on what a tenant is expected to have.
         await seed_platform_catalogs(s)
 
+        # Utah Life's lead-source groups, the same rows migration 0104 writes in production: the
+        # fixture's brokerage is keyed `ulrg`, so it gets them, and no other tenant does.
+        from .services.lead_sources import seed_ulrg
+        await s.run_sync(lambda sync_s: seed_ulrg(sync_s, tenant.id))
+
         await s.commit()
 
         # Per-tenant catalogs (the standard chart) — after the commit, because

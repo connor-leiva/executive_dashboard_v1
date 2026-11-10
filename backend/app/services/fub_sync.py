@@ -52,7 +52,8 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from ..config import settings
 from ..integrations import fub
-from ..models import Agent, CrmTask, Integration, Lead, LoanRecord, Tenant, Transaction
+from ..models import (Agent, CrmActivity, CrmTask, Integration, Lead, LoanRecord, Tenant,
+                      Transaction)
 from . import follow_ups
 from .upsert import upsert
 
@@ -197,11 +198,11 @@ async def _write_people(run: _Run, rows: list[dict]) -> None:
          "email": p["email"],
          "contacted": p["contacted"], "src_created_at": p["src_created_at"],
          "src_updated_at": p["src_updated_at"], "last_activity_at": p["last_activity_at"],
-         "synced_at": run.now}
+         "price": p["price"], "synced_at": run.now}
         for p in mapped],
         keys=["tenant_id", "source", "external_id"],
         update=["stage", "agent_id", "created_at_src", "name", "origin", "email", "contacted",
-                "src_created_at", "src_updated_at", "last_activity_at", "synced_at"])
+                "src_created_at", "src_updated_at", "last_activity_at", "price", "synced_at"])
     await run.s.commit()
 
 
@@ -327,6 +328,72 @@ async def _backfill(run: _Run) -> None:
     run.stats["backfill"] = "complete" if bf.get("completed_at") else f"page {bf['pages']}"
 
 
+# ── activity, for the lead-source reports ────────────────────────────────────────────────
+
+async def _person_activity(run: _Run, person_id: str) -> list[dict]:
+    """Every call, text, email event and appointment FUB holds for one person, mapped."""
+    rows: list[dict] = []
+    for kind, path, key in fub.ACTIVITY_ENDPOINTS:
+        async for page, _ in fub.pages(run.c, path, key, {"personId": person_id}):
+            for raw in page:
+                mapped = fub.map_activity(kind, raw, person_id)
+                if mapped is not None:
+                    rows.append(mapped)
+    return rows
+
+
+async def _activity(run: _Run) -> None:
+    """Calls, texts, email events and appointments for the people the lead-source reports cover.
+
+    BOUNDED THREE WAYS, because the account is 130,000 people and these endpoints are per person:
+      * only people inside an ACTIVE lead-source group, from that group's program start
+        (lead_sources.scope_filter) -- a lead created before the program is never read;
+      * only people never read, or whose FUB `lastActivity` is newer than our last read of them;
+      * at most FUB_ACTIVITY_PEOPLE_PER_RUN people a run, the least recently read first, so a
+        backlog drains over a few full syncs and is checkpointed per person as it goes.
+    Never on the quick tick: this runs inside the full sync only.
+
+    Each person's rows are REPLACED, mark and sweep, so an event deleted in FUB leaves here too.
+    """
+    from sqlalchemy import or_
+    from . import lead_sources
+    where = await lead_sources.scope_filter(run.s, run.tenant_id, run.business_id)
+    if where is None:
+        run.stats["activity"] = "no lead source in scope"
+        return
+    stale = or_(Lead.activity_synced_at.is_(None), Lead.last_activity_at > Lead.activity_synced_at)
+    pending = (await run.s.execute(select(Lead.id, Lead.external_id).where(where, stale)
+                                   .order_by(Lead.activity_synced_at.is_not(None),
+                                             Lead.activity_synced_at, Lead.src_created_at.desc())
+                                   )).all()
+    batch = pending[:settings.FUB_ACTIVITY_PEOPLE_PER_RUN]
+    written = 0
+    for lead_id, person_id in batch:
+        try:
+            rows = await _person_activity(run, person_id)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 404:
+                raise
+            rows = []                                   # merged or deleted in FUB since: nothing to read
+        stamp = dt.datetime.now(dt.timezone.utc)
+        await upsert(run.s, CrmActivity, [
+            {"id": uuid.uuid4(), "tenant_id": run.tenant_id, "business_id": run.business_id,
+             "source": "fub", **r, "synced_at": stamp} for r in rows],
+            keys=["tenant_id", "source", "kind", "external_id"],
+            update=["person_external_id", "occurred_at", "direction", "is_live", "duration_sec",
+                    "has_note", "outcome", "channel", "synced_at"])
+        await run.s.execute(delete(CrmActivity).where(
+            CrmActivity.tenant_id == run.tenant_id, CrmActivity.source == "fub",
+            CrmActivity.person_external_id == person_id,
+            (CrmActivity.synced_at < stamp) | CrmActivity.synced_at.is_(None)))
+        await run.s.execute(update(Lead).where(Lead.id == lead_id).values(activity_synced_at=stamp))
+        await run.s.commit()
+        written += len(rows)
+    run.stats["activity_people"] = len(batch)
+    run.stats["activity_rows"] = written
+    run.stats["activity_pending"] = len(pending) - len(batch)
+
+
 # ── tasks ────────────────────────────────────────────────────────────────────────────────
 
 def _day_start(day: dt.date, tz: dt.tzinfo) -> dt.datetime:
@@ -414,6 +481,13 @@ async def full_sync(s: AsyncSession, tenant_id, integ: Integration, creds: fub.F
             await _users(run)
             await _quick_passes(run)
             await _backfill(run)
+            # After the people are current, so a lead that just arrived is in scope this run. Its
+            # own try: the lead-source report's activity must never cost Needs You Today its sync.
+            try:
+                await _activity(run)
+            except Exception as e:  # noqa: BLE001 -- recorded on the run, the sync carries on
+                await s.rollback()
+                run.stats["activity_error"] = f"{type(e).__name__}: {e}"[:300]
         run.state["quick"] = {"at": _iso(run.now), "ok": True}
         run.state["last_run"] = {"at": _iso(run.now), **run.stats}
         _save(integ, run.state)

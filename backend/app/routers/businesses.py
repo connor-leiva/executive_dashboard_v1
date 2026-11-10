@@ -18,6 +18,7 @@ _STATUSES = {"healthy", "watch", "opportunity"}
 def _business_dict(b: Business) -> dict:
     return {
         "id": str(b.id), "key": b.key, "name": b.name, "tag": b.tag, "status": b.status,
+        "kind": b.kind,
         "accent": b.accent, "ink": b.ink, "is_jv": b.is_jv, "jv_share": float(b.jv_share),
         "watch_margin_below": float(b.watch_margin_below) if b.watch_margin_below is not None else None,
         "per_loan_share": float(b.per_loan_share) if b.per_loan_share is not None else None,

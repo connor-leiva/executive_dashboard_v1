@@ -11,7 +11,7 @@ from .models import Base
 from .startup_checks import enforce_config
 from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
-from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console, payables, onboarding, forum_events, books_cleanup
+from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console, payables, onboarding, forum_events, books_cleanup, lead_sources
 
 log = logging.getLogger("app")
 
@@ -123,6 +123,9 @@ def create_app() -> FastAPI:
     app.include_router(onboarding.router, prefix="/api/v1")
     app.include_router(books_cleanup.router, prefix="/api/v1")
     app.include_router(ulrg.router, prefix="/api/v1")
+    # Lead-source groups, their QuickBooks spend mapping, and the cohort / pipeline / What's Working
+    # reports built on them (docs/specs/ulrg-reporting-dashboard-port.md). Business-scoped.
+    app.include_router(lead_sources.router, prefix="/api/v1")
     app.include_router(intranet.router, prefix="/api/v1")
     app.include_router(recall_router.router, prefix="/api/v1")   # /api/v1/webhooks/recall (secret-gated)
     # /api/v1/webhooks/ghl-recruiting — optional, secret-gated, and a hint only: it

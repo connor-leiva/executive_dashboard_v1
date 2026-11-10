@@ -43,8 +43,9 @@ _CATEGORY_DETAIL_KEYS = ("AccountBasedExpenseLineDetail", "DepositLineDetail",
 # skip the review queue entirely (books_scan). Adding it here would let the next QuickBooks
 # sync quietly null it out, and the only symptom would be already-approved payments
 # reappearing for review — with nothing pointing at the sync that erased the link.
-_TXN_SOURCE_KEYS = ["sync_token", "txn_date", "amount", "payee", "memo",
-                    "account_label", "account_qbo_id", "bank_account_label", "came_categorized"]
+_TXN_SOURCE_KEYS = ["sync_token", "txn_date", "amount", "payee", "vendor_qbo_id", "purchase_credit",
+                    "memo", "account_label", "account_qbo_id", "bank_account_label",
+                    "came_categorized"]
 
 
 def txn_upsert(rows: list[dict]):
@@ -106,6 +107,31 @@ def _payee(obj: dict):
     return _line_entity_name(obj)
 
 
+def _vendor_id(obj: dict, entity_type: str):
+    """The payee's QuickBooks id, for the lead-source spend rules (spec §4.7).
+
+    `_payee` keeps the NAME and drops this, which is fine for a person reading the queue and useless
+    for a rule: a vendor renamed in QuickBooks keeps its id, and two vendors can share a name. Read
+    off the HEADER only, because a Purchase's line payee is usually blank. A Purchase names its payee
+    in `EntityRef`, a Bill in `VendorRef`; nothing else is a vendor for this purpose.
+    """
+    key = {"Purchase": "EntityRef", "Bill": "VendorRef"}.get(entity_type)
+    if key is None:
+        return None
+    ref = obj.get(key) or {}
+    if key == "EntityRef" and (ref.get("type") or "Vendor") != "Vendor":
+        return None                                   # a Purchase paid to a Customer or Employee
+    value = ref.get("value")
+    return _trim(str(value), 32) if value not in (None, "") else None
+
+
+def _purchase_credit(obj: dict, entity_type: str):
+    """True for a Purchase QuickBooks marks `Credit` -- a refund, not a charge. None elsewhere."""
+    if entity_type != "Purchase":
+        return None
+    return bool(obj.get("Credit"))
+
+
 def _amount(obj: dict, entity_type: str) -> float:
     if entity_type == "JournalEntry":
         debit = sum(float(ln.get("Amount") or 0) for ln in (obj.get("Line") or [])
@@ -149,6 +175,8 @@ def _txn_to_row(tenant_id, integ: Integration, entity_type: str, obj: dict) -> d
         "txn_date": _date(obj.get("TxnDate")),
         "amount": Decimal(str(_amount(obj, entity_type))),
         "payee": _trim(_payee(obj), 200),
+        "vendor_qbo_id": _vendor_id(obj, entity_type),
+        "purchase_credit": _purchase_credit(obj, entity_type),
         "memo": _trim(obj.get("PrivateNote") or None, 2000),
         "account_label": _trim(cat_name or None, 200),
         "account_qbo_id": _trim(cat_id, 32),
