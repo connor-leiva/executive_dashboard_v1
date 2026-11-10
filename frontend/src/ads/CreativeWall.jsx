@@ -109,6 +109,8 @@ function AdTile({ ad }) {
         {/* Cost per lead against META's lead count, which is Meta measuring itself. Named that
             way here for the same reason the strip names it: it is not the owned funnel. */}
         <Cell label="Cost / lead · Meta">{ad.leads ? usd(ad.cpl) : "—"}</Cell>
+        <Cell label="Seats">{ad.seats == null ? "—" : compact(ad.seats)}</Cell>
+        <Cell label="Cost / seat">{ad.cost_per_seat == null ? "—" : usd(ad.cost_per_seat)}</Cell>
       </div>
     </div>
   );

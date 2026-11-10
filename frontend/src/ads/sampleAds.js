@@ -100,6 +100,44 @@ export const sampleAdsOverview = {
   ],
   // The ladder. Counts are what the server would return; conversions are computed from them, so
   // a wrong number here shows up on screen rather than hiding.
+  brand_funnels: {
+    forum: {
+      title: "Forum VIP",
+      spend: 25660,
+      note: "Qualified guests are Spring's VIP page and guest application. A seat is Confirmed or Dallas VIP guest confirmed. Cost per seat and cost per member use Forum spend only.",
+      rungs: [
+        { key: "click", label: "Link clicks", zone: "meta", n: 18940, prev: null, conversion: null, cost_per: 1.35, dated: 18940, undated: 0, people: [] },
+        { key: "lead", label: "Leads · Meta", zone: "meta", diagnostic: true, n: 252, prev: 18940, conversion: 1.33, cost_per: 101.8, dated: 252, undated: 0, people: [] },
+        { key: "qualified", label: "Qualified guest lead", zone: "axcion", n: 2, prev: 252, conversion: 0.8, cost_per: 12830, dated: 2, undated: 0, people: [
+          { name: "Ada Lovelace", email: "ada@example.com", reached: "2026-08-12", detail: "VIP Page" },
+          { name: "Grace Hopper", email: "grace@example.com", reached: "2026-08-18", detail: "guest-application" },
+        ] },
+        { key: "seat", label: "VIP guest seat", zone: "axcion", n: 1, prev: 2, conversion: 50, cost_per: 25660, dated: 1, undated: 0, people: [
+          { name: "Ada Lovelace", email: "ada@example.com", reached: "2026-08-20", detail: "VIP Guest: Confirmed" },
+        ] },
+        { key: "member", label: "Forum member", zone: "axcion", n: 1, prev: 1, conversion: 100, cost_per: 25660, dated: 1, undated: 0, people: [
+          { name: "Ada Lovelace", email: "ada@example.com", reached: "2026-08-28", detail: "Onboarded" },
+        ] },
+      ],
+    },
+    edge: {
+      title: "Edge webinar",
+      spend: 6110,
+      note: "Registration is the Edge event list. Attendance is shown only when a registration is marked attended. A purchase is a paid Edge subscription that started in this window.",
+      rungs: [
+        { key: "click", label: "Link clicks", zone: "meta", n: 3640, prev: null, conversion: null, cost_per: 1.68, dated: 3640, undated: 0, people: [] },
+        { key: "lead", label: "Leads · Meta", zone: "meta", diagnostic: true, n: 44, prev: 3640, conversion: 1.2, cost_per: 138.9, dated: 44, undated: 0, people: [] },
+        { key: "registered", label: "Webinar registration", zone: "axcion", n: 18, prev: 44, conversion: 40.9, cost_per: 339.4, dated: 18, undated: 0, people: [
+          { name: "Katherine Johnson", email: "kj@example.com", reached: "2026-08-04", detail: "Webinar registration" },
+        ] },
+        { key: "attended", label: "Attended", zone: "axcion", missing: true, n: null, prev: 18, conversion: null, cost_per: null, dated: 0, undated: 0, people: [],
+          note: "Attendance is not on the Edge registration, so this rung is blank." },
+        { key: "purchase", label: "Edge purchase", zone: "axcion", n: 4, prev: 18, conversion: 22.2, cost_per: 1527.5, dated: 4, undated: 0, people: [
+          { name: "Katherine Johnson", email: "kj@example.com", reached: "2026-08-11", detail: "Edge" },
+        ] },
+      ],
+    },
+  },
   funnel: [
     { key: "impression", label: "Impressions", zone: "meta", n: IMPR, prev: null,
       conversion: null, cost_per: SPEND / IMPR, dated: IMPR, undated: 0 },
@@ -174,11 +212,12 @@ export const sampleAdsCreatives = {
     { id: "a1", name: "Forum-Dallas-1080x1080-v3", headline: "The room where it changes",
       thumbnail_url: null, spend: 6420, impressions: 448_000, link_clicks: 5_210, leads: 88,
       ctr: rate(5210, 448000, 100), ctr_prior: rate(6400, 448000, 100),
-      frequency: 2.4, fatigue: true,
+      frequency: 2.4, fatigue: true, seats: 1, cost_per_seat: 6420,
       cpl: rate(6420, 88), url_tags: "utm_source=meta&utm_content={{ad.id}}" },
     { id: "a2", name: "KB-Shift-30s-motion", headline: "Ninety days from now",
       thumbnail_url: null, spend: 5180, impressions: 372_000, link_clicks: 3_640, leads: 51,
-      ctr: rate(3640, 372000, 100), cpl: rate(5180, 51), url_tags: "utm_source=meta&utm_campaign=KB-Shift" },
+      ctr: rate(3640, 372000, 100), cpl: rate(5180, 51), seats: 0, cost_per_seat: null,
+      url_tags: "utm_source=meta&utm_campaign=KB-Shift" },
     // thumbnail_url stays null across the sample. A deliberately-broken URL was tried here to
     // exercise the expired-image fallback and made the preview worse: the request HANGS rather
     // than erroring, so the tile showed an empty box forever instead of the placeholder. The
@@ -190,6 +229,7 @@ export const sampleAdsCreatives = {
       thumbnail_url: null, spend: 2040, impressions: 96_000, link_clicks: 860, leads: 0,
       ctr: rate(860, 96000, 100), cpl: null, url_tags: "utm_source=meta" },
   ],
+  seats_available: true,
   revenue_available: false,
   revenue_reason:
     "Ad-level revenue needs utm_content={{ad.id}} on the ad URLs and a matching utm_content field " +
