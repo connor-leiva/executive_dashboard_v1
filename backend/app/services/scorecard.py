@@ -219,6 +219,71 @@ def quarter_of(fiscal_quarters, today: dt.date) -> dict:
             "start_date": start, "weeks_total": total, "weeks_closed": closed, "weeks_left": max(0, total - closed)}
 
 
+def _monday_of(d: dt.date) -> dt.date:
+    return d - dt.timedelta(days=d.weekday())
+
+
+def sprint_mondays(start: dt.date, end: dt.date) -> list[dt.date]:
+    """Mondays whose Mon–Sun week overlaps the sprint. A mid-week start still owns that week."""
+    w = _monday_of(start)
+    last = _monday_of(end)
+    out = []
+    while w <= last:
+        week_end = w + dt.timedelta(days=6)
+        if week_end >= start and w <= end:
+            out.append(w)
+        w += dt.timedelta(days=7)
+    return out
+
+
+def assign_sprints(fiscal_quarters, today: dt.date) -> list[dict]:
+    """Custom measurement periods, not calendar quarters.
+
+    A week belongs to a sprint when the Mon–Sun span overlaps the sprint. If one week
+    overlaps two (a sprint starts mid-week), the sprint that starts inside that week
+    wins. A week sitting in a gap between sprints belongs to neither."""
+    parsed = []
+    for q in fiscal_quarters or []:
+        try:
+            start, end = dt.date.fromisoformat(q["start"]), dt.date.fromisoformat(q["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        parsed.append({"key": q.get("key") or start.isoformat(), "start_date": start, "end_date": end,
+                       "mondays": sprint_mondays(start, end)})
+    claims: dict = {}
+    for sp in parsed:
+        for w in sp["mondays"]:
+            claims.setdefault(w, []).append(sp)
+    owned = {id(sp): [] for sp in parsed}
+    for w, sps in claims.items():
+        if len(sps) == 1:
+            owned[id(sps[0])].append(w)
+            continue
+        week_end = w + dt.timedelta(days=6)
+        starters = [sp for sp in sps if w <= sp["start_date"] <= week_end]
+        chosen = max(starters or sps, key=lambda sp: (sp["start_date"], sp["key"]))
+        owned[id(chosen)].append(w)
+    cur = _monday_of(today)
+    out = []
+    for sp in parsed:
+        mondays = sorted(owned[id(sp)])
+        if not mondays:
+            continue
+        closed = sum(1 for w in mondays if w < cur)
+        out.append({
+            "key": sp["key"], "start": sp["start_date"].isoformat(), "end": sp["end_date"].isoformat(),
+            "current": sp["start_date"] <= today <= sp["end_date"],
+            "weeks_total": len(mondays), "weeks_closed": closed, "weeks_left": len(mondays) - closed,
+            "mondays": [w.isoformat() for w in mondays],
+        })
+    if out and not any(sp["current"] for sp in out):
+        past = [sp for sp in out if dt.date.fromisoformat(sp["end"]) < today]
+        if past:
+            past[-1]["current"] = True
+            past[-1]["gap"] = True
+    return out
+
+
 async def _sources(s, tenant_id, providers: set) -> list[dict]:
     """When each feed behind this board last synced: how current its auto rows can be."""
     rows = (await s.execute(select(Integration.provider, func.max(Integration.last_synced_at)).where(
@@ -245,6 +310,7 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
     tenant = await s.get(Tenant, tenant_id)
     fq = (tenant.config or {}).get("fiscal_quarters") or []
     q = quarter_of(fq, today)
+    sprints = assign_sprints(fq, today)
     wl = q["weeks_left"]
     cur_key = q["key"]
     q_end = dt.date.fromisoformat(q["end"])
@@ -342,6 +408,31 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
             else:
                 cum_basis = goal if goal is not None else 0
                 cum = _cum(all_vals, m, cum_basis)
+            sprint_goals = {}
+            sprint_values = {}
+            sprint_week_goals = {}
+            for sp in sprints:
+                mondays = [dt.date.fromisoformat(x) for x in sp["mondays"]]
+                raw_sp = _goal_for(m.id, sp["key"], raw_default)
+                sprint_goals[sp["key"]] = raw_sp
+                sprint_values[sp["key"]] = [vmap.get(m.id, {}).get(w) for w in mondays]
+                sprint_week_goals[sp["key"]] = [_goal_for(m.id, sp["key"], raw_default) for _w in mondays]
+            if sprints and cum is not None:
+                for sp in sprints:
+                    raw_sp = _goal_for(m.id, sp["key"], raw_default)
+                    sg = _scored_goal(raw_sp, bool(getattr(m, "scores_zero", False)))
+                    sprint_goals[sp["key"]] = raw_sp
+                    mondays = [dt.date.fromisoformat(x) for x in sp["mondays"]]
+                    closed_vals = [vmap.get(m.id, {}).get(w) if w < cur_week_start else None for w in mondays]
+                    cum_goal_sp = cmap.get((str(m.id), sp["key"])) if m.type == "flow" else None
+                    if cum_goal_sp is not None:
+                        block = period_block(closed_vals, cum_goal_sp, sp["weeks_total"],
+                                             sp["weeks_closed"], sp["weeks_left"])
+                    else:
+                        basis = sg if sg is not None else 0
+                        block = cumulative_block(closed_vals, basis, m.type, d, len(closed_vals) or 1,
+                                                 sp["weeks_left"])
+                    cum[f"sprint:{sp['key']}"] = block
             scored_zero = goal == 0
             rows.append({
                 "id": str(m.id), "measurable": m.name, "note": m.note,
@@ -377,6 +468,9 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 "check": getattr(m, "check_note", None),
                 "anchors": getattr(m, "anchors", None),
                 "scored": goal is not None,
+                "sprint_goals": sprint_goals or None,
+                "sprint_values": sprint_values or None,
+                "sprint_week_goals": sprint_week_goals or None,
             })
             move_rows.append({"id": str(m.id), "stage": m.stage, "lever": m.lever,
                               "cum": (cum or {}).get(wkey) if cum else None})
@@ -418,6 +512,10 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
         "current_week": weeks_out[-1]["n"] if weeks_out else None,
         "quarter": {k: q[k] for k in ("key", "start", "end", "weeks_total", "weeks_closed", "weeks_left")},
         "windows": [4, weeks_param, "qtd"], "default_window": weeks_param,
+        "sprints": [{k: sp[k] for k in ("key", "start", "end", "current", "weeks_total",
+                                        "weeks_closed", "weeks_left", "mondays")}
+                    | ({"gap": True} if sp.get("gap") else {})
+                    for sp in sprints],
         "enterprise": enterprise,
         "ids_after": ids_after,
         "escalations": escalations,

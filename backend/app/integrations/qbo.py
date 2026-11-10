@@ -177,6 +177,7 @@ _QBO_TXN_ROUTE = {
     "Purchase": "expense", "Bill": "bill", "BillPayment": "billpayment",
     "Deposit": "deposit", "Transfer": "transfer", "JournalEntry": "journal",
     "Check": "check", "CreditCardCredit": "creditcardcredit", "SalesReceipt": "salesreceipt",
+    "Payment": "recvpayment",
 }
 
 

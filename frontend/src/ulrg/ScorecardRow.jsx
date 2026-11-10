@@ -2,7 +2,7 @@
    ascending and reversed ONLY here at render (Part 0.3). All arithmetic — cumulative / pace / gap /
    required / verdict / trend — is server-side; this renders r.cumulative[wkey]. */
 import { Fragment } from "react";
-import { sgn } from "./scorecardMath.js";
+import { sgn, fmtMoney } from "./scorecardMath.js";
 import {
   T, NUM, LBL, tone, Chevron, Pip, PaceBar, StatusTag,
   W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
@@ -13,13 +13,9 @@ import {
 const bigNum = (v) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
   : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : v);
 
-function fmtCell(r, v) {
+function fmtCell(r, v, { compact = false } = {}) {
   if (v === null || v === undefined) return "—";
-  if (r.unit === "usd") {
-    const n = Math.round(v);
-    const sign = n < 0 ? "−" : "";
-    return `${sign}$${Math.abs(n).toLocaleString("en-US")}`;
-  }
+  if (r.unit === "usd") return fmtMoney(v, { cents: r.type === "snapshot", compact });
   if (r.unit === "pct" || r.type === "rate") return `${v % 1 ? Number(v).toFixed(1) : v}%`;
   return bigNum(v);
 }
@@ -136,7 +132,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             {c ? (
               <>
                 <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
-                  <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink }}>{r.unit === "usd" ? fmtCell(r, c.actual) : rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
+                  <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{r.unit === "usd" ? fmtCell(r, c.actual) : rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
                   <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
                 </div>
                 <PaceBar pct={pct} />
@@ -164,21 +160,26 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           const v = vals[i];
           const wgoal = goals[i] == null ? r.goal : goals[i];
           const tn = tone(v, wgoal, r.direction, wgoal === 0 && r.scored);
-          const inWin = counted.has(w.n);
+          const inWin = counted.has(w.start);
           const isNull = v === null || v === undefined;
+          const money = r.unit === "usd";
+          const shown = isNull ? "—" : fmtCell(r, v, { compact: money });
+          const full = isNull || !money ? shown : fmtCell(r, v);
           return (
             <div
-              key={w.n}
+              key={w.start}
               className="l10-wkcol l10-cell"
               onClick={onDrill ? () => cellDrill(i) : undefined}
+              title={money && !isNull ? full : undefined}
               style={{
-                width: WK, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                width: WK, flexShrink: 0, display: "flex", alignItems: "center",
+                justifyContent: money ? "flex-end" : "center", paddingRight: money ? 4 : 0,
                 background: tn.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
                 cursor: onDrill ? "pointer" : "default",
               }}
             >
-              <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
-                {isNull ? "—" : fmtCell(r, v)}
+              <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
+                {shown}
               </span>
             </div>
           );

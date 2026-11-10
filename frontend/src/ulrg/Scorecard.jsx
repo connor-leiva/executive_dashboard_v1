@@ -26,13 +26,35 @@ function ago(iso) {
   return `${Math.round(mins / 1440)}d ago`;
 }
 
+function addDays(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  const [y, m, day] = d.toISOString().slice(0, 10).split("-");
+  return `${y}-${m}-${day}`;
+}
+
+function isoWeek(iso) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+function weekStub(iso, closed) {
+  const [, m, day] = iso.split("-");
+  return { n: isoWeek(iso), start: iso, end: addDays(iso, 6), label: `${Number(m)}/${day}`, complete: closed };
+}
+
 export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
   const { data, reload } = useScorecard(13, shareToken, scope);
   const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
   const canEditValues = !shareToken;   // hand-entered KPIs are self-serve: anyone with scorecard access edits them (server enforces the same; auto rows stay admin-only)
 
   const [cumOpen, setCumOpen] = useState(true);
-  const [rangeId, setRangeId] = useState("13");   // "4" | "13" | "qtd"
+  const [rangeId, setRangeId] = useState("13");   // "4" | "13" | "qtd" | "todate" | "full" | "past"
+  const [pastKey, setPastKey] = useState("");
   const [onlyOff, setOnlyOff] = useState(false);
   const [lens, setLens] = useState("l10");
   const [deptKey, setDeptKey] = useState("enrollment");
@@ -81,17 +103,57 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
   const weeksDesc = weeks.slice().reverse();                     // newest first (Part 0.3)
   const quarterStart = data && data.quarter ? data.quarter.start : null;
   const windows = (data && data.windows) || [4, 13, "qtd"];
-  const win = rangeId === "qtd" ? "qtd" : Number(rangeId);
-  const wkey = rangeId === "qtd" ? "qtd" : `w${rangeId}`;
-  const cumLabel = rangeId === "qtd" ? "Quarter to date" : `Last ${rangeId} weeks`;
+  const sprints = (data && data.sprints) || [];
+  const bootedSprint = useRef(false);
+  useEffect(() => {
+    if (bootedSprint.current || !sprints.length) return;
+    bootedSprint.current = true;
+    setRangeId("todate");
+  }, [sprints.length]);
 
-  // The in-progress week (complete === false) shows but never counts — matches the server's pace math.
-  const counted = useMemo(() => {
-    const done = weeksDesc.filter((w) => w.complete !== false);   // newest-first, completed weeks only
-    if (rangeId === "qtd") return new Set(done.filter((w) => quarterStart && w.start >= quarterStart).map((w) => w.n));
-    return new Set(done.slice(0, Number(rangeId)).map((w) => w.n));
-  }, [rangeId, weeksDesc, quarterStart]);
-  const countedN = counted.size;
+  const winView = useMemo(() => {
+    const done = weeksDesc.filter((w) => w.complete !== false);
+    if (!sprints.length) {
+      const picked = rangeId === "qtd"
+        ? done.filter((w) => quarterStart && w.start >= quarterStart)
+        : done.slice(0, Number(rangeId) || 13);
+      return {
+        shownDesc: weeksDesc,
+        counted: new Set(picked.map((w) => w.start)),
+        countedN: picked.length,
+        wkey: rangeId === "qtd" ? "qtd" : `w${rangeId}`,
+        cumLabel: rangeId === "qtd" ? "Quarter to date" : `Last ${rangeId} weeks`,
+        goalKey: null,
+      };
+    }
+    const current = sprints.find((s) => s.current) || sprints[sprints.length - 1];
+    if (rangeId === "4") {
+      const picked = done.slice(0, 4);
+      const open = weeksDesc.find((w) => w.complete === false);
+      const shown = open ? [open, ...picked] : picked;
+      return { shownDesc: shown, counted: new Set(shown.map((w) => w.start)), countedN: picked.length,
+        wkey: "w4", cumLabel: "Last 4 weeks", goalKey: null };
+    }
+    const key = rangeId === "past" && pastKey ? pastKey : current.key;
+    const sp = sprints.find((s) => s.key === key) || current;
+    const byStart = new Map(weeks.map((w) => [w.start, w]));
+    const openStarts = weeks.filter((w) => w.complete === false).map((w) => w.start).sort();
+    const cur = openStarts[0];
+    let chain = (sp.mondays || []).map((start) => byStart.get(start) || weekStub(start, !cur || start < cur));
+    if (rangeId !== "past" && rangeId !== "full") {
+      if (cur) chain = chain.filter((w) => w.start <= cur);
+    }
+    const shownDesc = chain.slice().reverse();
+    const countedN = shownDesc.filter((w) => w.complete !== false).length;
+    const label = rangeId === "full" ? `${sp.key} · full` : rangeId === "past" ? sp.key : `${sp.key} to date`;
+    return { shownDesc, counted: new Set(shownDesc.map((w) => w.start)), countedN,
+      wkey: `sprint:${sp.key}`, cumLabel: label, goalKey: sp.key };
+  }, [sprints, rangeId, pastKey, weeks, weeksDesc, quarterStart]);
+  const shownDesc = winView.shownDesc;
+  const counted = winView.counted;
+  const countedN = winView.countedN;
+  const wkey = winView.wkey;
+  const cumLabel = winView.cumLabel;
 
   const enterprise = !!(data && data.enterprise);
   const depts = useMemo(() => {
@@ -144,7 +206,8 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
     );
   }
 
-  const totalW = RAIL + (cumOpen ? CUM : 0) + weeksDesc.length * WK;
+  const totalW = RAIL + (cumOpen ? CUM : 0) + shownDesc.length * WK;
+  const liveStart = (weeks.find((w) => w.complete === false) || {}).start;
   const liveN = data.current_week;
   const qtdThin = rangeId === "qtd" && data.quarter && (data.quarter.weeks_closed || 0) < 3;
 
@@ -234,7 +297,29 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
 
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
-                {windows.map((k) => {
+                {sprints.length ? (
+                  <>
+                    {[["4", "4 wks"], ["full", "Full sprint"], ["todate", `${(sprints.find((s) => s.current) || sprints[sprints.length - 1]).key} to date`]].map(([id, label]) => {
+                      const on = id === rangeId;
+                      return (
+                        <button key={id} onClick={() => setRangeId(id)} className="l10-btn" style={{
+                          border: "none", font: "inherit", fontSize: 12, fontWeight: on ? 600 : 500,
+                          padding: "4px 11px", borderRadius: 5, cursor: "pointer", whiteSpace: "nowrap",
+                          background: on ? T.paper : "transparent", color: on ? T.ink : T.muted,
+                          boxShadow: on ? "0 1px 2px rgba(20,35,28,0.10)" : "none",
+                        }}>{label}</button>
+                      );
+                    })}
+                    {sprints.filter((s) => !s.current).length > 0 && (
+                      <select aria-label="Earlier sprint" value={rangeId === "past" ? pastKey : ""}
+                        onChange={(e) => { setPastKey(e.target.value); setRangeId(e.target.value ? "past" : "todate"); }}
+                        style={{ font: "inherit", fontSize: 12, border: "none", background: rangeId === "past" ? T.paper : "transparent", color: rangeId === "past" ? T.ink : T.muted, borderRadius: 5, padding: "4px 8px", cursor: "pointer" }}>
+                        <option value="">Earlier sprint</option>
+                        {sprints.filter((s) => !s.current).map((s) => <option key={s.key} value={s.key}>{s.key}</option>)}
+                      </select>
+                    )}
+                  </>
+                ) : windows.map((k) => {
                   const id = String(k);
                   const on = id === rangeId;
                   return (
@@ -256,7 +341,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                 })}
               </div>
               <span style={{ ...NUM, fontSize: 12, color: T.faint, whiteSpace: "nowrap" }}>
-                {countedN} week{countedN === 1 ? "" : "s"} counted{qtdThin ? " · quarter just turned" : ""}
+                {countedN === shownDesc.length ? `${countedN} week${countedN === 1 ? "" : "s"} counted` : `${countedN} of ${shownDesc.length} weeks counted`}{qtdThin ? " · quarter just turned" : ""}
               </span>
             </div>
 
@@ -282,7 +367,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
           <div style={{ position: "relative" }}>
             <div ref={scroller} className="l10-scroll" onScroll={measure}>
               <div style={{ width: totalW, minWidth: "100%" }}>
-                <ColumnHeaders cumOpen={cumOpen} onToggleCum={toggleCum} weeksDesc={weeksDesc} liveN={liveN} />
+                <ColumnHeaders cumOpen={cumOpen} onToggleCum={toggleCum} weeksDesc={shownDesc} liveStart={liveStart} />
                 {view.map((g) => (
                   <div key={g.key}>
                     <GroupBar group={g} width={totalW} off={g.off} />
@@ -294,13 +379,32 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                     )}
                     {g.rows.map((r) => {
                       const key = `${g.key}-${r.id}`;
+                      const asc = shownDesc.slice().reverse();
+                      const sprintVals = winView.goalKey && r.sprint_values && r.sprint_values[winView.goalKey];
+                      const sp = sprintVals && sprints.find((s) => s.key === winView.goalKey);
+                      const pos = sp ? new Map((sp.mondays || []).map((start, i) => [start, i])) : null;
+                      const idx = new Map(weeks.map((w, i) => [w.start, i]));
+                      const same = shownDesc === weeksDesc && !winView.goalKey;
+                      const shownRow = same ? r : {
+                        ...r,
+                        values: asc.map((w) => {
+                          if (pos) { const i = pos.get(w.start); return i == null ? null : sprintVals[i]; }
+                          const i = idx.get(w.start); return i == null ? null : (r.values || [])[i];
+                        }),
+                        week_goals: asc.map((w) => {
+                          const goals = pos ? ((r.sprint_week_goals || {})[winView.goalKey] || []) : (r.week_goals || []);
+                          const i = (pos || idx).get(w.start);
+                          return i == null ? null : goals[i];
+                        }),
+                        goal: winView.goalKey && r.sprint_goals && r.sprint_goals[winView.goalKey] != null ? r.sprint_goals[winView.goalKey] : r.goal,
+                      };
                       return (
                         <ScorecardRow
                           key={key}
-                          r={r}
+                          r={shownRow}
                           initials={(r.owner && r.owner.initials) || ""}
                           wkey={wkey}
-                          weeksDesc={weeksDesc}
+                          weeksDesc={shownDesc}
                           counted={counted}
                           cumOpen={cumOpen}
                           expanded={expanded === key}
@@ -354,7 +458,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
 
 /* --------------------------------- header --------------------------------- */
 
-function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
+function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
   return (
     <div style={{ display: "flex", height: 46, borderBottom: `1px solid ${T.line}` }}>
       <div
@@ -393,10 +497,10 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveN }) {
       )}
 
       {weeksDesc.map((w) => {
-        const live = w.n === liveN;
+        const live = w.start === liveStart;
         return (
           <div
-            key={w.n}
+            key={w.start}
             className="l10-wkcol"
             style={{
               width: WK, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,

@@ -47,4 +47,21 @@ export function fmtV(row, v) {
 }
 
 export const sgn = (n, d = 0) => (n >= 0 ? "+" : "−") + Math.abs(n).toFixed(d);
+
+// One currency shape for the grid and the drawers. The minus sits against the dollar
+// (−$8,032) so a narrow cell doesn't wrap the sign onto its own line. Cents only when
+// the caller asks (cost per lead). Compact $130.9K is for the week column; the title
+// and the drawer keep the full figure.
+export function fmtMoney(v, { cents = false, compact = false } = {}) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  if (compact && abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+  if (compact && abs >= 10000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+  const body = cents
+    ? abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.round(abs).toLocaleString("en-US");
+  return `${sign}$${body}`;
+}
 export const isPct = (row) => row.type === "rate" || row._pct;

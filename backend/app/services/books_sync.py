@@ -24,7 +24,16 @@ from ..models import Integration, BookTxn, BookTxnLine, PLLine, SyncRun
 from .sync import _valid_access_token, _QBO_PERIODS
 
 # The ledger entities Books categorizes. Order matters only for readable logs.
-_QBO_TXN_ENTITIES = ("Purchase", "Deposit", "JournalEntry", "Transfer", "Bill", "BillPayment")
+# SalesReceipt and Payment are cash-in (a paid invoice, a customer payment). They were
+# missing, so a week whose only inflow was one of those scored $0 on the scorecard.
+_QBO_TXN_ENTITIES = (
+    "Purchase", "Deposit", "JournalEntry", "Transfer", "Bill", "BillPayment",
+    "SalesReceipt", "Payment",
+)
+# Added after the first backfill. A realm that already has rows never re-runs the full
+# query, so these two stay empty on CDC alone. One pull per realm per process.
+_LATE_TXN_ENTITIES = ("SalesReceipt", "Payment")
+_late_pulled: set = set()
 
 # Suspense / holding accounts mean "nobody categorized this yet" -> came_categorized False.
 _SUSPENSE = {"uncategorized expense", "uncategorized income", "uncategorized asset",
@@ -123,6 +132,8 @@ def _bank_account(obj: dict, entity_type: str):
     if entity_type == "Purchase":
         return _ref_name(obj, "AccountRef")              # the bank/card the money left
     if entity_type == "Deposit":
+        return _ref_name(obj, "DepositToAccountRef")
+    if entity_type in ("SalesReceipt", "Payment"):
         return _ref_name(obj, "DepositToAccountRef")
     if entity_type == "Transfer":
         return _ref_name(obj, "FromAccountRef")
@@ -318,6 +329,7 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
         else:
             data = await qbo.cdc(integ.realm_id, token, ",".join(_QBO_TXN_ENTITIES), since.isoformat())
             by_entity = _cdc_split(data, _QBO_TXN_ENTITIES)
+        await _pull_late_types(by_entity, integ, token)
 
     pairs = _txn_pairs(tenant_id, integ, by_entity)
     rows = [r for r, _lines in pairs]
@@ -330,6 +342,24 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
     print(f"[qbo_txns] realm={integ.realm_id} mode={'backfill' if have == 0 else 'cdc'} "
           f"rows={len(rows)} lines={lines}", flush=True)
     return len(rows)
+
+
+async def _pull_late_types(by_entity: dict, integ: Integration, token: str) -> None:
+    """Fill SalesReceipt and Payment once per realm per process when the books were
+    synced before those types existed. An empty result is remembered too, so a company
+    that genuinely has none is not re-queried every cycle."""
+    if integ.realm_id in _late_pulled:
+        return
+    _late_pulled.add(integ.realm_id)
+    start = _backfill_start(integ)
+    for ent in _LATE_TXN_ENTITIES:
+        rows = await qbo.query_all(
+            integ.realm_id, token, ent, f"WHERE TxnDate >= '{start.isoformat()}'")
+        have = by_entity.get(ent) or []
+        seen = {str(o.get("Id")) for o in have}
+        fresh = [o for o in rows if str(o.get("Id")) not in seen]
+        by_entity[ent] = have + fresh
+        print(f"[qbo_txns] realm={integ.realm_id} late {ent} rows={len(fresh)}", flush=True)
 
 
 def _pl_line_periods() -> list[tuple[dt.date, dt.date]]:
