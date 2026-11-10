@@ -78,6 +78,26 @@ export const sampleAdsOverview = {
   },
   bands: { ctr: "good", cpm: "good", cpl: "good" },
   campaigns: withRates,
+  digest: {
+    day: "2026-11-09",
+    account: "Spring B · Meta",
+    brands: [
+      { name: "Forum Dallas", spent: 612, daily_plan: 357, pace: 171 },
+      { name: "beCollective / The Shift", spent: 480, daily_plan: 571, pace: 84 },
+      { name: "Edge Webinar", spent: 90, daily_plan: 114, pace: 79 },
+    ],
+    recommendations: [
+      { name: "Forum-Dallas-1080x1080-v3", verdict: "kill", group: "Forum Dallas",
+        reason: "spent $6,420, no seats / no enrollments" },
+    ],
+    kept: 4,
+    autopilot: [],
+    fatigue: ["Forum-Dallas-1080x1080-v3"],
+    seats: [
+      { name: "Forum VIP", spend: 25660, seats: 1, cost_per_seat: 25660 },
+      { name: "Edge webinar", spend: 6110, seats: 4, cost_per_seat: 1528 },
+    ],
+  },
   writes: {
     can_write: false,
     can_manage: true,

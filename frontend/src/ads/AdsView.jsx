@@ -184,6 +184,49 @@ function WeeklyPlan({ accountId, groups, budgets, onSaved }) {
   );
 }
 
+function Morning({ digest }) {
+  const brands = digest.brands || [];
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
+                  padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 600, color: C.ink }}>
+        This morning · {digest.day}
+      </div>
+      <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+        {brands.map((b) => (
+          <div key={b.name} style={{ display: "flex", justifyContent: "space-between", gap: 12,
+                                     fontFamily: FONT, fontSize: 13, color: C.ink }}>
+            <span>{b.name}</span>
+            <span style={{ fontFamily: FIG }}>
+              {usd(b.spent)}{b.daily_plan != null ? ` of ${usd(b.daily_plan)} planned` : " · no plan"}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: "10px 0 0", lineHeight: 1.5 }}>
+        {(digest.recommendations || []).length
+          ? `${digest.recommendations.length} to act on, ${digest.kept || 0} to keep.`
+          : `Nothing to change. ${digest.kept || 0} kept.`}
+        {" "}
+        {(digest.autopilot || []).length
+          ? `${digest.autopilot.length} autopilot action${digest.autopilot.length === 1 ? "" : "s"}.`
+          : "No autopilot actions."}
+        {" "}
+        {(digest.fatigue || []).length
+          ? `Fatigue: ${digest.fatigue.join(", ")}.`
+          : "No fatigue flags."}
+      </p>
+      <p style={{ fontFamily: FONT, fontSize: 13, color: C.ink, margin: "6px 0 0" }}>
+        {(digest.seats || []).map((s) => (
+          <span key={s.name} style={{ marginRight: 14 }}>
+            {s.name}: {s.seats == null ? "seats not recorded" : `${s.seats} at ${s.cost_per_seat == null ? "—" : usd(s.cost_per_seat)}`}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
 function Pill({ tone, children }) {
   const b = band(tone);
   return (
@@ -473,6 +516,7 @@ export default function AdsView() {
       {/* The one dark band on the page. The hero is the thesis - spend, and what it contracted -
           so it is the only thing that gets the evergreen ground. */}
       <div className="wrap" id="changes" style={{ paddingTop: 18 }}>
+        {data.digest && <Morning digest={data.digest} />}
         <AdsChanges data={data} onSaved={retry} />
       </div>
 

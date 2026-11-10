@@ -50,6 +50,7 @@ def catalog() -> list[dict]:
         {"job": "scorecard_tick", "what": "Resolves scorecard metrics", "every_minutes": settings.SYNC_INTERVAL_MINUTES, "enabled": True},
         {"job": "ads_funnel_tick", "what": "Attributes registrations to ads", "every_minutes": DAY, "enabled": True},
         {"job": "ads_autopilot_tick", "what": "Applies ad Kill and Scale where autopilot is on", "every_minutes": DAY, "enabled": True},
+        {"job": "ads_digest_tick", "what": "Writes the morning ads digest and emails it", "every_minutes": DAY, "enabled": True},
         {"job": "marketing_delivery_tick", "what": "Delivers marketing requests", "every_minutes": 1, "enabled": True},
         {"job": "recall_tick", "what": "Books call-recording bots", "every_minutes": settings.RECALL_TICK_MINUTES, "enabled": recall},
         {"job": "transcript_tick", "what": "Stores call transcripts and purges expired ones", "every_minutes": 15, "enabled": recall},

@@ -102,6 +102,18 @@ async def overview(account: str | None = Query(None), period: str = Query("30d")
             payload["recommendations"] = []
             payload["writes"]["detail"] = str(e)[:300]
         payload["alerts"] = list(payload.get("alerts") or []) + _seat_findings(payload.get("brand_funnels") or {})
+        from ..services.ads_digest import account_yesterday, compose
+        from ..models import AdDigest
+        day = account_yesterday(acct.timezone_name)
+        stored = (await s.execute(select(AdDigest).where(
+            AdDigest.ad_account_id == acct.id, AdDigest.digest_on == day))).scalar_one_or_none()
+        if stored is not None:
+            payload["digest"] = stored.body
+        else:
+            try:
+                payload["digest"] = await compose(s, acct, day)
+            except Exception:  # noqa: BLE001
+                payload["digest"] = None
     return payload
 
 

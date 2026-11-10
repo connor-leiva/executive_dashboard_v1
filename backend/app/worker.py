@@ -448,6 +448,25 @@ async def ads_autopilot_tick():
             print(f"[ads_autopilot] {tid}: {type(e).__name__}: {e}", flush=True)
 
 
+async def ads_digest_tick():
+    """The morning note, after autopilot has had its pass. Emails when Resend is configured."""
+    from .models import AdAccount
+    from .services.ads_digest import deliver
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(AdAccount.id, AdAccount.tenant_id).where(
+            AdAccount.status == "active"))).all()
+    for account_id, tid in rows:
+        try:
+            async with SessionLocal() as s:
+                account = await s.get(AdAccount, account_id)
+                if account is None:
+                    continue
+                await deliver(s, account)
+                await s.commit()
+        except Exception as e:  # noqa: BLE001
+            print(f"[ads_digest] {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 async def marketing_delivery_tick():
     """Drain the marketing-request delivery queue. Intranet Phase 3.
 
@@ -613,6 +632,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # After attribution, before the office is reading the tab. Autopilot is off until a
     # brand is switched on, and it still cannot write without ads_management.
     sched.add_job(beat(ads_autopilot_tick), "cron", hour=6, minute=0, timezone=_tz)
+    sched.add_job(beat(ads_digest_tick), "cron", hour=6, minute=20, timezone=_tz)
     # Every minute, because this is the path a person is waiting on: an agent files a request and
     # somebody in marketing should see it while they still remember filing it. It is also cheap --
     # one indexed query that usually returns nothing.
