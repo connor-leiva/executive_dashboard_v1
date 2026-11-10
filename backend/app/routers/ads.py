@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import current_user, get_session, require_role, require_tab
-from ..models import Ad, AdAccount, AdCampaign, AdInsightDaily, Business, Integration, User
+from ..models import Ad, AdAccount, AdCampaign, AdInsightDaily, Business, Integration, MetricRecord, User
 from ..services import ads as A
 from ..services import ads_rules as R
 from ..services.ads_funnel import FUNNEL_DEFS
@@ -225,6 +225,7 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         # shortfall blames the funnel for a measurement boundary. So both are shown with the gap
         # named, per Part 4.8.
         "coverage": await _coverage(s, tenant_id, s_day, e_day, int(leads)),
+        "brand_funnels": await _brand_funnels(s, tenant_id, acct, s_day, e_day, campaigns),
         "freshness": {"last_synced_at": acct.last_synced_at.isoformat() if acct.last_synced_at else None,
                       "last_error": acct.last_error},
     }
@@ -330,6 +331,13 @@ async def _fatigue_alerts(s: AsyncSession, tenant_id, acct) -> list[dict]:
                      f"with rising frequency and falling CTR: {shown}{extra}"}]
 
 
+async def _brand_funnels(s, tenant_id, acct, s_day, e_day, campaigns: list[dict]) -> dict:
+    from ..services.ads_brand_funnels import ad_bucket, build_brand_funnels
+    return await build_brand_funnels(
+        s, tenant_id, acct.business_id, s_day, e_day,
+        ad_bucket(campaigns, forum=True), ad_bucket(campaigns, forum=False))
+
+
 def _alerts(totals: dict, campaigns: list[dict], unmatched: int, thresholds) -> list[dict]:
     """Findings, server-side, as {tone, text, metric}. The client colours; it never decides.
 
@@ -395,18 +403,35 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
             d["_freqs"].append(float(r.frequency))
 
     scan = await _fatigue_scan(s, user.tenant_id, acct)
+    from ..services.ads_brand_funnels import seats_by_ad
+    from ..services.sync import is_confirmed_seat
+    seat_rows = []
+    if acct.business_id:
+        seat_rows = [r for r in (await s.execute(select(MetricRecord).where(
+            MetricRecord.tenant_id == user.tenant_id, MetricRecord.business_id == acct.business_id,
+            MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+            MetricRecord.segment == "vip_guest_seat",
+            MetricRecord.occurred_on >= s_day, MetricRecord.occurred_on <= e_day))).scalars()
+            if is_confirmed_seat((r.meta or {}).get("to_stage"), (r.meta or {}).get("stage_id"))]
+    seat_counts = seats_by_ad(seat_rows, {a.external_id for a in ad_rows.values() if a.external_id})
     out = []
     for d in agg.values():
         freqs = d.pop("_freqs", [])
         freq = sum(freqs) / len(freqs) if freqs else None
         flag = next((v for k, v in scan.items() if str(k) == d["id"]), None)
+        ad = next((a for a in ad_rows.values() if str(a.id) == d["id"]), None)
+        seats = None if seat_counts is None else seat_counts.get(getattr(ad, "external_id", None), 0)
         out.append({**d,
+                    "external_id": getattr(ad, "external_id", None),
                     "frequency": (flag or {}).get("frequency", freq),
                     "ctr_prior": (flag or {}).get("ctr_prior"),
                     "fatigue": bool((flag or {}).get("fatigue")),
+                    "seats": seats,
+                    "cost_per_seat": A.cost_per(d["spend"], seats) if seats else None,
                     "ctr": A.ctr(d["link_clicks"], d["impressions"]),
                     "cpl": A.cpl(d["spend"], d["leads"])})
-    key = {"spend": "spend", "ctr": "ctr", "closes": "spend", "revenue": "spend"}.get(sort, "spend")
+    key = {"spend": "spend", "ctr": "ctr", "seats": "seats",
+           "cost_per_seat": "cost_per_seat"}.get(sort, "spend")
     out.sort(key=lambda d: (d.get(key) is None, -(d.get(key) or 0)))
 
     # Ad-level revenue needs utm_content={{ad.id}} on the ads AND a matching custom field in the
@@ -415,6 +440,7 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
     tagged = sum(1 for a in ad_rows.values() if has_ad_level_tagging(a.url_tags))
     return {
         "connected": True, "ads": out[:limit], "total": len(out),
+        "seats_available": seat_counts is not None,
         "revenue_available": False,
         "revenue_reason": (
             f"Ad-level revenue needs utm_content={{{{ad.id}}}} on the ad URLs and a matching "

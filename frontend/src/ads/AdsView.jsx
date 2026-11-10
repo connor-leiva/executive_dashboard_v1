@@ -205,6 +205,7 @@ export default function AdsView() {
   /* The page opens on a brand, not the whole account. All campaigns is still one chip away. */
   const [brand, setBrand] = useState(null);
   const [brandTouched, setBrandTouched] = useState(false);
+  const [creativeSort, setCreativeSort] = useState("spend");
 
   /* The drill is fetched on demand rather than with the page: it returns names and emails for
      every rung, and pre-loading six lists nobody may open would be both slow and a wider spill
@@ -218,7 +219,7 @@ export default function AdsView() {
 
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
-  const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
+  const creatives = useAdsCreatives({ account, period, campaign, sort: creativeSort, limit: 24 });
   const brands = (data && data.groups) || [];
   useEffect(() => {
     if (brandTouched || !brands.length) return;
@@ -292,6 +293,27 @@ export default function AdsView() {
     } catch (e) {
       setDrill((cur) => (cur.stage === stage ? { ...cur, error: e, loading: false } : cur));
     }
+  };
+
+  const openLadderDrill = (ladder, key, label) => {
+    const stage = `${ladder.title}:${key}`;
+    if (drill.stage === stage) {
+      setDrill({ stage: null, label: null, data: null, loading: false, error: null });
+      return;
+    }
+    const rung = (ladder.rungs || []).find((r) => r.key === key);
+    if (!rung) return;
+    setDrill({
+      stage, label, loading: false, error: null,
+      data: {
+        title: label,
+        count: rung.missing ? 0 : (rung.n || 0),
+        subtitle: rung.note || `${rung.n} in this window`,
+        columns: ["name", "email", "reached", "detail"],
+        rows: rung.people || [],
+        note: rung.missing ? rung.note : null,
+      },
+    });
   };
 
   if (error) {
@@ -476,6 +498,28 @@ export default function AdsView() {
         {data.funnel ? (
           <>
             <Funnel rungs={data.funnel} spend={t.spend} onDrill={openDrill} />
+            {["forum", "edge"].map((key) => {
+              const ladder = data.brand_funnels && data.brand_funnels[key];
+              if (!ladder) return null;
+              const seat = (ladder.rungs || []).find((r) => r.key === "seat" || r.key === "purchase");
+              const member = (ladder.rungs || []).find((r) => r.key === "member");
+              return (
+                <div key={key} style={{ marginTop: 22 }}>
+                  <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 600, color: C.ink }}>
+                    {ladder.title}
+                  </div>
+                  <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: "6px 0 8px",
+                              lineHeight: 1.5, maxWidth: 720 }}>{ladder.note}</p>
+                  <p style={{ fontFamily: FONT, fontSize: 13, color: C.ink, margin: "0 0 10px" }}>
+                    {usd(ladder.spend)} of this brand&rsquo;s spend in the window
+                    {seat && seat.cost_per != null ? ` · ${usd(seat.cost_per)} per ${seat.label.toLowerCase()}` : ""}
+                    {member && member.cost_per != null ? ` · ${usd(member.cost_per)} per member` : ""}
+                  </p>
+                  <Funnel rungs={ladder.rungs} spend={ladder.spend}
+                          onDrill={(k, label) => openLadderDrill(ladder, k, label)} />
+                </div>
+              );
+            })}
             {drill.stage && (
               <DrillPanel drill={drill.data} loading={drill.loading} error={drill.error}
                           label={drill.label}
@@ -741,6 +785,17 @@ export default function AdsView() {
         lede={creatives.data?.revenue_reason
           ? `Ranked by spend. Revenue per ad is not here yet — ${creatives.data.revenue_reason.charAt(0).toLowerCase()}${creatives.data.revenue_reason.slice(1)}`
           : "Ranked by spend, because the ad taking the most money is the one worth looking at first."}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {[["spend", "Spend"], ["seats", "Seats"], ["cost_per_seat", "Cost / seat"]].map(([k, lab]) => (
+            <button key={k} type="button" className={`per${creativeSort === k ? " on" : ""}`}
+                    onClick={() => setCreativeSort(k)}>{lab}</button>
+          ))}
+          {creatives.data && creatives.data.seats_available === false && (
+            <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted, alignSelf: "center" }}>
+              Seat sort waits on utm_content matching an ad.
+            </span>
+          )}
+        </div>
         <CreativeWall data={creatives.data} loading={creatives.loading} />
       </Section>
 

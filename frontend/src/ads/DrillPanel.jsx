@@ -15,6 +15,7 @@ import { C, FIG, FONT, HEAD } from "./adsTokens.js";
 
 const HEADINGS = {
   name: "Name", email: "Email", campaign: "Campaign", match: "Matched by",
+  detail: "Detail",
   first_seen: "First seen", reached: "Reached", url: "CRM",
   // THREE MONEY COLUMNS, DELIBERATELY. What she signed for, what the price sheet says was due at
   // signing, and what we can actually match in the payment records. One column would have to pick

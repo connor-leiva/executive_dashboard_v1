@@ -35,11 +35,11 @@ export default function Funnel({ rungs, spend, onDrill }) {
      and this component confidently called that the biggest leak in the business: "41 of 41 drop
      here", about a step that had never been recorded at all. Excluded from the running rather
      than hidden, and the drill on that rung explains which kind of zero it is. */
-  const unrecorded = (r, i) => r.n === 0 && rungs.slice(i + 1).some(
+  const unrecorded = (r, i) => (r.missing || r.n === 0) && rungs.slice(i + 1).some(
     (later) => ours(later) && (later.n || 0) > 0);
 
   const leakCandidates = rungs.filter(
-    (r, i) => i > 0 && ours(r) && ours(rungs[i - 1])
+    (r, i) => i > 0 && ours(r) && ours(rungs[i - 1]) && !r.missing
               && r.conversion !== null && r.conversion !== undefined
               && !unrecorded(r, i));
   const worst = leakCandidates.length
@@ -78,7 +78,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
 
            The conversion percentage still renders on those boundaries. Only the headcount claim
            is withheld. Guarded on the zone of BOTH rungs, not just this one. */
-        const drop = ours(prevRung) && ours(r)
+        const drop = ours(prevRung) && ours(r) && r.n != null && !r.missing
           ? (r.prev ?? 0) - r.n
           : null;
 
@@ -135,7 +135,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                   {/* Only the Axcion rungs open: those are counts of PEOPLE. An impression is
                       not somebody you can list, and offering to open one would promise a thing
                       that cannot exist. */}
-                  {onDrill && ours(r) ? (
+                  {onDrill && ours(r) && !r.missing ? (
                     <button type="button" onClick={() => onDrill(r.key, r.label)}
                             className="fn-open"
                             style={{ fontFamily: HEAD, fontSize: 14, fontWeight: 600,
@@ -197,7 +197,7 @@ export default function Funnel({ rungs, spend, onDrill }) {
                     ever have. */}
                 <div className={`fn-figs${r.value ? " has-value" : ""}`}
                      style={{ marginTop: 7 }}>
-                  <Fig label="Count" value={compact(r.n)} />
+                  <Fig label="Count" value={r.missing ? "Not recorded" : compact(r.n)} />
                   {r.value ? (
                     <Fig label={r.key === "closed" ? "contracted" : "cash"}
                          value={usd(r.value, 0)} />
