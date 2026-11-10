@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { getJSON, postJSON } from "../api.js";
 import { T, NUM, FONT, LBL } from "./l10tokens.jsx";
-import { fmtMoney, titleCase } from "./scorecardMath.js";
+import { fmtMoney, titleCase, recordLabel, drawerSummary } from "./scorecardMath.js";
 
 const muted = { fontSize: 13, color: T.muted, padding: "8px 0" };
 
@@ -42,7 +42,7 @@ function RecordLine({ x, attach, vendor }) {
   return (
     <div style={{ padding: "10px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client || "—"}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client ? recordLabel(x.client) : "—"}</span>
         <span style={{ ...NUM, fontSize: 12, color: T.ink, flexShrink: 0, whiteSpace: "nowrap" }}>
           {x.sale_price != null ? moneyBit(x.sale_price) || fmtMoney(0) : fmtDate(x.date)}
         </span>
@@ -50,7 +50,7 @@ function RecordLine({ x, attach, vendor }) {
       <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
         {x.side === "sell" && <Tag on={false} label="Listing" />}
-        <span>{[x.side && x.side !== "sell" ? x.side : null, x.detail, x.sale_price != null ? fmtDate(x.date) : null].filter(Boolean).join(" · ") || "—"}{x.address ? ` · ${x.address}` : ""}{x.agent ? ` · ${x.agent}` : ""}</span>
+        <span>{[x.side && x.side !== "sell" ? recordLabel(x.side) : null, x.detail ? recordLabel(x.detail) : null, x.sale_price != null ? fmtDate(x.date) : null].filter(Boolean).join(" · ") || "—"}{x.address ? ` · ${x.address}` : ""}{x.agent ? ` · ${recordLabel(x.agent)}` : ""}</span>
       </div>
     </div>
   );
@@ -83,7 +83,7 @@ function Records({ r, ws, we }) {
   if (recs === null) return <div style={muted}>Loading Records…</div>;
   if (restricted) return <div style={muted}>The agent-level detail behind this number is limited to leadership.</div>;
   if (!recs.length && !groups.length && !excluded.length) {
-    return <div style={muted}>{summary || `No records from ${src} in this window.`}</div>;
+    return <div style={muted}>{summary ? drawerSummary(summary) : `No records from ${src} in this window.`}</div>;
   }
   // attach-rate drill → the denominator deals, each flagged `captured` (the numerator subset), so the
   // list reads back as the rate. Count metrics have no `captured` field → plain "N records".
@@ -105,24 +105,24 @@ function Records({ r, ws, we }) {
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
         <div style={LBL}>{attach
-          ? `${capped} of ${recs.length} used ${vendor} · ${pct}%`
-          : `${recs.length} Record${recs.length === 1 ? "" : "s"} · From ${src}`}</div>
+          ? `${capped} of ${recs.length} Used ${vendor} · ${pct}%`
+          : titleCase(`${recs.length} ${recs.length === 1 ? "record" : "records"} · from ${src}`)}</div>
         <div style={{ display: "flex", gap: 2, background: T.shell, borderRadius: 6, padding: 2, flexShrink: 0 }}>
-          {["name", "date"].map((k) => (
+          {[["name", "Name"], ["date", "Date"]].map(([k, label]) => (
             <button key={k} onClick={() => setSort(k)} style={{
-              fontFamily: FONT, fontSize: 12, textTransform: "capitalize", border: "none", cursor: "pointer",
+              fontFamily: FONT, fontSize: 12, border: "none", cursor: "pointer",
               padding: "3px 9px", borderRadius: 4, fontWeight: sort === k ? 600 : 500,
               background: sort === k ? T.paper : "transparent", color: sort === k ? T.ink : T.muted,
-              boxShadow: sort === k ? "0 1px 2px rgba(20,35,28,0.1)" : "none" }}>{k}</button>
+              boxShadow: sort === k ? "0 1px 2px rgba(20,35,28,0.1)" : "none" }}>{label}</button>
           ))}
         </div>
       </div>
-      {summary && <div style={{ fontSize: 13, color: T.ink, marginTop: -2, marginBottom: 10 }}>{summary}</div>}
+      {summary && <div style={{ fontSize: 13, color: T.ink, marginTop: -2, marginBottom: 10 }}>{drawerSummary(summary)}</div>}
       {denomNote && <div style={{ fontSize: 12, color: T.muted, marginTop: -2, marginBottom: 8 }}>{denomNote}</div>}
       {groups.length ? groups.map((g) => (
         <div key={g.company} style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.line}` }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{g.company}</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{recordLabel(g.company)}</span>
             <span style={{ ...NUM, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }} title={moneyBit(g.net) || fmtMoney(g.net, { cents: true })}>
               {fmtMoney(g.net)}
             </span>

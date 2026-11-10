@@ -110,3 +110,72 @@ export function titleCase(text) {
     return out;
   }).join("");
 }
+
+// Proper names for drawer rows. A string that already mixes case is left alone, so
+// "McDonald" and "beCollective" are not rewritten. Emails, URLs and ids are never touched.
+// Mac is only applied when the rest of the word looks like a name; "machine" stays "Machine".
+const MAC_SKIP = new Set([
+  "mac", "mace", "mack", "mackey", "mackie", "macky", "macken", "mackenzie", "mackinaw",
+  "macon", "macron", "macro", "macy", "machine", "machinery", "mackerel", "macrame", "macintosh",
+]);
+
+function cap(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function caseWord(word) {
+  const apos = word.includes("’") ? "’" : "'";
+  const lower = word.toLowerCase().replace(/’/g, "'");
+  if (KEEP[lower]) return KEEP[lower];
+  const pref = lower.match(/^([odln])'([a-z].+)$/);
+  if (pref) return pref[1].toUpperCase() + apos + cap(pref[2]);
+  if (lower.startsWith("mc") && lower.length > 3 && !KEEP[lower]) return "Mc" + cap(lower.slice(2));
+  if (/^mac[a-z]{3,}$/.test(lower) && !MAC_SKIP.has(lower)) return "Mac" + cap(lower.slice(3));
+  return cap(lower);
+}
+
+function nameToken(raw) {
+  if (raw.includes("-")) return raw.split("-").map((p) => nameToken(p)).join("-");
+  const m = String(raw).match(/^([^A-Za-z]*)([A-Za-z][A-Za-z'’]*)(.*)$/);
+  if (!m) return raw;
+  return m[1] + caseWord(m[2]) + m[3];
+}
+
+function isFrozen(text) {
+  const t = String(text).trim();
+  if (!t) return true;
+  if (t.includes("@") || t.includes("/") || t.includes("_")) return true;
+  if (/^https?:/i.test(t) || /^www\./i.test(t)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return true;
+  if (/^[0-9a-f]{16,}$/i.test(t)) return true;
+  return false;
+}
+
+function isMixed(text) {
+  return /[a-z]/.test(text) && /[A-Z]/.test(text);
+}
+
+// One drawer field: a person, a company, a campaign, a stage, or a status.
+// Lowercase words are name-cased. A word that already has both cases, and a short
+// acronym (GHL, VIP), stay as written.
+export function recordLabel(text) {
+  if (text == null || text === "") return text;
+  const s = String(text);
+  if (isFrozen(s)) return s;
+  return s.split(/(\s+|·)/).map((part) => {
+    if (!part || /^\s+$/.test(part) || part === "·") return part;
+    if (isFrozen(part) || isMixed(part)) return part;
+    if (/^[A-Z0-9]{2,5}$/.test(part)) return part;
+    return nameToken(part.toLowerCase());
+  }).join("");
+}
+
+// Count lines ("57 active members.") read as headings. A full sentence stays a sentence.
+export function drawerSummary(text) {
+  if (text == null || text === "") return text;
+  const words = String(text).trim().split(/\s+/);
+  const prose = words.length > 12
+    || (words.length > 6 && /\b(so|because|until|hasn't|haven't|isn't|doesn't)\b/i.test(text));
+  if (prose) return text;
+  return titleCase(String(text).replace(/\.$/, ""));
+}
