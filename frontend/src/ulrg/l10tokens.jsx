@@ -65,10 +65,13 @@ export const TONE = {
 export const paceState = (p) => (p >= 100 ? "good" : p >= 85 ? "warn" : "bad");
 
 /* three-band cell color from a value vs its (per-period) weekly goal. null ≠ zero; a goal of 0 is
-   a track-only row, so it stays uncolored. Direction-aware (mirrors scorecard.py's attainment law):
-   for lte (lower is better) a value at/under the cap reads good. Band law: >=100 good, >=80 warn. */
-export function tone(v, goal, direction) {
-  if (v === null || v === undefined || !goal) return TONE.none;
+   a track-only row unless scoreZero (a real ≤ 0 target). Direction-aware: for lte a value at or
+   under the cap reads good. Band law: >=100 good, >=80 warn. */
+export function tone(v, goal, direction, scoreZero = false) {
+  if (v === null || v === undefined || goal === null || goal === undefined) return TONE.none;
+  if (goal === 0 && !scoreZero) return TONE.none;
+  if (goal === 0 && direction === "lte") return v <= 0 ? TONE.good : TONE.bad;
+  if (!goal) return TONE.none;
   const r = direction === "lte" ? (v ? goal / v : 2) : v / goal;
   return r >= 1 ? TONE.good : r >= 0.8 ? TONE.warn : TONE.bad;
 }

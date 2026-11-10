@@ -543,6 +543,44 @@ def _forum_stage_group(stage: str | None) -> str:
     return (slug or "other")[:32]
 
 
+def forum_opp_signals(o: dict) -> dict:
+    """The fields that separate Spring's VIP-page leads from Justin's Sisu registrations.
+
+    opportunity.source is the primary signal (read-only HighLevel pass, Nov 10 2026). The contact
+    tag and the last attribution URL are fallbacks for an opportunity whose source was left blank.
+    Accepts either a raw GHL opportunity or the recruiting wrapper the stage recorder already sees.
+    """
+    meta = o.get("meta") if isinstance(o.get("meta"), dict) else {}
+    contact = o.get("contact") if isinstance(o.get("contact"), dict) else {}
+    source = o.get("source") or meta.get("opp_source") or contact.get("source")
+    tags: list[str] = []
+    for bag in (o.get("tags"), contact.get("tags"), meta.get("tags")):
+        if isinstance(bag, list):
+            tags.extend(str(t) for t in bag if t)
+        elif isinstance(bag, str) and bag.strip():
+            tags.append(bag.strip())
+    seen: list[str] = []
+    for t in tags:
+        if t not in seen:
+            seen.append(t)
+    url = meta.get("page_url")
+    attrs = o.get("attributions") or contact.get("attributions") or []
+    if isinstance(attrs, dict):
+        attrs = [attrs]
+    if not url and attrs:
+        last = attrs[-1] or {}
+        url = last.get("pageUrl") or last.get("url")
+    if not url:
+        for key in ("lastAttribution", "attributionSource"):
+            block = contact.get(key) or o.get(key)
+            if isinstance(block, dict):
+                url = block.get("pageUrl") or block.get("url")
+                if url:
+                    break
+    return {"opp_source": source or None, "tags": seen[:24],
+            "page_url": (str(url)[:400] if url else None)}
+
+
 async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: list[dict], tz) -> int:
     """Append a `forum_stage_event` for each open sales-funnel opportunity whose stage GROUP changed
     since the last sync, or that is new to the funnel. Must run BEFORE the 'recruiting' snapshot is
@@ -576,12 +614,12 @@ async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: lis
         if before is not None and _forum_stage_group(before) == group:
             continue                                     # same group as last sync → not an entry
         on = _local_date(meta.get("last_stage_change_at"), tz) or today
+        sig = forum_opp_signals(o)
         events.append(dict(
             tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_stage_event",
             external_id=f"{o['external_id']}:{group}:{on.isoformat()}"[:64], name=o.get("name"),
             status="entered", segment=group, occurred_on=on,
-            meta={"opp_id": o["external_id"], "from_stage": before, "to_stage": stage,
-                  "opp_source": meta.get("opp_source")}))
+            meta={"opp_id": o["external_id"], "from_stage": before, "to_stage": stage, **sig}))
     if not events:
         return 0
     seen = set((await s.execute(select(MetricRecord.external_id).where(
@@ -790,13 +828,14 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                                   "meta": {"stage": stage, "contact_id": cid}})
             elif o.get("pipelineId") in sales_ids and o.get("status") == "open":
                 # Open recruiting opps in the sales funnel → the pipeline card.
+                # Source, tags and attribution URL ride along so a VIP-guest count can split
+                # Spring's pages from Justin's Sisu registrations without another GHL read.
                 recruiting.append({**base, "kind": "recruiting", "status": "open",
                                    "amount": float(o.get("monetaryValue") or 0) or None,
                                    "meta": {"stage": stage,
                                             "stage_position": stage_pos.get(o.get("pipelineStageId"), 99),
-                                            # for the scorecard's stage-change events (below)
                                             "last_stage_change_at": o.get("lastStageChangeAt"),
-                                            "opp_source": o.get("source")}})
+                                            **forum_opp_signals(o)}})
         # Stage-change events for the Spring B scorecard, read against the PRIOR 'recruiting'
         # snapshot — so this must run before that snapshot is replaced just below. Isolated: a
         # failure here must never cost the Forum its own snapshot.

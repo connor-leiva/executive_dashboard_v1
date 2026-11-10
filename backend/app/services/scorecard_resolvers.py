@@ -329,6 +329,23 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
         return await _forum_member_records(s, tenant_id, business_id, week_start, week_end, limit)
     if key == "forum_vip_guests_added":
         return await _forum_vip_records(s, tenant_id, business_id, week_start, week_end, limit)
+    if key in ("forum_vip_guests_sisu", "forum_vip_guests_spring"):
+        split = await _vip_split(s, tenant_id, business_id, week_start, week_end)
+        if split is UNAVAILABLE:
+            return []
+        _counts, recs = split
+        channel = "sisu" if key.endswith("sisu") else "spring"
+        return recs[channel][:limit]
+    if key == "sb_net_cash":
+        from ..models import BookTxn
+        rows = (await s.execute(select(BookTxn).where(
+            BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id,
+            BookTxn.txn_date >= week_start, BookTxn.txn_date <= week_end)
+            .order_by(BookTxn.txn_date.desc()).limit(limit))).scalars().all()
+        return [{"id": t.qbo_id, "client": t.payee or t.qbo_type, "agent": None,
+                 "date": t.txn_date.isoformat() if t.txn_date else None, "address": None,
+                 "side": t.qbo_type, "sale_price": float(t.amount) if t.amount is not None else None,
+                 "detail": t.qbo_type} for t in rows]
     if key == "ulrg_team_sympli_attach":
         return await _sympli_records(s, tenant_id, week_start, week_end, group, limit)
     if key == "ulrg_team_meraki_attach":
@@ -681,6 +698,331 @@ async def forum_vip_guests_added(s, tenant_id, business_id, week_start: dt.date,
         MetricRecord.segment == "vip_guest",
         MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))
     return float(n or 0)
+
+
+# opportunity.source values from the Nov 10 HighLevel pass. Exact, case-insensitive.
+# Anything else (including a blank) is unclassified until a tag or attribution URL says otherwise.
+_SISU_SOURCES = frozenset({"sisu", "sisu private mastermind"})
+_SPRING_SOURCES = frozenset({"vip page", "forummastermind.com/vip", "forummastermind.com/guest-application"})
+_SISU_TAG = "forum vip guest sisu nov 2026"
+
+
+def vip_channel(meta: dict | None) -> str | None:
+    """'sisu' (Justin's registrations) | 'spring' (Spring's page leads) | None.
+
+    Source wins. A blank source falls through to the Sisu tag, then the attribution URL
+    (/sisu vs /vip or /guest-application). Unclassified rows stay out of both counts.
+    """
+    meta = meta or {}
+    src = str(meta.get("opp_source") or "").strip().lower()
+    if src in _SISU_SOURCES:
+        return "sisu"
+    if src in _SPRING_SOURCES or "forummastermind.com/vip" in src or "forummastermind.com/guest-application" in src:
+        return "spring"
+    tags = {str(t).strip().lower() for t in (meta.get("tags") or []) if t}
+    if _SISU_TAG in tags or any("sisu" in t and "vip" in t for t in tags):
+        return "sisu"
+    url = str(meta.get("page_url") or "").strip().lower()
+    if "/sisu" in url:
+        return "sisu"
+    if "/vip" in url or "/guest-application" in url:
+        return "spring"
+    return None
+
+
+def _merge_vip_meta(event_meta: dict | None, snap: dict | None) -> dict:
+    """Event fields win when present; the current recruiting snapshot fills the blanks."""
+    out = dict(snap or {})
+    for k, v in (event_meta or {}).items():
+        if v not in (None, "", []):
+            out[k] = v
+    return out
+
+
+async def _vip_split(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date):
+    """(counts, records) for VIP-guest entries in the week, split by channel.
+
+    UNAVAILABLE when GHL is down or the week ended before stage tracking began — same gate as
+    forum_vip_guests_added, so a split never invents a zero for a week that was not observed.
+    """
+    from ..models import MetricRecord
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    since = await s.scalar(select(func.min(MetricRecord.occurred_on)).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_tracking"))
+    if since is None or week_end < since:
+        return UNAVAILABLE
+    events = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))).scalars().all()
+    snaps = {ext: (meta or {}) for ext, meta in (await s.execute(select(
+        MetricRecord.external_id, MetricRecord.meta).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+            MetricRecord.source == "ghl", MetricRecord.kind == "recruiting"))).all()}
+    counts = {"sisu": 0, "spring": 0, "open": 0}
+    records = {"sisu": [], "spring": [], "open": []}
+    for ev in events:
+        meta = _merge_vip_meta(ev.meta, snaps.get((ev.meta or {}).get("opp_id")))
+        ch = vip_channel(meta) or "open"
+        counts[ch] += 1
+        records[ch].append({"id": ev.external_id, "client": ev.name, "agent": None,
+                            "date": ev.occurred_on.isoformat() if ev.occurred_on else None,
+                            "address": None, "side": None, "sale_price": None,
+                            "detail": meta.get("opp_source") or meta.get("page_url") or ch})
+    return counts, records
+
+
+async def _vip_channel_count(s, tenant_id, business_id, week_start, week_end, channel: str):
+    split = await _vip_split(s, tenant_id, business_id, week_start, week_end)
+    if split is UNAVAILABLE:
+        return UNAVAILABLE
+    counts, _recs = split
+    return float(counts[channel])
+
+
+@resolver("forum_vip_guests_sisu")
+async def forum_vip_guests_sisu(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                group=None):
+    """Justin's VIP guests — entered the VIP Guest group from a Sisu source (or the Sisu tag / URL)."""
+    return await _vip_channel_count(s, tenant_id, business_id, week_start, week_end, "sisu")
+
+
+@resolver("forum_vip_guests_spring")
+async def forum_vip_guests_spring(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                  group=None):
+    """Spring's qualified guest leads — VIP Guest entries from the VIP page or guest application."""
+    return await _vip_channel_count(s, tenant_id, business_id, week_start, week_end, "spring")
+
+
+def _week_holds_today(week_start: dt.date, week_end: dt.date, today: dt.date | None = None) -> bool:
+    today = today or dt.date.today()
+    return week_start <= today <= week_end
+
+
+def _parse_day(v):
+    if v is None or v == "":
+        return None
+    if isinstance(v, dt.datetime):
+        return v.date()
+    if isinstance(v, dt.date):
+        return v
+    try:
+        return dt.date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+@resolver("sb_edge_paid_added")
+async def sb_edge_paid_added(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                             group=None):
+    """New paid Edge subscriptions whose start date falls in the week. Comped plans (name contains
+    'comp') and zero-amount subs are excluded. UNAVAILABLE until the legacy Stripe feed has synced."""
+    from ..models import MetricRecord
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "edge_subscription"))).scalars().all()
+    live = await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "stripe_legacy",
+        Integration.status == "connected",
+        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
+    if live is None and not rows:
+        return UNAVAILABLE
+    n = 0
+    for r in rows:
+        meta = r.meta or {}
+        start = _parse_day(meta.get("start_date"))
+        if not start or not (week_start <= start <= week_end):
+            continue
+        if r.amount is not None and float(r.amount) <= 0:
+            continue
+        if "comp" in (meta.get("plan_name") or "").lower():
+            continue
+        if (r.status or "") not in ("active", "trialing", "past_due"):
+            continue
+        n += 1
+    return float(n)
+
+
+@resolver("sb_active_members")
+async def sb_active_members(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                            group=None):
+    """Active non-admin Forum members, as of the current week only.
+
+    The roster is a snapshot, so writing it into last month would rewrite history. Weeks that
+    don't contain today stay UNAVAILABLE and keep whatever was entered by hand. Comped seats are
+    not a flag on this roster — the count is every active member."""
+    from ..models import MetricRecord
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    any_member = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member").limit(1))
+    if any_member is None:
+        return UNAVAILABLE
+    n = await s.scalar(select(func.count()).select_from(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))
+    return float(n or 0)
+
+
+@resolver("sb_cash_collected_rate")
+async def sb_cash_collected_rate(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                 group=None):
+    """Succeeded GHL payments ÷ payment attempts (succeeded + failed) that week, as a percent.
+
+    None when the week had no attempts (a rate with an empty denominator). UNAVAILABLE when the
+    payments feed has never synced, so a quiet integration doesn't read as 0% collected."""
+    from ..models import MetricRecord
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    any_pay = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment").limit(1))
+    if any_pay is None:
+        return UNAVAILABLE
+    rows = (await s.execute(select(MetricRecord.status).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end))).scalars().all()
+    succ = sum(1 for st in rows if st == "succeeded")
+    fail = sum(1 for st in rows if st == "failed")
+    den = succ + fail
+    if den == 0:
+        return None
+    return round(succ / den * 100, 1)
+
+
+_CASH_IN = frozenset({"deposit", "salesreceipt", "payment", "creditmemo"})
+_CASH_OUT = frozenset({"purchase", "billpayment", "expense", "check", "creditcardcharge"})
+
+
+@resolver("sb_net_cash")
+async def sb_net_cash(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
+    """Cash in minus cash out for the week from Books (QBO transactions on this business).
+
+    Deposits, sales receipts and payments count in. Purchases, expenses and bill payments count
+    out. Transfers and journal entries are skipped — they move money between accounts or encode
+    accruals, and summing them double-counts. UNAVAILABLE until QuickBooks has synced."""
+    from ..models import BookTxn
+    txns = (await s.execute(select(BookTxn).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id,
+        BookTxn.txn_date >= week_start, BookTxn.txn_date <= week_end))).scalars().all()
+    live = await s.scalar(select(Integration.id).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "qbo",
+        Integration.status == "connected",
+        or_(Integration.business_id == business_id, Integration.business_id.is_(None))).limit(1))
+    if live is None and not txns:
+        any_txn = await s.scalar(select(BookTxn.id).where(
+            BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id).limit(1))
+        if any_txn is None:
+            return UNAVAILABLE
+    net = 0.0
+    for t in txns:
+        kind = (t.qbo_type or "").replace(" ", "").lower()
+        amt = float(t.amount or 0)
+        if kind in _CASH_IN:
+            net += amt
+        elif kind in _CASH_OUT:
+            net -= amt
+    return round(net, 2)
+
+
+@resolver("sb_decisions_open")
+async def sb_decisions_open(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                            group=None):
+    """Open VIP-guest opportunities whose stage hasn't changed in 21 days. Current week only."""
+    from ..models import MetricRecord
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "recruiting",
+        MetricRecord.status == "open"))).scalars().all()
+    any_event = await s.scalar(select(MetricRecord.id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event").limit(1))
+    if not rows and any_event is None:
+        return UNAVAILABLE
+    from .sync import _forum_stage_group
+    cutoff = week_end - dt.timedelta(days=21)
+    n = 0
+    for r in rows:
+        meta = r.meta or {}
+        if _forum_stage_group(meta.get("stage")) != "vip_guest":
+            continue
+        changed = _parse_day(meta.get("last_stage_change_at"))
+        if changed and changed <= cutoff:
+            n += 1
+    return float(n)
+
+
+@resolver("sb_failed_payments_open")
+async def sb_failed_payments_open(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                  group=None):
+    """Failed GHL payments older than 7 days with no later success on the same subscription or email.
+    Current week only — it's a stock, not a flow."""
+    from ..models import MetricRecord
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    pays = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment"))).scalars().all()
+    if not pays:
+        return UNAVAILABLE
+    cutoff = week_end - dt.timedelta(days=7)
+    failed, succeeded = [], []
+    for p in pays:
+        if not p.occurred_on:
+            continue
+        if p.status == "succeeded":
+            succeeded.append(p)
+        elif p.status == "failed" and p.occurred_on <= cutoff:
+            failed.append(p)
+
+    def _recovered(f) -> bool:
+        sub = (f.meta or {}).get("subscription_id")
+        em = (f.email or "").strip().lower()
+        for ok in succeeded:
+            if ok.occurred_on <= f.occurred_on:
+                continue
+            if sub and (ok.meta or {}).get("subscription_id") == sub:
+                return True
+            if em and (ok.email or "").strip().lower() == em:
+                return True
+        return False
+
+    return float(sum(1 for f in failed if not _recovered(f)))
+
+
+@resolver("sb_renewal_dates_current")
+async def sb_renewal_dates_current(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                   group=None):
+    """Active members with a renewal date on the GHL membership field ÷ active members, as a percent.
+    Current week only. 'Verified' is the field being filled in — there is no second confirmation flag."""
+    from ..models import MetricRecord
+    from .forum import _pdate
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    if not await _ghl_live(s, tenant_id, business_id):
+        return UNAVAILABLE
+    members = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    if not members:
+        return UNAVAILABLE
+    ok = sum(1 for m in members if _pdate(((m.meta or {}).get("membership") or {}).get("renewal_date")))
+    return round(ok / len(members) * 100, 1)
 
 
 def _recent_weeks(today: dt.date, n: int = LOOKBACK_WEEKS) -> list[tuple[dt.date, dt.date]]:

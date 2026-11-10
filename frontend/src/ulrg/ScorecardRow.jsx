@@ -13,7 +13,24 @@ import {
 const bigNum = (v) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
   : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : v);
 
-export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle, onDrill, cumLabel }) {
+function fmtCell(r, v) {
+  if (v === null || v === undefined) return "—";
+  if (r.unit === "usd") {
+    const n = Math.round(v);
+    const sign = n < 0 ? "−" : "";
+    return `${sign}$${Math.abs(n).toLocaleString("en-US")}`;
+  }
+  if (r.unit === "pct" || r.type === "rate") return `${v % 1 ? Number(v).toFixed(1) : v}%`;
+  return bigNum(v);
+}
+
+const PROV = {
+  live: (r) => `${r.provenance_from || "Live"} today`,
+  hand: () => "Hand",
+  sync: () => "Needs sync",
+};
+
+export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle, onDrill, cumLabel, idsAfter = 3, dim = false }) {
   const cRaw = r.cumulative ? r.cumulative[wkey] : null;
   const c = cRaw && cRaw.attain != null ? cRaw : null;    // no scoreable goal → not a cumulative row
   const rate = r.type === "rate";
@@ -40,7 +57,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
 
   return (
     <Fragment>
-      <div className="l10-row" style={{ display: "flex", height: ROW_H, borderBottom: `1px solid ${T.lineSoft}` }}>
+      <div className="l10-row" style={{ display: "flex", height: r.provenance ? ROW_H + 10 : ROW_H, borderBottom: `1px solid ${T.lineSoft}`, opacity: dim ? 0.55 : 1 }}>
         {/* ------------------------------- rail ------------------------------ */}
         <div
           className="l10-rail l10-cell"
@@ -56,15 +73,30 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             <Chevron open={expanded} />
           </button>
 
-          <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
-            <span title={r.measurable} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {r.measurable}
-            </span>
-            {r.cumulative_goal != null && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
-            )}
-            {r.streak >= 3 && (
-              <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
+          <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 3, paddingRight: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span title={r.measurable} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {r.measurable}
+              </span>
+              {r.cumulative_goal != null && (
+                <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
+              )}
+              {r.streak >= idsAfter && (
+                <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
+              )}
+            </div>
+            {(r.provenance || r.target_by || (r.cadence && r.cadence !== "weekly") || r.check) && (
+              <div style={{ display: "flex", gap: 4, minWidth: 0, overflow: "hidden" }}>
+                {r.provenance && (
+                  <span title={r.provenance_detail || ""} style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: T.inkSoft, border: `1px solid ${T.line}`, borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }}>
+                    {(PROV[r.provenance] || PROV.hand)(r)}
+                  </span>
+                )}
+                {r.cadence === "monthly" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>Monthly</span>}
+                {r.cadence === "event" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>{r.cadence_label || "Per event"}</span>}
+                {r.target_by && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.target_by}</span>}
+                {r.check && <span title={r.check} style={{ fontSize: 9, fontWeight: 600, color: T.warn, whiteSpace: "nowrap" }}>Check</span>}
+              </div>
             )}
           </div>
 
@@ -80,11 +112,14 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           </div>
 
           <div style={{ width: W_GOAL, flexShrink: 0, textAlign: "right", paddingRight: 10 }}>
-            <span style={{ fontSize: 12, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
-            <span style={{ ...NUM, fontSize: 13, fontWeight: 500, color: T.inkSoft }}>
-              {r.goal}
-              {rate ? "%" : ""}
-            </span>
+            {(r.goal == null || (r.goal === 0 && r.scored === false)) ? (
+              <span title="No goal yet" style={{ fontSize: 10, fontWeight: 500, color: T.faint, border: `1px dashed ${T.faint}`, borderRadius: 4, padding: "1px 4px" }}>Not set</span>
+            ) : (
+              <>
+                <span style={{ fontSize: 12, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
+                <span style={{ ...NUM, fontSize: 13, fontWeight: 500, color: T.inkSoft }}>{fmtCell(r, r.goal)}</span>
+              </>
+            )}
           </div>
 
           <Pip pct={pct} />
@@ -101,7 +136,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             {c ? (
               <>
                 <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
-                  <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink }}>{rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
+                  <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink }}>{r.unit === "usd" ? fmtCell(r, c.actual) : rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
                   <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
                 </div>
                 <PaceBar pct={pct} />
@@ -128,7 +163,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
         {weeksDesc.map((w, i) => {
           const v = vals[i];
           const wgoal = goals[i] == null ? r.goal : goals[i];
-          const tn = tone(v, wgoal, r.direction);
+          const tn = tone(v, wgoal, r.direction, wgoal === 0 && r.scored);
           const inWin = counted.has(w.n);
           const isNull = v === null || v === undefined;
           return (
@@ -143,7 +178,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               }}
             >
               <span style={{ ...NUM, fontSize: 13, fontWeight: isNull ? 400 : 600, color: tn.fg, letterSpacing: "-0.01em" }}>
-                {isNull ? "—" : rate ? `${v}%` : bigNum(v)}
+                {isNull ? "—" : fmtCell(r, v)}
               </span>
             </div>
           );
@@ -156,14 +191,18 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
           <div style={{ position: "sticky", left: 0, zIndex: 4, width: RAIL + (cumOpen ? CUM : 0), flexShrink: 0, padding: "13px 18px", background: T.shell, borderRight: `1px solid ${T.line}` }}>
             <div style={{ ...LBL, marginBottom: 5 }}>{r.measurable} · detail</div>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
+              {r.note && <div style={{ marginBottom: 6 }}>{r.note}</div>}
+              {r.why && <div style={{ marginBottom: 6 }}>{r.why}</div>}
+              {r.provenance_detail && <div style={{ marginBottom: 6 }}>{r.provenance_detail}</div>}
+              {r.check && <div style={{ marginBottom: 6, color: T.warn }}>{r.check}</div>}
               {nonNull.length ? (
                 <>
-                  Best <strong style={NUM}>{Math.max(...nonNull)}{rate ? "%" : ""}</strong> · worst{" "}
-                  <strong style={NUM}>{Math.min(...nonNull)}{rate ? "%" : ""}</strong> ·{" "}
-                  <strong style={NUM}>{nonNull.length}</strong> week{nonNull.length === 1 ? "" : "s"} with data · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials}.
+                  Best <strong style={NUM}>{fmtCell(r, Math.max(...nonNull))}</strong> · worst{" "}
+                  <strong style={NUM}>{fmtCell(r, Math.min(...nonNull))}</strong> ·{" "}
+                  <strong style={NUM}>{nonNull.length}</strong> week{nonNull.length === 1 ? "" : "s"} with data · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials || (r.owner && r.owner.name) || "—"}.
                 </>
               ) : (
-                <>No data yet · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials}.</>
+                <>No data yet · {r.auto ? "auto-sourced" : "hand-entered"}, owned by {initials || (r.owner && r.owner.name) || "—"}.</>
               )}
             </div>
           </div>
