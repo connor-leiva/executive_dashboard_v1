@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scorecard grid</title>
+    <style>
+      :root { --font-text: "Segoe UI", sans-serif; --font-data: "Segoe UI", sans-serif; --font-display: "Segoe UI", sans-serif; }
+      body { margin: 0; background: #f6f1e8; }
+      .shell { display: flex; min-height: 100vh; }
+      .side { width: 240px; flex-shrink: 0; background: #12291f; }
+      main { flex: 1; min-width: 0; padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="side"></aside>
+      <main><div id="root"></div></main>
+    </div>
+    <script type="module" src="./main.jsx"></script>
+  </body>
+</html>
