@@ -176,8 +176,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
               onClick={onDrill ? () => cellDrill(i) : undefined}
               title={money && !isNull ? full : undefined}
               style={{
-                width: WK, flexShrink: 0, display: "flex", alignItems: "center",
-                justifyContent: money ? "flex-end" : "center", paddingRight: money ? 4 : 0,
+                width: WK, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 background: tn.bg, borderLeft: `1px solid ${T.paper}`, opacity: inWin ? 1 : 0.3, transition: "opacity 260ms ease",
                 cursor: onDrill ? "pointer" : "default",
               }}
