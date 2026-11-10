@@ -3094,6 +3094,22 @@ class AdWrite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AdDigest(Base):
+    """The morning note for one account on one date. Email is a copy of this row."""
+    __tablename__ = "ad_digest"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    ad_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_account.id", ondelete="CASCADE"), index=True)
+    digest_on: Mapped[date] = mapped_column(Date, index=True)
+    body: Mapped[dict] = mapped_column(JSONType, default=dict)
+    emailed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("ad_account_id", "digest_on", name="uq_ad_digest_day"),
+    )
+
+
 class AdInsightDaily(Base):
     """One day of delivery for one object at one level.
 
