@@ -53,7 +53,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
 
   return (
     <Fragment>
-      <div className="l10-row" style={{ display: "flex", height: r.provenance ? ROW_H + 10 : ROW_H, borderBottom: `1px solid ${T.lineSoft}`, opacity: dim ? 0.55 : 1 }}>
+      <div className="l10-row" style={{ display: "flex", alignItems: "stretch", minHeight: ROW_H, borderBottom: `1px solid ${T.lineSoft}`, opacity: dim ? 0.55 : 1 }}>
         {/* ------------------------------- rail ------------------------------ */}
         <div
           className="l10-rail l10-cell"
@@ -69,28 +69,30 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             <Chevron open={expanded} />
           </button>
 
-          <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 3, paddingRight: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span title={titleCase(r.measurable)} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {titleCase(r.measurable)}
-              </span>
-              {r.cumulative_goal != null && (
-                <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
-              )}
-              {r.streak >= idsAfter && (
-                <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1.5px 4px" }}>IDS {r.streak}</span>
-              )}
-            </div>
-            {(r.provenance || r.target_by || (r.cadence && r.cadence !== "weekly") || r.check) && (
-              <div style={{ display: "flex", gap: 4, minWidth: 0, overflow: "hidden" }}>
+          <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 3, paddingRight: 8, paddingTop: 6, paddingBottom: 6 }}>
+            <span title={titleCase(r.measurable)} style={{
+              fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", lineHeight: 1.25,
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+              overflow: "hidden", whiteSpace: "normal", overflowWrap: "break-word",
+            }}>
+              {titleCase(r.measurable)}
+            </span>
+            {(r.provenance || r.cumulative_goal != null || r.streak >= idsAfter || r.target_by || (r.cadence && r.cadence !== "weekly") || r.check) && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
                 {r.provenance && (
                   <span title={r.provenance_detail || ""} style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: T.inkSoft, border: `1px solid ${T.line}`, borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }}>
                     {(PROV[r.provenance] || PROV.hand)(r)}
                   </span>
                 )}
+                {r.cumulative_goal != null && (
+                  <span style={{ ...NUM, fontSize: 10, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }}>{r.cumulative_goal}/QTR</span>
+                )}
+                {r.streak >= idsAfter && (
+                  <span style={{ ...NUM, fontSize: 10, fontWeight: 600, color: T.warn, background: T.warnBg, borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap" }}>IDS {r.streak}</span>
+                )}
                 {r.cadence === "monthly" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>Monthly</span>}
                 {r.cadence === "event" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>{titleCase(r.cadence_label || "Per Event")}</span>}
-                {r.target_by && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{titleCase(r.target_by)}</span>}
+                {r.target_by && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>{titleCase(r.target_by)}</span>}
                 {r.check && <span title={r.check} style={{ fontSize: 9, fontWeight: 600, color: T.warn, whiteSpace: "nowrap" }}>Check</span>}
               </div>
             )}
@@ -127,26 +129,28 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
             className="l10-cell"
             onClick={onDrill ? cumDrill : undefined}
             title={onDrill ? "Click to see what's behind this" : undefined}
-            style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}`, cursor: onDrill ? "pointer" : "default" }}
+            style={{ width: CUM, flexShrink: 0, display: "flex", alignItems: "center", background: T.rail, borderRight: `1px solid ${T.line}`, cursor: onDrill ? "pointer" : "default" }}
           >
             {c ? (
               <>
-                <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "baseline", gap: 4 }}>
+                <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ ...NUM, fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{r.unit === "usd" ? fmtCell(r, c.actual) : rate ? `${c.actual.toFixed(dp)}%` : c.actual}</span>
-                  <span style={{ ...NUM, fontSize: 12, color: T.faint }}>{rate ? "avg" : `of ${c.target}`}</span>
+                  <span style={{ ...NUM, fontSize: 12, color: T.faint, whiteSpace: "nowrap" }}>{rate ? "avg" : `of ${c.target}`}</span>
                 </div>
                 <PaceBar pct={pct} />
-                <div style={{ width: C_TREND, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 12, color: t == null || Math.abs(t) < 3 ? T.faint : t > 0 ? T.good : T.bad }}>
+                <div style={{ width: C_TREND, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", ...NUM, fontSize: 12, color: t == null || Math.abs(t) < 3 ? T.faint : t > 0 ? T.good : T.bad, whiteSpace: "nowrap" }}>
                   {t == null || Math.abs(t) < 3 ? "—" : `${t > 0 ? "↑" : "↓"}${Math.abs(Math.round(t))}`}
                 </div>
-                <div style={{ width: C_GAP, flexShrink: 0, textAlign: "right", ...NUM, fontSize: 13, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad }}>
+                <div style={{ width: C_GAP, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 4, ...NUM, fontSize: 13, fontWeight: 500, color: c.gap >= 0 ? T.good : T.bad, whiteSpace: "nowrap" }}>
                   {rate ? `${sgn(c.gap, dp)}` : sgn(c.gap)}
                 </div>
-                <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, display: "flex", alignItems: "center", gap: 7 }}>
-                  <span style={{ ...NUM, fontSize: 12, fontWeight: 500, color: (c.verdict !== "ahead" && c.required != null) ? T.inkSoft : T.faint }}>
+                <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 12, paddingRight: 8, display: "flex", alignItems: "center", gap: 8, boxSizing: "border-box" }}>
+                  <span style={{ ...NUM, fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", color: (c.verdict !== "ahead" && c.required != null) ? T.inkSoft : T.faint }}>
                     {c.verdict !== "ahead" && c.required != null ? (rate ? `${c.required.toFixed(dp === 2 ? 2 : 0)}% avg` : `${c.required.toFixed(0)}/wk`) : "—"}
                   </span>
-                  <StatusTag verdict={c.verdict} />
+                  <span style={{ marginLeft: "auto", flexShrink: 0, display: "flex" }}>
+                    <StatusTag verdict={c.verdict} />
+                  </span>
                 </div>
               </>
             ) : (

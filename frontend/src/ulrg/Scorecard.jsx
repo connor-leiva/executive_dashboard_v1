@@ -48,8 +48,10 @@ function weekStub(iso, closed) {
   return { n: isoWeek(iso), start: iso, end: addDays(iso, 6), label: `${Number(m)}/${day}`, complete: closed };
 }
 
-export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
-  const { data, reload } = useScorecard(13, shareToken, scope);
+export default function Scorecard({ role, shareToken = null, scope = "ulrg", fixture = null }) {
+  const { data: live, reload: liveReload } = useScorecard(13, shareToken, scope);
+  const data = fixture || live;
+  const reload = fixture ? () => {} : liveReload;
   const isAdmin = !shareToken && (role === "owner" || role === "admin");   // no Share/Settings inside an embed
   const canEditValues = !shareToken;   // hand-entered KPIs are self-serve: anyone with scorecard access edits them (server enforces the same; auto rows stay admin-only)
 
@@ -227,11 +229,11 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
         ))}
       </div>
 
-      <div className="l10" style={{ fontFamily: FONT, color: T.ink }}>
+      <div className="l10" style={{ fontFamily: FONT, color: T.ink, minWidth: 0, maxWidth: "100%" }}>
         <style>{`
           .l10, .l10 *, .l10 *::before, .l10 *::after { box-sizing: border-box; }
           .l10-scroll{
-            overflow-x:auto; overflow-y:hidden;
+            overflow-x:auto; overflow-y:hidden; width:100%; min-width:0;
             scroll-snap-type:x proximity; scroll-padding-left:${RAIL}px;
             overscroll-behavior-x:contain; scrollbar-width:thin; scrollbar-color:#DCD5C7 transparent;
           }
@@ -251,7 +253,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
           @media (prefers-reduced-motion: reduce){ .l10 *, .l10 *::after{ transition-duration:1ms !important; animation-duration:1ms !important; } }
         `}</style>
 
-        <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, boxShadow: "0 1px 2px rgba(20,35,28,0.04), 0 8px 24px -12px rgba(20,35,28,0.10)", overflow: "hidden" }}>
+        <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, boxShadow: "0 1px 2px rgba(20,35,28,0.04), 0 8px 24px -12px rgba(20,35,28,0.10)", overflow: "hidden", minWidth: 0, maxWidth: "100%" }}>
           {/* --------------------------- title bar --------------------------- */}
           {enterprise && lens === "l10" && <EscalationStrip escalations={data.escalations || []} checks={data.checks || []} idsAfter={data.ids_after || 2} />}
           {enterprise && lens === "departments" && (
@@ -274,12 +276,12 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
               ))}
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, rowGap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, flex: "0 0 auto" }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap", flexShrink: 0 }}>
                 {enterprise ? (lens === "l10" ? "L10 Scorecard" : lens === "departments" ? titleCase((depts.find((d) => d.key === deptKey) || {}).name) || "Departments" : lens === "people" ? "People" : "Elsewhere") : "L10 Scorecard"}
               </h2>
-              <span style={{ fontSize: 13, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ fontSize: 13, color: T.muted, whiteSpace: "nowrap" }}>
                 {enterprise && lens === "departments" && (depts.find((d) => d.key === deptKey) || {}).reviewed
                   ? (depts.find((d) => d.key === deptKey) || {}).reviewed
                   : `Week ${liveN} is newest. Select any measurable to open its detail.`}
@@ -296,7 +298,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
                 {sprints.length ? (
                   <>
@@ -346,7 +348,7 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
               </span>
             </div>
 
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
                 <input type="checkbox" checked={onlyOff} onChange={(e) => setOnlyOff(e.target.checked)} style={{ width: 14, height: 14, accentColor: T.forest, cursor: "pointer" }} />
                 Only What Is Off
@@ -489,11 +491,11 @@ function ColumnHeaders({ cumOpen, onToggleCum, weeksDesc, liveStart }) {
 
       {cumOpen && (
         <div style={{ width: CUM, flexShrink: 0, height: "100%", display: "flex", alignItems: "center", background: T.shell, borderRight: `1px solid ${T.line}` }}>
-          <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, ...LBL }}>Actual</div>
-          <div style={{ width: C_PACE, flexShrink: 0, ...LBL }}>Pace to Goal</div>
-          <div style={{ width: C_TREND, flexShrink: 0, ...LBL, textAlign: "right" }}>Trend</div>
-          <div style={{ width: C_GAP, flexShrink: 0, ...LBL, textAlign: "right" }}>Gap</div>
-          <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 14, ...LBL }}>To Recover</div>
+          <div style={{ width: C_ACTUAL, flexShrink: 0, paddingLeft: 14, ...LBL, whiteSpace: "nowrap" }}>Actual</div>
+          <div style={{ width: C_PACE, flexShrink: 0, ...LBL, whiteSpace: "nowrap" }}>Pace to Goal</div>
+          <div style={{ width: C_TREND, flexShrink: 0, ...LBL, textAlign: "right", whiteSpace: "nowrap" }}>Trend</div>
+          <div style={{ width: C_GAP, flexShrink: 0, ...LBL, textAlign: "right", whiteSpace: "nowrap" }}>Gap</div>
+          <div style={{ width: C_REC, flexShrink: 0, paddingLeft: 12, ...LBL, whiteSpace: "nowrap" }}>To Recover</div>
         </div>
       )}
 

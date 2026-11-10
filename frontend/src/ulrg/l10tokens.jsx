@@ -43,12 +43,13 @@ export const W_GOAL = 56;
 export const W_PIP = 14;
 export const RAIL = W_IDX + W_NAME + W_OWN + W_GOAL + W_PIP; // 338
 
-export const C_ACTUAL = 88;
-export const C_PACE = 130;
-export const C_TREND = 48;
-export const C_GAP = 56;
-export const C_REC = 122;
-export const CUM = C_ACTUAL + C_PACE + C_TREND + C_GAP + C_REC; // 444
+export const C_ACTUAL = 104;
+export const C_PACE = 136;
+export const C_TREND = 52;
+export const C_GAP = 64;
+// Wide enough for "2.27% avg" and the Reset / Ahead tag on one line.
+export const C_REC = 176;
+export const CUM = C_ACTUAL + C_PACE + C_TREND + C_GAP + C_REC;
 
 export const WK = 58;
 export const ROW_H = 52;
@@ -114,7 +115,7 @@ export function Pip({ pct }) {
 export function PaceBar({ pct }) {
   const kind = paceState(pct);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, width: C_PACE, flexShrink: 0, paddingRight: 14 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, width: C_PACE, flexShrink: 0, paddingRight: 10, boxSizing: "border-box" }}>
       <div style={{ position: "relative", flex: 1, height: 6, borderRadius: 3, background: T.lineSoft, overflow: "hidden" }}>
         <div
           style={{
