@@ -2985,6 +2985,8 @@ class AdAccount(Base):
     # The URL-parameter template every ad is expected to carry. The readiness check compares
     # ad.url_tags against it. Ad-level revenue is impossible without utm_content={{ad.id}}.
     utm_template: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    # Planned weekly spend by brand group label. Null means no plan has been entered.
+    weekly_budgets: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     backfill_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -143,6 +143,21 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
     return out
 
 
+def _utm_meta(cvals: dict, utm_ids: dict) -> dict:
+    """The five contact-UTM values, keyed the way attribution reads them.
+
+    `_utm_field_ids` finds content and term. Callers used to keep only source, medium and
+    campaign, so utm_content never reached bc_shift_reg and nightly attribution wrote nothing."""
+    raw = {k: _clean_str((cvals or {}).get(vid)) for k, vid in (utm_ids or {}).items()}
+    return {
+        "utm_source": raw.get("source"),
+        "utm_medium": raw.get("medium"),
+        "utm_campaign": raw.get("campaign"),
+        "utm_content": raw.get("content"),
+        "utm_term": raw.get("term"),
+    }
+
+
 def _utm_field_ids(defs: list[dict]) -> dict:
     """Map {source, medium, campaign, content, term} → GHL custom-field id — the contact-UTM
     fields ('[Paid Events] Contact UTM' folder) used to attribute Shift registrants to a channel."""
@@ -586,8 +601,12 @@ def forum_opp_signals(o: dict) -> dict:
                 url = block.get("pageUrl") or block.get("url")
                 if url:
                     break
-    return {"opp_source": source or None, "tags": seen[:24],
-            "page_url": (str(url)[:400] if url else None)}
+    out = {"opp_source": source or None, "tags": seen[:24],
+           "page_url": (str(url)[:400] if url else None)}
+    for key in ("utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"):
+        if meta.get(key):
+            out[key] = meta.get(key)
+    return out
 
 
 # Guest SEATS on the Forum sales pipeline (HighLevel, Nov 10 2026). Opt-In is not a seat.
@@ -834,9 +853,11 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     contacts = await ghl.get_contacts(token, location_id)
     # Map the location's custom fields once, then read each contact's membership detail
     # (member type / renewal / enrollment / cost / plan / brokerage / Stripe account).
-    field_ids = {}
+    field_ids, utm_ids = {}, {}
     try:
-        field_ids = _membership_field_ids(await ghl.get_custom_fields(token, location_id), cfg)
+        defs = await ghl.get_custom_fields(token, location_id)
+        field_ids = _membership_field_ids(defs, cfg)
+        utm_ids = _utm_field_ids(defs)
     except Exception as e:  # noqa: BLE001 — custom fields optional; never fail the sync
         print(f"[ghl] custom fields skipped: {e}", flush=True)
     if field_ids:
@@ -855,10 +876,13 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
     inactive_vocab = tuple(str(x).lower() for x in
                            (cfg.get("inactive_statuses") or _INACTIVE_MEMBER_STATUS))
     members, regs = [], []
+    utm_by_contact = {}
     n_admin = n_inactive = 0
     for c in contacts:
         tset = set(ghl.contact_tags(c))
         cid = str(c.get("id"))
+        if utm_ids:
+            utm_by_contact[cid] = _utm_meta(ghl.contact_custom_values(c), utm_ids)
         base = dict(tenant_id=tenant_id, business_id=biz, source="ghl",
                     external_id=cid, name=ghl.contact_name(c)[:200],
                     email=(c.get("email") or None),
@@ -929,6 +953,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                                    "meta": {"stage": stage, "stage_id": o.get("pipelineStageId"),
                                             "stage_position": stage_pos.get(o.get("pipelineStageId"), 99),
                                             "last_stage_change_at": o.get("lastStageChangeAt"),
+                                            **(utm_by_contact.get(cid) or {}),
                                             **forum_opp_signals(o)}})
         # Stage-change events for the Spring B scorecard, read against the PRIOR 'recruiting'
         # snapshot — so this must run before that snapshot is replaced just below. Isolated: a
@@ -1285,9 +1310,13 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
                          "meta": {"event_tag": event_tag, "guest": not is_member, "contact_id": cid}})
         matched = (tset & shift_tags) if shift_tags else set()
         if matched:
-            utm = {k: _clean_str(cvals.get(vid)) for k, vid in utm_ids.items()}
+            utm = _utm_meta(cvals, utm_ids)
             is_comp = any("comp" in t for t in matched)
-            channel = classify_shift_source(utm, is_comp, campaign_match)
+            channel = classify_shift_source(
+                {"source": utm.get("utm_source"), "medium": utm.get("utm_medium"),
+                 "campaign": utm.get("utm_campaign"), "content": utm.get("utm_content"),
+                 "term": utm.get("utm_term")},
+                is_comp, campaign_match)
             # THE COHORT DAY. Every bc_shift_reg row was written undated until now, which
             # meant a registration had no date, an identity had no cohort, and the ads module's
             # AdAttribution.first_seen_on had no source at all - measured at 0 of 1416 by
@@ -1307,9 +1336,7 @@ async def sync_becollective_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: In
             shift_regs.append({**base, "kind": "bc_shift_reg", "status": "registered",
                                "occurred_on": reg_day,
                                "meta": {"shift_tags": sorted(matched), "channel": channel,
-                                        "utm_source": utm.get("source"), "utm_medium": utm.get("medium"),
-                                        "utm_campaign": utm.get("campaign"),
-                                        "contact_id": cid, "is_member": is_member}})
+                                        **utm, "contact_id": cid, "is_member": is_member}})
     await _ghl_snapshot(s, tenant_id, biz, "bc_member", members)
     if shift_tags:      # only touch the Shift store when a launch defines the registrant tags
         await _ghl_snapshot(s, tenant_id, biz, "bc_shift_reg", shift_regs)

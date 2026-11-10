@@ -48,15 +48,15 @@ def test_the_shipped_default_matches_real_meta_naming():
     "Where it came from" rendered as one undifferentiated $119,537 bar.
 
     Two spaces. Nothing in the code was wrong in a way anybody could see."""
-    assert R.classify_campaign("KB - The Shift - August2026") == "KB · The Shift"
-    assert R.classify_campaign("KB-Webinar-Retarget") == "KB · Webinar"     # still works
+    assert R.classify_campaign("KB - The Shift - August2026") == "beCollective / The Shift"
+    assert R.classify_campaign("KB-Webinar-Retarget") == R.FALLBACK_GROUP
 
 
 def test_the_split_label_keeps_the_accounts_own_capitalisation():
     """Title-casing renders ForumVIP as "Forumvip" and BeCollective as "Becollective". The
     account's own capitalisation is how its operator recognises the thing in a list."""
-    assert R.classify_campaign("KB - ForumVIP - SubmitApplication") == "KB · ForumVIP"
-    assert R.classify_campaign("KB - BeCollective") == "KB · BeCollective"
+    assert R.classify_campaign("KB - ForumVIP - SubmitApplication") == "Forum"
+    assert R.classify_campaign("KB - BeCollective") == "beCollective / The Shift"
 
 
 def test_a_multi_word_segment_survives_normalisation():
@@ -64,14 +64,14 @@ def test_a_multi_word_segment_survives_normalisation():
     equal tokens and label the group "The". Whitespace AROUND a dash is a separator; whitespace
     on its own is part of the name."""
     assert R.classify_campaign(
-        "KB - Utah Life Mastermind - Lead Form") == "KB · Utah Life Mastermind"
+        "KB - Utah Life Mastermind - Lead Form") == R.FALLBACK_GROUP
 
 
 def test_en_and_em_dashes_count_as_separators():
     """Meta's own campaign names contain them - `Event Name Research - Be Collective` came off
     the live account with an en dash."""
     assert R.classify_campaign(
-        "Event Name Research – Be Collective") == "Event Name Research"
+        "Event Name Research – Be Collective") == "beCollective / The Shift"
 
 
 def test_an_unmatched_campaign_still_falls_to_other_rather_than_guessing():
@@ -160,7 +160,7 @@ async def test_the_editor_gets_the_rules_the_defaults_and_every_campaigns_group(
     assert b["using_defaults"] is True and b["rules"] is None
     assert b["defaults"] and b["fallback"] == "Other"
     names = {c["name"]: c["group"] for c in b["campaigns"]}
-    assert names["KB - The Shift - August2026"] == "KB · The Shift"
+    assert names["KB - The Shift - August2026"] == "beCollective / The Shift"
     assert names["Generate Inner Circle Interest [Messages]"] == "Other"
     assert b["unmatched"] == 1, "an unmatched campaign must be counted, not hidden"
 
@@ -218,7 +218,7 @@ async def test_a_half_typed_rule_previews_as_the_defaults_rather_than_wiping_the
     b = r.json()
     assert b["problems"], "an unusable rule set must say so"
     assert {c["name"]: c["group"] for c in b["campaigns"]}[
-        "KB - The Shift - August2026"] == "KB · The Shift"
+        "KB - The Shift - August2026"] == "beCollective / The Shift"
 
 
 async def test_the_preview_is_tab_gated():

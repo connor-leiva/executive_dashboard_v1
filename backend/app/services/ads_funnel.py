@@ -43,6 +43,27 @@ META_SOURCES = {k for k, v in SHIFT_SRC_CHANNEL.items() if v == "Meta"} or {
 MATCH_AD, MATCH_CAMPAIGN, MATCH_CHANNEL = "ad", "campaign", "channel"
 
 
+def registration_utm_coverage(metas: list[dict], ad_external_ids: set[str] | None = None) -> dict:
+    """How many registrations actually carry the UTM fields attribution can use.
+
+    The nightly line '0 written, 67 unattributed' is this gap: utm_content was read from
+    GHL and never stored, so an ad id on the contact could not match an ad we already had.
+    """
+    ads = ad_external_ids or set()
+    n = len(metas)
+    def _has(key):
+        return sum(1 for m in metas if str((m or {}).get(key) or "").strip())
+    matched = sum(1 for m in metas if str((m or {}).get("utm_content") or "").strip() in ads)
+    return {
+        "registrations": n,
+        "with_utm_campaign": _has("utm_campaign"),
+        "with_utm_content": _has("utm_content"),
+        "with_utm_term": _has("utm_term"),
+        "content_matches_ad": matched,
+        "content_unmatched": _has("utm_content") - matched,
+    }
+
+
 def _norm(s: str | None) -> str:
     return " ".join(str(s or "").lower().split())
 
@@ -182,7 +203,8 @@ async def sync_ad_attribution(s: AsyncSession, tenant_id) -> dict:
             continue
 
         utm = {"utm_source": meta.get("utm_source"), "utm_medium": meta.get("utm_medium"),
-               "utm_campaign": meta.get("utm_campaign"), "utm_content": meta.get("utm_content")}
+               "utm_campaign": meta.get("utm_campaign"), "utm_content": meta.get("utm_content"),
+               "utm_term": meta.get("utm_term")}
         match = resolve_match(utm, ads_by_ext, campaigns_by_name,
                               channel=(meta.get("channel") or None),
                               campaigns_by_ext=campaigns_by_ext)
@@ -198,6 +220,7 @@ async def sync_ad_attribution(s: AsyncSession, tenant_id) -> dict:
             ad_id=match["ad_id"],
             utm_source=meta.get("utm_source"), utm_medium=meta.get("utm_medium"),
             utm_campaign=meta.get("utm_campaign"), utm_content=meta.get("utm_content"),
+            utm_term=meta.get("utm_term"),
             channel=str(meta.get("channel") or "Meta")[:24],
             match_method=match["match_method"], confidence=match["confidence"],
             first_seen_on=day, last_seen_on=day)

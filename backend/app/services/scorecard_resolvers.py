@@ -1225,8 +1225,9 @@ async def sb_cost_per_qualified_lead(s, tenant_id, business_id, week_start: dt.d
     Campaign-level insights only — ad-level rows would double-count the same dollars.
     Blank when there are no leads (a cost per lead of zero is not a number). UNAVAILABLE
     when Meta has never synced."""
-    from ..models import AdAccount, AdInsightDaily, Integration
+    from ..models import AdAccount, AdCampaign, AdInsightDaily, Integration
     from .ads import cpl
+    from .ads_rules import classify_campaign, is_forum_group
     leads = await forum_vip_guests_spring(s, tenant_id, business_id, week_start, week_end, group)
     if leads is UNAVAILABLE:
         return UNAVAILABLE
@@ -1243,13 +1244,45 @@ async def sb_cost_per_qualified_lead(s, tenant_id, business_id, week_start: dt.d
         if any_row is None:
             return UNAVAILABLE
     ids = [a.id for a in use]
+    rules_by_account = {a.id: a.group_rules for a in use}
+    names = {c.id: (c.name, c.ad_account_id) for c in (await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == tenant_id, AdCampaign.ad_account_id.in_(ids)))).scalars()}
+    insights = (await s.execute(select(AdInsightDaily).where(
+        AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id.in_(ids),
+        AdInsightDaily.level == "campaign",
+        AdInsightDaily.occurred_on >= week_start, AdInsightDaily.occurred_on <= week_end))).scalars()
+    spend = 0.0
+    for row in insights:
+        name, acct_id = names.get(row.campaign_id, (None, row.ad_account_id))
+        if not name or not is_forum_group(classify_campaign(name, rules_by_account.get(acct_id))):
+            continue
+        spend += float(row.spend or 0)
+    if not leads:
+        return None
+    return cpl(spend, leads)
+
+
+@resolver("sb_ad_spend_vs_budget")
+async def sb_ad_spend_vs_budget(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                group=None):
+    """This week's Meta spend ÷ the planned weekly budget, as a percent.
+
+    The plan is the sum of the weekly budgets entered on the Ads tab. No plan means the
+    cell stays blank rather than reading as zero."""
+    from ..models import AdAccount, AdInsightDaily
+    accts = (await s.execute(select(AdAccount).where(
+        AdAccount.tenant_id == tenant_id, AdAccount.platform == "meta"))).scalars().all()
+    plan = sum(float(v) for a in accts for v in (a.weekly_budgets or {}).values() if v not in (None, ""))
+    if not plan:
+        return None
+    if not accts:
+        return UNAVAILABLE
+    ids = [a.id for a in accts]
     spend = await s.scalar(select(func.coalesce(func.sum(AdInsightDaily.spend), 0)).where(
         AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id.in_(ids),
         AdInsightDaily.level == "campaign",
         AdInsightDaily.occurred_on >= week_start, AdInsightDaily.occurred_on <= week_end))
-    if not leads:
-        return None
-    return cpl(spend, leads)
+    return round(float(spend or 0) / plan * 100, 1)
 
 
 def _week_holds_today(week_start: dt.date, week_end: dt.date, today: dt.date | None = None) -> bool:

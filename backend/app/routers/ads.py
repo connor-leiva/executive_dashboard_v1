@@ -145,8 +145,11 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
 
     campaigns = []
     for key, d in per.items():
+        camp = next((c for c in camps.values() if str(c.id) == d["id"]), None) if d["id"] else None
         campaigns.append({**d, "external_id": key,
                           "group": R.classify_campaign(d["name"], rules),
+                          "daily_budget": float(camp.daily_budget) if camp and camp.daily_budget is not None else None,
+                          "lifetime_budget": float(camp.lifetime_budget) if camp and camp.lifetime_budget is not None else None,
                           "ctr": A.ctr(d["link_clicks"], d["impressions"]),
                           "cpm": A.cpm(d["spend"], d["impressions"]),
                           "cpc": A.cpc(d["spend"], d["link_clicks"]),
@@ -154,6 +157,8 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
     campaigns.sort(key=lambda c: c["spend"], reverse=True)
 
     groups, unmatched = R.group_campaigns(campaigns, rules)
+    budgets = acct.weekly_budgets or {}
+    window_days = (e_day - s_day).days + 1
     spend, impressions = _sum("spend"), _sum("impressions")
     link_clicks, leads = _sum("inline_link_clicks"), _sum("leads")
 
@@ -203,13 +208,13 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         "campaigns_available": _pickable(all_rows, camps),
         "totals": totals, "bands": bands,
         "campaigns": campaigns,
-        "groups": [{"name": g, "campaigns": rs,
-                    "spend": sum(r["spend"] for r in rs),
-                    "link_clicks": sum(r["link_clicks"] for r in rs)}
+        "groups": [_group_payload(g, rs, budgets, window_days)
                    for g, rs in sorted(groups.items(), key=lambda kv: -sum(r["spend"] for r in kv[1]))],
+        "weekly_budgets": budgets,
         "unmatched_count": unmatched,
         "archetype": archetype,
-        "alerts": _alerts(totals, campaigns, unmatched, thresholds),
+        "alerts": _alerts(totals, campaigns, unmatched, thresholds)
+                  + await _fatigue_alerts(s, tenant_id, acct),
         # Phase 3 fills these. Present and explicitly empty so the frontend contract does not
         # change shape when the funnel lands.
         **_funnel_block,
@@ -260,6 +265,69 @@ def _pickable(all_rows: list, camps: dict) -> list[dict]:
         d = per.setdefault(str(c.id), {"id": str(c.id), "name": c.name, "spend": 0.0})
         d["spend"] += float(r.spend or 0)
     return sorted(per.values(), key=lambda c: -c["spend"])
+
+
+def _group_payload(name: str, rows: list[dict], budgets: dict, window_days: int) -> dict:
+    spend = sum(r["spend"] for r in rows)
+    weekly = budgets.get(name)
+    plan = None if weekly in (None, "") else float(weekly) * window_days / 7.0
+    return {
+        "name": name, "campaigns": rows, "spend": spend,
+        "link_clicks": sum(r["link_clicks"] for r in rows),
+        "weekly_budget": None if weekly in (None, "") else float(weekly),
+        "plan_spend": plan,
+        "pace": None if not plan else round(spend / plan * 100, 1),
+    }
+
+
+async def _fatigue_scan(s: AsyncSession, tenant_id, acct) -> dict:
+    """Per ad: CTR and frequency for the last 7 days against the 7 before."""
+    today = dt.date.today()
+    recent_start = today - dt.timedelta(days=6)
+    prior_start = recent_start - dt.timedelta(days=7)
+    rows = list((await s.execute(select(AdInsightDaily).where(
+        AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
+        AdInsightDaily.level == "ad",
+        AdInsightDaily.occurred_on >= prior_start, AdInsightDaily.occurred_on <= today))).scalars())
+    ads = {a.id: a for a in (await s.execute(select(Ad).where(
+        Ad.tenant_id == tenant_id, Ad.ad_account_id == acct.id))).scalars()}
+    buckets: dict = {}
+    for r in rows:
+        if r.ad_id is None:
+            continue
+        slot = "recent" if r.occurred_on >= recent_start else "prior"
+        buckets.setdefault(r.ad_id, {"recent": [], "prior": []})[slot].append(r)
+
+    def _ctr(rs):
+        return A.ctr(sum(x.inline_link_clicks or 0 for x in rs), sum(x.impressions or 0 for x in rs))
+
+    def _freq(rs):
+        vals = [float(x.frequency) for x in rs if x.frequency is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    out = {}
+    for ad_id, b in buckets.items():
+        ctr_r, ctr_p = _ctr(b["recent"]), _ctr(b["prior"])
+        freq_r, freq_p = _freq(b["recent"]), _freq(b["prior"])
+        out[ad_id] = {
+            "name": ads[ad_id].name if ads.get(ad_id) else "an ad",
+            "ctr_recent": ctr_r, "ctr_prior": ctr_p,
+            "frequency": freq_r, "frequency_prior": freq_p,
+            "fatigue": R.fatigue_signal(ctr_r, ctr_p, freq_r, freq_p),
+        }
+    return out
+
+
+async def _fatigue_alerts(s: AsyncSession, tenant_id, acct) -> list[dict]:
+    scan = await _fatigue_scan(s, tenant_id, acct)
+    flagged = [d["name"] for d in scan.values() if d["fatigue"]]
+    if not flagged:
+        return []
+    shown = ", ".join(flagged[:3])
+    extra = f" and {len(flagged) - 3} more" if len(flagged) > 3 else ""
+    return [{"tone": "warn", "metric": "fatigue",
+             "text": f"{len(flagged)} ad{'s' if len(flagged) != 1 else ''} "
+                     f"with rising frequency and falling CTR: {shown}{extra}"}]
 
 
 def _alerts(totals: dict, campaigns: list[dict], unmatched: int, thresholds) -> list[dict]:
@@ -317,15 +385,26 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
         d = agg.setdefault(a.id, {"id": str(a.id), "name": a.name, "headline": a.headline,
                                   "thumbnail_url": a.thumbnail_url, "spend": 0.0,
                                   "impressions": 0, "link_clicks": 0, "leads": 0,
+                                  "frequency": None, "_freqs": [],
                                   "url_tags": a.url_tags})
         d["spend"] += float(r.spend or 0)
         d["impressions"] += r.impressions or 0
         d["link_clicks"] += r.inline_link_clicks or 0
         d["leads"] += r.leads or 0
+        if r.frequency is not None:
+            d["_freqs"].append(float(r.frequency))
 
+    scan = await _fatigue_scan(s, user.tenant_id, acct)
     out = []
     for d in agg.values():
-        out.append({**d, "ctr": A.ctr(d["link_clicks"], d["impressions"]),
+        freqs = d.pop("_freqs", [])
+        freq = sum(freqs) / len(freqs) if freqs else None
+        flag = next((v for k, v in scan.items() if str(k) == d["id"]), None)
+        out.append({**d,
+                    "frequency": (flag or {}).get("frequency", freq),
+                    "ctr_prior": (flag or {}).get("ctr_prior"),
+                    "fatigue": bool((flag or {}).get("fatigue")),
+                    "ctr": A.ctr(d["link_clicks"], d["impressions"]),
                     "cpl": A.cpl(d["spend"], d["leads"])})
     key = {"spend": "spend", "ctr": "ctr", "closes": "spend", "revenue": "spend"}.get(sort, "spend")
     out.sort(key=lambda d: (d.get(key) is None, -(d.get(key) or 0)))
@@ -582,8 +661,24 @@ async def patch_account(account_id: str, body: dict,
         problems = R.validate_group_rules(body["group_rules"])
         if problems:
             raise HTTPException(400, "; ".join(problems))
+    if "weekly_budgets" in body and body["weekly_budgets"] is not None:
+        raw = body["weekly_budgets"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "weekly_budgets must be an object of brand → weekly dollars")
+        clean = {}
+        for key, val in raw.items():
+            if val in (None, ""):
+                continue
+            try:
+                num = float(val)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"Budget for {key} must be a number")
+            if num < 0:
+                raise HTTPException(400, "A weekly budget cannot be negative")
+            clean[str(key)[:80]] = num
+        body["weekly_budgets"] = clean
     for field in ("group_rules", "lead_actions", "thresholds", "funnel_override", "utm_template",
-                  "status", "timezone_name", "name"):
+                  "weekly_budgets", "status", "timezone_name", "name"):
         if field in body:
             setattr(acct, field, body[field])
     if "business_key" in body:

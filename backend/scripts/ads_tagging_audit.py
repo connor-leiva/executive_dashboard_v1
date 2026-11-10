@@ -154,6 +154,29 @@ def main() -> int:
         p("  for any other entity is absent here even when its ads are tagged perfectly. Read")
         p("  this as 'the tags that did survive the whole chain', not as a scoreboard.")
 
+        # ── 5. Coverage on the registrations themselves ────────────────────────────────
+        p("\n5. REGISTRATION UTM COVERAGE (what nightly attribution can actually see)")
+        p("-" * 78)
+        from app.services.ads_funnel import registration_utm_coverage
+        ad_ids = {r["external_id"] for r in _q(c, """
+            select external_id from ad where tenant_id = :t and external_id is not null
+        """, t=tid)}
+        for kind, label in (("bc_shift_reg", "Shift registrations"),
+                            ("recruiting", "Forum recruiting"),
+                            ("forum_stage_event", "Forum stage events")):
+            metas = [r["meta"] or {} for r in _q(c, """
+                select meta from metric_record
+                 where tenant_id = :t and source = 'ghl' and kind = :k
+            """, t=tid, k=kind)]
+            cov = registration_utm_coverage(metas, ad_ids)
+            p(f"  {label}: {cov['registrations']} rows · "
+              f"utm_campaign {cov['with_utm_campaign']} · "
+              f"utm_content {cov['with_utm_content']} · "
+              f"utm_term {cov['with_utm_term']} · "
+              f"content matches an ad {cov['content_matches_ad']}")
+        p("\n  A row with no utm_content cannot be written at ad grade. That is the")
+        p("  '0 written, N unattributed' line when the contact field was read and dropped.")
+
         p("\n" + "=" * 78)
         p("Read-only. Nothing was written.")
 

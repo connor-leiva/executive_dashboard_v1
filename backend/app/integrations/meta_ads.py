@@ -341,7 +341,7 @@ async def ping(token: str, account_id: str) -> dict:
 CAMPAIGN_FIELDS = ("campaign_id,campaign_name,spend,impressions,reach,clicks,inline_link_clicks,"
                    "frequency,actions,action_values,purchase_roas")
 AD_FIELDS = ("ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,"
-             "clicks,inline_link_clicks,actions,action_values")
+             "reach,frequency,clicks,inline_link_clicks,actions,action_values")
 
 
 async def insights(token: str, account_id: str, level: str,
