@@ -33,7 +33,7 @@ export default function PlanGates({ gates, canEdit, onChanged }) {
   return (
     <div style={{ marginTop: 18, background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, fontFamily: FONT, overflow: "hidden" }}>
       <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: T.ink }}>Plan gates</h3>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: T.ink }}>Plan Gates</h3>
         <span style={{ fontSize: 12, color: T.muted }}>
           {gates.filter((g) => g.status === "done").length} of {gates.length} done
           {gates.some((g) => g.status === "missed") ? ` · ${gates.filter((g) => g.status === "missed").length} missed` : ""}

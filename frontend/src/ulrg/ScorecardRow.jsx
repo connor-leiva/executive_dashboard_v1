@@ -2,7 +2,7 @@
    ascending and reversed ONLY here at render (Part 0.3). All arithmetic — cumulative / pace / gap /
    required / verdict / trend — is server-side; this renders r.cumulative[wkey]. */
 import { Fragment } from "react";
-import { sgn, fmtMoney } from "./scorecardMath.js";
+import { sgn, fmtMoney, titleCase } from "./scorecardMath.js";
 import {
   T, NUM, LBL, tone, Chevron, Pip, PaceBar, StatusTag,
   W_IDX, W_NAME, W_OWN, W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK, ROW_H,
@@ -23,7 +23,7 @@ function fmtCell(r, v, { compact = false } = {}) {
 const PROV = {
   live: (r) => `${r.provenance_from || "Live"} today`,
   hand: () => "Hand",
-  sync: () => "Needs sync",
+  sync: () => "Needs Sync",
 };
 
 export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cumOpen, expanded, onToggle, onDrill, cumLabel, idsAfter = 3, dim = false }) {
@@ -71,8 +71,8 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
 
           <div style={{ width: W_NAME, flexShrink: 0, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 3, paddingRight: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span title={r.measurable} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {r.measurable}
+              <span title={titleCase(r.measurable)} style={{ fontSize: 14, fontWeight: 500, color: T.ink, letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {titleCase(r.measurable)}
               </span>
               {r.cumulative_goal != null && (
                 <span style={{ ...NUM, flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.inkSoft, background: T.lineSoft, borderRadius: 3, padding: "1.5px 4px" }}>{r.cumulative_goal}/QTR</span>
@@ -89,8 +89,8 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
                   </span>
                 )}
                 {r.cadence === "monthly" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>Monthly</span>}
-                {r.cadence === "event" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>{r.cadence_label || "Per event"}</span>}
-                {r.target_by && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.target_by}</span>}
+                {r.cadence === "event" && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap" }}>{titleCase(r.cadence_label || "Per Event")}</span>}
+                {r.target_by && <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{titleCase(r.target_by)}</span>}
                 {r.check && <span title={r.check} style={{ fontSize: 9, fontWeight: 600, color: T.warn, whiteSpace: "nowrap" }}>Check</span>}
               </div>
             )}
@@ -109,7 +109,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
 
           <div style={{ width: W_GOAL, flexShrink: 0, textAlign: "right", paddingRight: 10 }}>
             {(r.goal == null || (r.goal === 0 && r.scored === false)) ? (
-              <span title="No goal yet" style={{ fontSize: 10, fontWeight: 500, color: T.faint, border: `1px dashed ${T.faint}`, borderRadius: 4, padding: "1px 4px" }}>Not set</span>
+              <span title="No goal yet" style={{ fontSize: 10, fontWeight: 500, color: T.faint, border: `1px dashed ${T.faint}`, borderRadius: 4, padding: "1px 4px" }}>Not Set</span>
             ) : (
               <>
                 <span style={{ fontSize: 12, color: T.faint, marginRight: 1 }}>{r.direction === "lte" ? "≤" : "≥"}</span>
@@ -150,7 +150,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
                 </div>
               </>
             ) : (
-              <div style={{ paddingLeft: 14, fontSize: 12, color: T.faint }}>not cumulative</div>
+              <div style={{ paddingLeft: 14, fontSize: 12, color: T.faint }}>Not Cumulative</div>
             )}
           </div>
         )}
@@ -190,7 +190,7 @@ export default function ScorecardRow({ r, initials, wkey, weeksDesc, counted, cu
       {expanded && (
         <div style={{ display: "flex", borderBottom: `1px solid ${T.line}`, background: T.shell }}>
           <div style={{ position: "sticky", left: 0, zIndex: 4, width: RAIL + (cumOpen ? CUM : 0), flexShrink: 0, padding: "13px 18px", background: T.shell, borderRight: `1px solid ${T.line}` }}>
-            <div style={{ ...LBL, marginBottom: 5 }}>{r.measurable} · detail</div>
+            <div style={{ ...LBL, marginBottom: 5 }}>{titleCase(r.measurable)} · Detail</div>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
               {r.note && <div style={{ marginBottom: 6 }}>{r.note}</div>}
               {r.why && <div style={{ marginBottom: 6 }}>{r.why}</div>}

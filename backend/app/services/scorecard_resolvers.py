@@ -434,7 +434,7 @@ async def _cpl_drill(s, tenant_id, business_id, week_start, week_end, group, lim
         records.append(_drill_row(key, info["name"], week_start,
                                   "Meta campaign spend", side="Meta", sale_price=round(info["spend"], 2)))
     for lead in lead_rows[:limit]:
-        records.append({**lead, "side": "Lead", "detail": lead.get("detail") or "Qualified guest lead"})
+        records.append({**lead, "side": "Lead", "detail": lead.get("detail") or "Qualified Guest Lead"})
     n = 0 if leads in (None, UNAVAILABLE) else int(leads)
     if leads is UNAVAILABLE and not records:
         summary = "Meta or GHL hasn't synced, so cost per lead can't be listed."
