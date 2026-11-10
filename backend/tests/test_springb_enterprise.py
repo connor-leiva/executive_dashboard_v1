@@ -71,7 +71,7 @@ async def test_seed_is_additive_and_covers_the_fifty_two(board):
         assert slugs == set(CORE_SLUGS)
         vip = next(m for m in rows if m.slug == "vip")
         assert vip.name == "VIP guests added"
-        assert vip.resolver_key == "forum_vip_guests_sisu"
+        assert vip.resolver_key == "forum_vip_guests_seats"
         assert vip.goal == Decimal("7")
         assert vip.tier == "l10"
         appt = next(m for m in rows if m.slug == "apptset")

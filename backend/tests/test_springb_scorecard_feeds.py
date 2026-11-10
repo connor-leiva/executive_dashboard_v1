@@ -125,11 +125,15 @@ async def test_stage_changes_are_group_entries(forum_env):
         ]
         n = await S._record_forum_stage_changes(s, e["tid"], e["bid"], now_opps, TZ)
         await s.commit()
-        assert n == 2
+        # moved + fresh are group entries; within (Opt-In → Confirmed) is a seat, not a second group entry
+        assert n == 3
         evs = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == e["tid"], MetricRecord.kind == "forum_stage_event"))).scalars().all()
-        assert sorted(ev.meta["opp_id"] for ev in evs) == ["fresh", "moved"]
-        assert all(ev.segment == "vip_guest" and ev.occurred_on == WED for ev in evs)
+        assert sorted(ev.meta["opp_id"] for ev in evs if ev.segment != "vip_guest_seat") == ["fresh", "moved"]
+        seat = [ev for ev in evs if ev.segment == "vip_guest_seat"]
+        assert [ev.meta["opp_id"] for ev in seat] == ["within"]
+        assert all(ev.occurred_on == WED for ev in evs)
+        assert all(ev.segment == "vip_guest" for ev in evs if ev.segment != "vip_guest_seat")
         assert next(ev for ev in evs if ev.meta["opp_id"] == "fresh").meta["opp_source"] == "Member Referral"
         marks = (await s.execute(select(MetricRecord).where(
             MetricRecord.tenant_id == e["tid"], MetricRecord.kind == "forum_stage_tracking"))).scalars().all()

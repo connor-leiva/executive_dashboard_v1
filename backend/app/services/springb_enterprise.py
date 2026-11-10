@@ -40,7 +40,7 @@ _LEGACY_CUM = {
     "vip": (24,), "members": (8,), "apptset": (24,), "apptmet": (20,), "referrals": (13,),
 }
 # Resolvers the old board already set, which this catalog replaces on purpose.
-_LEGACY_RESOLVER = {"vip": {"forum_vip_guests_added"}}
+_LEGACY_RESOLVER = {"vip": {"forum_vip_guests_added", "forum_vip_guests_sisu"}}
 # These two stay hand-entered even on a re-run. Auto-counting the calendars writes a real zero.
 _FORCE_HAND = {"apptset", "apptmet"}
 
@@ -87,19 +87,19 @@ GROUPS = [
           detail="Counts a guest once, on entering the VIP Guest stage group, when opportunity.source is VIP Page, forummastermind.com/vip, or forummastermind.com/guest-application. A blank source falls through to the attribution URL (/vip or /guest-application). Sisu sources are Justin’s row. A guest with no source, no Sisu tag and no URL is in neither count.",
           check="Four of the last 19 VIP opportunities had an empty source. Those stay out of both rows until a source, the Sisu tag, or an attribution URL is on the opportunity."),
         M("cpl", "Cost per qualified lead", **_L10, owner=_SB, direction="lte", type="snapshot", unit="usd",
-          provenance="hand",
-          note="Paid spend (ads, direct mail, agency fees) ÷ qualified leads.",
+          resolver="sb_cost_per_qualified_lead", provenance="live", provenance_from="Meta", source="meta",
+          note="Meta campaign spend ÷ qualified guest leads that week.",
           why="Shows whether the leads are working or just bought.",
-          detail="Meta spend is in the Ads module, but mail and agency fees are not, and a lead still needs the qualified rule. Enter the week’s cost by hand."),
+          detail="All marketing is digital. Spend is campaign-level Meta insights (account act_587749862890426). Leads are the qualified-guest-lead row. Blank when there are no leads."),
     ], owner_name="Spring"),
     _g("sb_l10_enroll", "Enrollment", "l10", 20, [
         M("vip", "VIP guests added", **_L10, owner=_J, goal=7, target_by="75 by 1/18",
-          resolver="forum_vip_guests_sisu", provenance="live", provenance_from="GHL", source="ghl",
+          resolver="forum_vip_guests_seats", provenance="live", provenance_from="GHL", source="ghl",
           move_from=("forum", "VIP Guests Added"),
-          note="Sisu-sourced guests entering the VIP Guest stage group.",
+          note="Leads who took a guest seat, every source.",
           why="The next step in the funnel. A miss here shows up at Dallas too late to fix.",
-          detail="Counts a guest once, on entering the VIP Guest group, when opportunity.source is Sisu or Sisu Private Mastermind. A blank source falls back to the tag “forum vip guest sisu nov 2026” (or any tag with both vip and sisu), then to an attribution URL containing /sisu. Spring’s page sources are Qualified guest leads, not this row.",
-          check="Opt-In and Confirmed are the same stage group, so a guest is not counted twice. Assigned-to does not separate Spring from Justin — source does. Empty-source guests are in neither row."),
+          detail="A seat is VIP Guest: Confirmed, Dallas VIP guest confirmed, or Attended only if they never sat in Confirmed. Opt-In stays on Qualified guest leads. The same person can be both. History before this deploy uses lastStageChangeAt for people still in Confirmed, so anyone who already left that stage is missing.",
+          check="GHL search has no stage history. The backfill undercounts guests who already moved on from Confirmed."),
         M("members", "Members added", **_L10, owner=_J, target_by="20 by 12/31",
           resolver="forum_members_added", provenance="live", provenance_from="GHL", source="ghl",
           move_from=("forum", "Members Added"),
@@ -119,10 +119,10 @@ GROUPS = [
           why="The earliest churn warning, and Sarah’s team can act on it the same week.",
           detail="No Zoom attendance feed. Enter the red count by hand from the Zoom report until one exists."),
         M("renewals", "60-day renewals confirmed", **_L10, owner=_SO, type="rate", unit="pct",
-          provenance="sync",
-          note="Members renewing in the next 60 days whose renewal is confirmed ÷ all members due.",
+          resolver="sb_renewals_confirmed", provenance="live", provenance_from="GHL", source="ghl",
+          note="Members due in the next 60 days whose Renewal Status is Confirmed ÷ all due.",
           why="Protects contracted revenue. A save is worth as much as a sale.",
-          detail="The renewal book is in GHL. “Confirmed” is not stored, so this stays hand-entered."),
+          detail="Renewal Status on the GHL contact (Confirmed / Not yet / Not renewing) over the renewal date already synced. Not yet, Not renewing, and blank stay in the denominator. Current week only."),
     ], owner_name="Sarah"),
     _g("sb_l10_finance", "Integrator & Finance", "l10", 40, [
         M("active", "Active paying Forum members", **_L10, owner=_CL, type="snapshot",
@@ -134,20 +134,21 @@ GROUPS = [
           check="Comped members are included until a comp rule is named. The Oct 29 packet’s 43 excluded them."),
         M("cash", "Cash collected vs. due", **_L10, owner=_CL, goal=100, type="rate", unit="pct",
           resolver="sb_cash_collected_rate", provenance="live", provenance_from="GHL", source="ghl",
-          note="Succeeded GHL payments ÷ attempts (succeeded + failed) this week.",
+          note="Succeeded Forum dollars ÷ succeeded plus failed Forum dollars this week.",
           why="The collections lever. Failed payments roll up into it.",
-          detail="A percent. A week with no attempts stays blank rather than 0% or 100%."),
+          detail="The Forum tab’s stitched payments: imported GHL copies dropped, legacy Stripe merged in. Dollar-weighted. A week with no attempts stays blank."),
         M("netcash", "Net cash", **_L10, owner=_CL, unit="usd", resolver="sb_net_cash",
           provenance="live", provenance_from="Books", source="qbo",
-          note="Cash in minus cash out for the week, from QuickBooks via Books.",
+          note="Cash in minus cash out for the week across The Forum, beCollective, and SB Coaching.",
           why="The weekly profit signal while the year sits at a loss.",
-          detail="Deposits, sales receipts and payments in. Purchases, expenses and bill payments out. Transfers and journal entries are skipped."),
+          detail="Deposits, sales receipts and payments in. Purchases, expenses and bill payments out. Transfers and journal entries are skipped. The brokerage and the JV are not included."),
     ], owner_name="Connor"),
     _g("sb_l10_break", "Spring Break", "l10", 50, [
-        M("tickets", "Spring Break tickets sold", **_L10, owner=_TD, provenance="sync",
-          note="Cumulative tickets by type. On for the Black Friday push.",
+        M("tickets", "Spring Break tickets sold", **_L10, owner=_TD, type="snapshot",
+          resolver="sb_spring_break_tickets", provenance="live", provenance_from="Stripe", source="stripe",
+          note="Cumulative succeeded Spring Break tickets. Off until Nov 27.",
           why="Spring asked for it on Nov 3. On for Black Friday, off in December, back on in January.",
-          detail="Payments sync, but Spring Break is filtered out of Forum revenue and there is no product-name filter that is safe to count. Enter by hand while it is in season."),
+          detail="Succeeded charges on the legacy Stripe account whose product name says Spring Break. VIP and GA are tagged when the name says so. Weeks before Nov 27 stay blank."),
     ], owner_name="No owner yet", season="Off until Nov 27"),
     _g("sb_d_mkt", "Growth & Marketing", "dept", 110, [
         M("optins", "Net new opted-in contacts", owner=_SB, move_from=("spring_b", "Net New Opted-In Contacts"),
@@ -522,14 +523,14 @@ def _apply_row(session: Session, m: ScorecardMetric, group, sort: int, row: dict
         m.goal = _dec(row["goal"])
 
     want = row.get("resolver")
+    replaceable = _LEGACY_RESOLVER.get(row["slug"], set())
     if row["slug"] in _FORCE_HAND:
         m.resolver_key = None
         m.source_spec = None
         m.provenance = "hand"
         m.source = "manual"
-    elif adopting and want:
-        legacy = _LEGACY_RESOLVER.get(row["slug"], set())
-        if m.resolver_key in (None, want) or m.resolver_key in legacy:
+    elif want and (m.resolver_key is None or m.resolver_key in replaceable or (adopting and m.resolver_key == want)):
+        if m.resolver_key != want:
             m.resolver_key = want
             m.source_spec = None
     elif adopting and not want:
@@ -558,6 +559,11 @@ BACKFILL_KEYS = (
     "sb_edge_paid_added", "sb_active_members", "sb_cash_collected_rate", "sb_net_cash",
     "sb_decisions_open", "sb_failed_payments_open", "sb_renewal_dates_current",
 )
+ROUND2_KEYS = (
+    "sb_cost_per_qualified_lead", "forum_vip_guests_seats", "sb_edge_paid_added",
+    "sb_cash_collected_rate", "sb_net_cash", "sb_spring_break_tickets", "sb_renewals_confirmed",
+)
+ROUND2_SLUGS = ("cpl", "vip", "edge", "cash", "netcash", "tickets", "renewals")
 
 
 # Startup runs this once. A row in scorecard_backfill_mark is the lock.
@@ -598,7 +604,7 @@ async def _fill_cell(s, tenant_id, metric_id, week_start: dt.date, val, key: str
     return "updated"
 
 
-async def backfill_tenant(tenant_id, weeks: int = 13) -> dict:
+async def backfill_tenant(tenant_id, weeks: int = 13, keys=None) -> dict:
     """Fill the wired Spring B rows for `weeks` recent weeks. Other boards are not queried."""
     from ..db import SessionLocal
     from .scorecard_resolvers import RESOLVERS, UNAVAILABLE, _recent_weeks
@@ -609,7 +615,7 @@ async def backfill_tenant(tenant_id, weeks: int = 13) -> dict:
                    ScorecardGroup.business_id)
             .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
             .where(ScorecardMetric.tenant_id == tenant_id, ScorecardMetric.active.is_(True),
-                   ScorecardMetric.resolver_key.in_(BACKFILL_KEYS)))).all()
+                   ScorecardMetric.resolver_key.in_(tuple(keys or BACKFILL_KEYS))))).all()
     today = dt.date.today()
     windows = _recent_weeks(today, weeks)
     stats = {"weeks": weeks, "metrics": len(rows), "filled": 0, "updated": 0,
@@ -685,6 +691,92 @@ async def run_backfill_once(weeks: int = 13) -> dict | None:
         print(f"[springb_backfill] sample {sample}", flush=True)
         all_stats.append(stats)
     return {"tenants": len(all_stats), "runs": all_stats}
+
+
+ROUND2_MARK = "springb_round2_13w"
+
+
+async def _primary_week_sample(tenant_id, weeks: int = 3) -> str:
+    """Latest weeks of the changed L10 rows on the membership business the app actually shows."""
+    from ..db import SessionLocal
+    from ..models import Business, ScorecardValue
+    from .scorecard_resolvers import _recent_weeks
+    mondays = [ws for ws, _we in _recent_weeks(dt.date.today(), weeks)]
+    async with SessionLocal() as s:
+        biz = (await s.execute(select(Business).where(
+            Business.tenant_id == tenant_id, Business.kind == "membership")
+            .order_by(Business.sort_order).limit(1))).scalar_one_or_none()
+        if biz is None:
+            return "no membership business"
+        rows = (await s.execute(
+            select(ScorecardMetric.slug, ScorecardMetric.id)
+            .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
+            .where(ScorecardGroup.business_id == biz.id, ScorecardMetric.slug.in_(ROUND2_SLUGS),
+                   ScorecardMetric.active.is_(True)))).all()
+        vals = (await s.execute(select(ScorecardValue.metric_id, ScorecardValue.week_start, ScorecardValue.value)
+            .where(ScorecardValue.metric_id.in_([i for _s, i in rows] or [None]),
+                   ScorecardValue.week_start.in_(mondays)))).all() if rows else []
+    by = {(mid, ws): (None if v is None else float(v)) for mid, ws, v in vals}
+    parts = []
+    for slug, mid in sorted(rows):
+        cells = " ".join(f"{ws.isoformat()}={by.get((mid, ws), '—')}" for ws in mondays)
+        parts.append(f"{slug}[{cells}]")
+    return f"business={biz.key} " + " ".join(parts)
+
+
+async def run_round2_backfill(weeks: int = 13) -> dict | None:
+    """Refresh the round-2 rows once. Hand-entered cells are not overwritten."""
+    from sqlalchemy.exc import IntegrityError
+
+    from ..db import SessionLocal
+    from ..models import Business, ScorecardBackfillMark
+    from .sync import materialize_vip_seat_proxies
+
+    async with SessionLocal() as s:
+        tids = (await s.execute(
+            select(ScorecardMetric.tenant_id).where(
+                ScorecardMetric.active.is_(True),
+                ScorecardMetric.resolver_key.in_(ROUND2_KEYS)).distinct())).scalars().all()
+    if not tids:
+        print("[springb_backfill] round2 no wired metrics", flush=True)
+        return None
+    async with SessionLocal() as s:
+        marked = set((await s.execute(
+            select(ScorecardBackfillMark.tenant_id).where(
+                ScorecardBackfillMark.key == ROUND2_MARK,
+                ScorecardBackfillMark.tenant_id.in_(tids)))).scalars().all())
+    pending = [t for t in tids if t not in marked]
+    if not pending:
+        print("[springb_backfill] round2 already done", flush=True)
+        return None
+    out = []
+    for tid in pending:
+        async with SessionLocal() as s:
+            bids = (await s.execute(select(Business.id).where(Business.tenant_id == tid))).scalars().all()
+            proxies = 0
+            for bid in bids:
+                proxies += await materialize_vip_seat_proxies(s, tid, bid)
+            await s.commit()
+        print(f"[springb_backfill] round2 start tenant={tid} weeks={weeks} seat_proxies={proxies}", flush=True)
+        stats = await backfill_tenant(tid, weeks, keys=ROUND2_KEYS)
+        sample = await _primary_week_sample(tid, 3)
+        stats["primary_sample"] = sample
+        async with SessionLocal() as s:
+            s.add(ScorecardBackfillMark(tenant_id=tid, key=ROUND2_MARK, stats={
+                k: v for k, v in stats.items() if k != "sample"}))
+            try:
+                await s.commit()
+            except IntegrityError:
+                await s.rollback()
+        print(
+            f"[springb_backfill] round2 done tenant={tid} weeks={stats['weeks']} metrics={stats['metrics']} "
+            f"filled={stats['filled']} updated={stats['updated']} unchanged={stats['unchanged']} "
+            f"skipped_manual={stats['skipped_manual']} blank={stats['blank']} "
+            f"unavailable={stats['unavailable']} errors={stats['errors']}",
+            flush=True)
+        print(f"[springb_backfill] round2 values {sample}", flush=True)
+        out.append(stats)
+    return {"tenants": len(out), "runs": out}
 
 
 def _main():

@@ -111,6 +111,8 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
         for require in ([True, False] if prefer else [False]):
             for d in defs:
                 nm = (d.get("name") or "").lower()
+                if key == "status" and "renewal" in nm:
+                    continue
                 if any(kw in nm for kw in kws) and (not require or prefer in nm):
                     return d.get("id")
         return None
@@ -124,6 +126,7 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
         # Richer CRM "Membership Details" fields for the roster view.
         ("member_type", ["member type", "membership type"], None),
         ("member_tier", ["member tier", "tier", "membership level"], None),
+        # "status" must not match "Renewal Status" — that field is renewal_status, below.
         ("status", ["status"], "member"),           # prefer a "member/membership status" field
         ("brokerage", ["brokerage", "affiliation"], None),
         ("stripe_account", ["stripe account", "stripe acct"], None),
@@ -131,6 +134,12 @@ def _membership_field_ids(defs: list[dict], cfg: dict) -> dict:
         fid = pick(key, kws, prefer)
         if fid:
             out[key] = fid
+    for d in defs:
+        nm = (d.get("name") or "").strip().lower()
+        fk = (d.get("fieldKey") or d.get("field_key") or "").strip().lower()
+        if nm == "renewal status" or fk.endswith("renewal_status"):
+            out["renewal_status"] = d.get("id")
+            break
     return out
 
 
@@ -207,7 +216,7 @@ def _read_membership(values: dict, field_ids: dict) -> dict:
         norm = _member_type(mt)
         if norm:
             out["member_kind"] = norm            # primary | add_on
-    for key in ("status", "brokerage", "stripe_account", "member_tier"):
+    for key in ("status", "brokerage", "stripe_account", "member_tier", "renewal_status"):
         val = _clean_str(values.get(field_ids.get(key)))
         if val:
             out[key] = val
@@ -581,6 +590,80 @@ def forum_opp_signals(o: dict) -> dict:
             "page_url": (str(url)[:400] if url else None)}
 
 
+# Guest SEATS on the Forum sales pipeline (HighLevel, Nov 10 2026). Opt-In is not a seat.
+# Attended counts only when the opportunity never sat in a confirmed stage — the previous
+# snapshot is all the sync can see, so Confirmed → Attended does not emit a second seat.
+_SEAT_CONFIRMED_IDS = {
+    "33081fcb-978a-48f0-9b98-3e7df8b8bce7",  # VIP Guest: Confirmed
+    "679012b7-49c0-4811-8503-048a2c42d688",  # Dallas VIP guest confirmed
+}
+_SEAT_ATTENDED_ID = "aa0836b4-6caf-4367-8e02-d5870a911504"  # VIP Guest: Attended
+_SEAT_CONFIRMED_NAMES = {"vip guest: confirmed", "dallas vip guest confirmed"}
+
+
+def _stage_name(name) -> str:
+    return (name or "").strip().lower()
+
+
+def is_confirmed_seat(name, stage_id=None) -> bool:
+    if stage_id and str(stage_id) in _SEAT_CONFIRMED_IDS:
+        return True
+    return _stage_name(name) in _SEAT_CONFIRMED_NAMES
+
+
+def is_attended_stage(name, stage_id=None) -> bool:
+    if stage_id and str(stage_id) == _SEAT_ATTENDED_ID:
+        return True
+    return _stage_name(name) == "vip guest: attended"
+
+
+def enters_guest_seat(new_name, new_id, old_name, old_id) -> bool:
+    """First arrival in a guest seat. Confirmed (or Dallas confirmed) from anywhere else,
+    or Attended when the previous stage was not itself a seat."""
+    if is_confirmed_seat(new_name, new_id) and not is_confirmed_seat(old_name, old_id):
+        return True
+    if (is_attended_stage(new_name, new_id) and not is_confirmed_seat(old_name, old_id)
+            and not is_attended_stage(old_name, old_id)):
+        return True
+    return False
+
+
+async def materialize_vip_seat_proxies(s: AsyncSession, tenant_id, business_id) -> int:
+    """One vip_guest_seat event per open opportunity currently sitting in a confirmed seat stage.
+
+    GHL's opportunity search has no stage history, so this dates the seat by lastStageChangeAt.
+    People who already left Confirmed are not reconstructed — the count undercounts them.
+    Idempotent on opportunity id."""
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "recruiting",
+        MetricRecord.status == "open"))).scalars().all()
+    have = set((await s.execute(select(MetricRecord.external_id).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest_seat"))).scalars().all())
+    fresh = []
+    for r in rows:
+        meta = r.meta or {}
+        if not is_confirmed_seat(meta.get("stage"), meta.get("stage_id")):
+            continue
+        ext = f"{r.external_id}:vip_guest_seat"[:64]
+        if ext in have:
+            continue
+        on = _parse_any_date(meta.get("last_stage_change_at")) or dt.date.today()
+        fresh.append(dict(
+            tenant_id=tenant_id, business_id=business_id, source="ghl", kind="forum_stage_event",
+            external_id=ext, name=r.name, status="entered", segment="vip_guest_seat", occurred_on=on,
+            meta={"opp_id": r.external_id, "to_stage": meta.get("stage"), "proxy": True,
+                  "proxy_note": "lastStageChangeAt; GHL search has no stage history"}))
+        have.add(ext)
+    if fresh:
+        await s.execute(insert(MetricRecord).values(fresh))
+        print(f"[ghl] {len(fresh)} VIP seat proxy event(s) from opps still in Confirmed "
+              f"(undercounts anyone who already left that stage)", flush=True)
+    return len(fresh)
+
+
 async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: list[dict], tz) -> int:
     """Append a `forum_stage_event` for each open sales-funnel opportunity whose stage GROUP changed
     since the last sync, or that is new to the funnel. Must run BEFORE the 'recruiting' snapshot is
@@ -588,7 +671,7 @@ async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: lis
     Confirmed is one VIP guest, not two. With no prior snapshot at all, this sync is the baseline and
     nothing is emitted, so counts are accurate from the first real diff forward — never a backfill
     guess. Dated by GHL's lastStageChangeAt (business-local), falling back to today."""
-    prior = {ext: (meta or {}).get("stage") for ext, meta in (await s.execute(
+    prior = {ext: (meta or {}) for ext, meta in (await s.execute(
         select(MetricRecord.external_id, MetricRecord.meta).where(
             MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == biz,
             MetricRecord.source == "ghl", MetricRecord.kind == "recruiting"))).all()}
@@ -609,17 +692,28 @@ async def _record_forum_stage_changes(s: AsyncSession, tenant_id, biz, opps: lis
     for o in opps:
         meta = o.get("meta") or {}
         stage = meta.get("stage") or ""
+        stage_id = meta.get("stage_id")
         group = _forum_stage_group(stage)
-        before = prior.get(o["external_id"])
-        if before is not None and _forum_stage_group(before) == group:
-            continue                                     # same group as last sync → not an entry
+        known = o["external_id"] in prior
+        before_meta = prior.get(o["external_id"]) or {}
+        before = before_meta.get("stage") if known else None
+        before_id = before_meta.get("stage_id") if known else None
         on = _local_date(meta.get("last_stage_change_at"), tz) or today
         sig = forum_opp_signals(o)
-        events.append(dict(
-            tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_stage_event",
-            external_id=f"{o['external_id']}:{group}:{on.isoformat()}"[:64], name=o.get("name"),
-            status="entered", segment=group, occurred_on=on,
-            meta={"opp_id": o["external_id"], "from_stage": before, "to_stage": stage, **sig}))
+        base_meta = {"opp_id": o["external_id"], "from_stage": before, "to_stage": stage, **sig}
+        # Group entry (Opt-In and Confirmed share vip_guest, so that step is not a second group event).
+        if not known or _forum_stage_group(before) != group:
+            events.append(dict(
+                tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_stage_event",
+                external_id=f"{o['external_id']}:{group}:{on.isoformat()}"[:64], name=o.get("name"),
+                status="entered", segment=group, occurred_on=on, meta=dict(base_meta)))
+        # First time this opportunity takes a guest seat, including one created already Confirmed.
+        if enters_guest_seat(stage, stage_id, before, before_id):
+            events.append(dict(
+                tenant_id=tenant_id, business_id=biz, source="ghl", kind="forum_stage_event",
+                external_id=f"{o['external_id']}:vip_guest_seat"[:64], name=o.get("name"),
+                status="entered", segment="vip_guest_seat", occurred_on=on,
+                meta={**base_meta, "proxy": False}))
     if not events:
         return 0
     seen = set((await s.execute(select(MetricRecord.external_id).where(
@@ -832,7 +926,7 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
                 # Spring's pages from Justin's Sisu registrations without another GHL read.
                 recruiting.append({**base, "kind": "recruiting", "status": "open",
                                    "amount": float(o.get("monetaryValue") or 0) or None,
-                                   "meta": {"stage": stage,
+                                   "meta": {"stage": stage, "stage_id": o.get("pipelineStageId"),
                                             "stage_position": stage_pos.get(o.get("pipelineStageId"), 99),
                                             "last_stage_change_at": o.get("lastStageChangeAt"),
                                             **forum_opp_signals(o)}})
@@ -854,6 +948,13 @@ async def sync_ghl(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration):
         await _ghl_snapshot(s, tenant_id, biz, "membership", memberships)
         await _ghl_snapshot(s, tenant_id, biz, "onboarded", onboarded)
         await _ghl_snapshot(s, tenant_id, biz, "recruiting", recruiting)
+        try:
+            await materialize_vip_seat_proxies(s, tenant_id, biz)
+            await s.commit()
+        except Exception as e:  # noqa: BLE001
+            await s.rollback()
+            await s.refresh(integ)
+            print(f"[ghl] VIP seat proxy skipped: {e}", flush=True)
         await _ghl_snapshot(s, tenant_id, biz, "membership_lost", lost)
         n_records += len(memberships) + len(onboarded) + len(recruiting) + len(lost)
         arr = sum(m["amount"] for m in memberships)
@@ -1402,6 +1503,38 @@ async def _forum_roster_emails(s: AsyncSession, tenant_id, business_id) -> set[s
     return {em.strip().lower() for (em,) in rows if em}
 
 
+async def _ingest_spring_break_charges(s, tenant_id, biz, charges, inv_label, pi_label, tz, cfg) -> int:
+    """Succeeded Spring Break ticket charges on the same legacy Stripe account.
+
+    Parallel to the Edge pull. Product names are logged so VIP vs GA can be checked
+    against what Stripe actually calls them."""
+    from .billing import spring_break_offering
+    rows, names = [], set()
+    for ch in charges:
+        if stripe_legacy.charge_status(ch) != "succeeded":
+            continue
+        inv_id, pi = stripe_legacy.invoice_id(ch), stripe_legacy.payment_intent(ch)
+        label = (inv_id and inv_label.get(inv_id)) or (pi and pi_label.get(pi))
+        desc = label or stripe_legacy.charge_description(ch)
+        include, tier = spring_break_offering(desc, cfg)
+        if not include:
+            continue
+        if desc:
+            names.add(desc[:120])
+        rows.append(dict(
+            tenant_id=tenant_id, business_id=biz, source="stripe_legacy", kind="spring_break_payment",
+            external_id=str(ch.get("id")),
+            name=(stripe_legacy.charge_name(ch) or stripe_legacy.charge_email(ch) or "Ticket")[:200],
+            email=stripe_legacy.charge_email(ch), amount=stripe_legacy.charge_amount(ch),
+            status="succeeded", occurred_on=_local_date(ch.get("created"), tz),
+            source_url=stripe_legacy.dashboard_url(ch), segment=tier,
+            meta={"entity_source_name": desc or None, "tier": tier, "charge_id": ch.get("id")}))
+    await _metric_snapshot(s, tenant_id, biz, "stripe_legacy", "spring_break_payment", rows)
+    print(f"[spring_break] {len(rows)} succeeded ticket charge(s); products={sorted(names)[:40]}",
+          flush=True)
+    return len(rows)
+
+
 async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integration) -> int:
     """Snapshot Forum charges from Spring's ORIGINAL Stripe account (the one still
     wired to the old Spring B GHL location). Those legacy recurring dues never reach
@@ -1483,6 +1616,7 @@ async def sync_stripe_legacy(s: AsyncSession, tenant_id: uuid.UUID, integ: Integ
     print(f"[stripe_legacy] {len(rows)} Forum charges of {len(charges)} "
           f"({off_roster} off-roster · {off_forum} non-Forum offerings skipped · roster={len(roster)})",
           flush=True)
+    await _ingest_spring_break_charges(s, tenant_id, biz, charges, inv_label, pi_label, tz, cfg)
     await _snapshot_dropped(s, tenant_id, biz, "stripe_legacy", dropped)
 
     # ── subscriptions → the legacy recurring book, so MRR + forward projection stop

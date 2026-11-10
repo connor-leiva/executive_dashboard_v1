@@ -32,8 +32,9 @@ async def lifespan(app: FastAPI):
         # One-time, after alembic. Fills empty auto cells for the Spring B board. A marker row
         # stops a second boot from doing it again. Failure here must not keep the API down.
         try:
-            from .services.springb_enterprise import run_backfill_once
+            from .services.springb_enterprise import run_backfill_once, run_round2_backfill
             await run_backfill_once(13)
+            await run_round2_backfill(13)
         except Exception:
             log.exception("springb backfill skipped")
     # Single-service deployments (no separate `worker` service) run the scheduler here so the
