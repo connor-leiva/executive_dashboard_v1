@@ -28,6 +28,14 @@ async def lifespan(app: FastAPI):
     if settings.is_sqlite:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+    else:
+        # One-time, after alembic. Fills empty auto cells for the Spring B board. A marker row
+        # stops a second boot from doing it again. Failure here must not keep the API down.
+        try:
+            from .services.springb_enterprise import run_backfill_once
+            await run_backfill_once(13)
+        except Exception:
+            log.exception("springb backfill skipped")
     # Single-service deployments (no separate `worker` service) run the scheduler here so the
     # sync tick + AI dispatch/execute jobs actually run. Off by default.
     sched = None

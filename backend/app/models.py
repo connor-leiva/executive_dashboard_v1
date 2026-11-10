@@ -2439,6 +2439,17 @@ class ScorecardValue(Base):
     __table_args__ = (UniqueConstraint("metric_id", "week_start", name="uq_scorecard_value"),)
 
 
+class ScorecardBackfillMark(Base):
+    """One row per completed one-time scorecard backfill. Presence means 'do not run again'."""
+    __tablename__ = "scorecard_backfill_mark"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(64))
+    stats: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_scorecard_backfill_mark"),)
+
+
 class ScorecardGoal(Base):
     """Per-period goal for a measurable (Phase C). Each measurement period keeps its own goals so
     past periods never shift when a new sprint's goals are set. Absent row → the metric's default
