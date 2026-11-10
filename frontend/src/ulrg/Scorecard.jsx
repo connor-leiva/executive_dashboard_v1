@@ -5,7 +5,7 @@
    Office headshots are kept in the group bar (the mockup dropped them). */
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useScorecard } from "./useScorecard.js";
-import { fileUrl } from "../api.js";
+import { fileUrl, postJSON } from "../api.js";
 import {
   T, FONT, NUM, EASE, DUR, LBL, Chevron,
   W_GOAL, RAIL, C_ACTUAL, C_PACE, C_TREND, C_GAP, C_REC, CUM, WK,
@@ -34,6 +34,9 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
   const [cumOpen, setCumOpen] = useState(true);
   const [rangeId, setRangeId] = useState("13");   // "4" | "13" | "qtd"
   const [onlyOff, setOnlyOff] = useState(false);
+  const [lens, setLens] = useState("l10");
+  const [deptKey, setDeptKey] = useState("enrollment");
+  const [personKey, setPersonKey] = useState("J");
   const [expanded, setExpanded] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [drill, setDrill] = useState(null);   // {r, ws, we, label, weeks} — the clicked figure's drill-down
@@ -90,17 +93,44 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
   }, [rangeId, weeksDesc, quarterStart]);
   const countedN = counted.size;
 
+  const enterprise = !!(data && data.enterprise);
+  const depts = useMemo(() => {
+    const out = [];
+    for (const g of (data && data.groups) || []) {
+      if (g.lens !== "dept" || !g.dept_key || out.some((d) => d.key === g.dept_key)) continue;
+      out.push({ key: g.dept_key, name: g.dept_name || g.name, lead: g.lead_name, reviewed: g.reviewed_in });
+    }
+    return out;
+  }, [data]);
+  const shownGroups = useMemo(() => {
+    const groups = (data && data.groups) || [];
+    if (!enterprise) return groups;
+    if (lens === "l10") return groups.filter((g) => g.lens === "l10");
+    if (lens === "departments") return groups.filter((g) => g.lens === "dept" && g.dept_key === deptKey);
+    if (lens === "elsewhere") return groups.filter((g) => g.lens === "elsewhere");
+    if (lens === "people") {
+      const person = ((data && data.people) || []).find((p) => p.initials === personKey);
+      const mine = groups.flatMap((g) => (g.rows || []).filter((r) => r.owner && r.owner.initials === personKey).map((r) => ({ ...r, _reviewed: g.reviewed_in })));
+      const pack = (key, name, rows) => rows.length ? { key, name, owner: person ? { name: person.name } : null, rows, season: null } : null;
+      return [
+        pack("p-l10", "On the L10", mine.filter((r) => r.tier === "l10")),
+        pack("p-dept", "Department", mine.filter((r) => r.tier === "dept" || r.tier === "monthly" || r.tier === "event")),
+        pack("p-tasks", "On-time tasks", mine.filter((r) => r.tier === "person")),
+      ].filter(Boolean);
+    }
+    return groups;
+  }, [data, enterprise, lens, deptKey, personKey]);
+
   const cumAttain = (r) => (r.cumulative && r.cumulative[wkey] && r.cumulative[wkey].attain != null ? r.cumulative[wkey].attain : null);
   const view = useMemo(() => {
-    if (!data || !data.groups) return [];
-    return data.groups.map((g) => {
+    return shownGroups.map((g) => {
       const off = g.rows.filter((r) => { const a = cumAttain(r); return a != null && a < 100; }).length;
       // "Only what is off" keeps rows with no scoreable pace (snapshots / goal-0 / no data) visible,
       // as before — they aren't "off", so hiding them would falsely read as all-clear.
       const rows = onlyOff ? g.rows.filter((r) => { const a = cumAttain(r); return a == null || a < 100; }) : g.rows;
       return { ...g, rows, off, total: g.rows.length };   // total: rows before "only what is off" filters
     });
-  }, [data, wkey, onlyOff]);
+  }, [shownGroups, wkey, onlyOff]);
 
   if (!data) return <div style={{ fontFamily: FONT }}><div className="cc-skel" style={{ height: 320, borderRadius: 12 }} /></div>;
   if (!data.groups || data.groups.length === 0) {
@@ -159,13 +189,48 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
 
         <div style={{ background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, boxShadow: "0 1px 2px rgba(20,35,28,0.04), 0 8px 24px -12px rgba(20,35,28,0.10)", overflow: "hidden" }}>
           {/* --------------------------- title bar --------------------------- */}
+          {enterprise && lens === "l10" && <EscalationStrip escalations={data.escalations || []} checks={data.checks || []} idsAfter={data.ids_after || 2} />}
+          {enterprise && lens === "departments" && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "10px 20px", borderBottom: `1px solid ${T.line}` }}>
+              {depts.map((d) => (
+                <button key={d.key} type="button" onClick={() => setDeptKey(d.key)} className="l10-btn" aria-pressed={deptKey === d.key}
+                  style={{ font: "inherit", fontSize: 12, fontWeight: deptKey === d.key ? 600 : 500, padding: "4px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${deptKey === d.key ? T.forest : T.line}`, background: deptKey === d.key ? T.paper : "transparent", color: deptKey === d.key ? T.ink : T.inkSoft }}>
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {enterprise && lens === "people" && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "10px 20px", borderBottom: `1px solid ${T.line}` }}>
+              {(data.people || []).map((p) => (
+                <button key={p.initials} type="button" onClick={() => setPersonKey(p.initials)} className="l10-btn" aria-pressed={personKey === p.initials}
+                  style={{ font: "inherit", fontSize: 12, fontWeight: personKey === p.initials ? 600 : 500, padding: "4px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${personKey === p.initials ? T.forest : T.line}`, background: personKey === p.initials ? T.paper : "transparent", color: personKey === p.initials ? T.ink : T.inkSoft }}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: `1px solid ${T.line}`, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>L10 Scorecard</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.015em", whiteSpace: "nowrap" }}>
+                {enterprise ? (lens === "l10" ? "L10 Scorecard" : lens === "departments" ? (depts.find((d) => d.key === deptKey) || {}).name || "Departments" : lens === "people" ? "People" : "Elsewhere") : "L10 Scorecard"}
+              </h2>
               <span style={{ fontSize: 13, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                Week {liveN} is newest. Select any measurable to open its detail.
+                {enterprise && lens === "departments" && (depts.find((d) => d.key === deptKey) || {}).reviewed
+                  ? (depts.find((d) => d.key === deptKey) || {}).reviewed
+                  : `Week ${liveN} is newest. Select any measurable to open its detail.`}
               </span>
             </div>
+            {enterprise && (
+              <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
+                {[["l10", "L10"], ["departments", "Departments"], ["people", "People"], ["elsewhere", "Elsewhere"]].map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setLens(k)} className="l10-btn" aria-pressed={lens === k}
+                    style={{ border: "none", font: "inherit", fontSize: 12, fontWeight: lens === k ? 600 : 500, padding: "4px 11px", borderRadius: 5, cursor: "pointer", background: lens === k ? T.paper : "transparent", color: lens === k ? T.ink : T.muted, boxShadow: lens === k ? "0 1px 2px rgba(20,35,28,0.10)" : "none" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ display: "flex", background: T.shell, borderRadius: 7, padding: 2, gap: 2 }}>
@@ -242,6 +307,8 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
                           onToggle={() => setExpanded(expanded === key ? null : key)}
                           onDrill={shareToken ? null : setDrill}
                           cumLabel={cumLabel}
+                          idsAfter={data.ids_after || 3}
+                          dim={!!g.season}
                         />
                       );
                     })}
@@ -268,6 +335,17 @@ export default function Scorecard({ role, shareToken = null, scope = "ulrg" }) {
             </span>
           </div>
         </div>
+        {enterprise && (lens === "l10" || lens === "departments") && (
+          <UpdatesPanel
+            groups={(data.groups || []).filter((g) => lens === "l10"
+              ? (g.lens === "monthly" || g.lens === "event")
+              : (g.lens === "dept" && g.dept_key === deptKey))}
+            weeks={data.weeks || []}
+            canEdit={canEditValues}
+            onSaved={reload}
+            onlyNonWeekly={lens === "departments"}
+          />
+        )}
         {data.gates && data.gates.length > 0 && <PlanGates gates={data.gates} canEdit={isAdmin} onChanged={reload} />}
       </div>
     </>
@@ -350,9 +428,121 @@ function GroupBar({ group, width, off }) {
           : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,253,249,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: T.paper, flexShrink: 0 }}>{((o.name || "·")[0] || "·").toUpperCase()}</span>)}
         <span style={{ fontSize: 12, fontWeight: 600, color: T.paper, whiteSpace: "nowrap" }}>{group.name}</span>
         {o && o.name && <span style={{ fontSize: 12, color: "rgba(255,253,249,0.5)", whiteSpace: "nowrap" }}>{o.name}</span>}
-        <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
-          {off} off pace
+        <span style={{ ...NUM, marginLeft: "auto", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: group.season || off ? "rgba(255,253,249,0.7)" : "rgba(255,253,249,0.4)" }}>
+          {group.season || `${off} off pace`}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function mondayOf(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  const diff = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function EscalationStrip({ escalations, checks, idsAfter }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", borderBottom: `1px solid ${T.line}`, background: T.rail }}>
+      <div style={{ flex: "1 1 280px", padding: "12px 20px" }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Escalated from the 1:1s</div>
+        {escalations.length === 0 ? (
+          <p style={{ margin: "4px 0 0", fontSize: 12.5, color: T.muted, lineHeight: 1.45 }}>
+            Nothing yet. A department or personal number goes here after {idsAfter} weeks off its goal.
+          </p>
+        ) : (
+          <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
+            {escalations.map((e) => (
+              <li key={e.id} style={{ fontSize: 12.5, color: T.inkSoft, padding: "3px 0" }}>
+                <strong style={{ color: T.ink }}>{e.measurable}</strong> · {e.streak} weeks · {e.owner || "—"}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {checks.length > 0 && (
+        <div style={{ flex: "2 1 360px", padding: "12px 20px", borderLeft: `1px solid ${T.line}` }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Data checks</div>
+          <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
+            {checks.map((c) => (
+              <li key={c.id} style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.45, padding: "3px 0" }}>
+                <strong style={{ color: T.ink }}>{c.measurable}.</strong> {c.check}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UpdatesPanel({ groups, weeks, canEdit, onSaved, onlyNonWeekly }) {
+  const rows = groups.flatMap((g) => (g.rows || []).filter((r) => !onlyNonWeekly || (r.cadence && r.cadence !== "weekly")).map((r) => ({ ...r, _group: g.name })));
+  const current = weeks.length ? weeks[weeks.length - 1].start : null;
+  const [drafts, setDrafts] = useState({});
+  const [busy, setBusy] = useState(null);
+  if (!rows.length) return null;
+
+  function valueOn(r, start) {
+    const i = weeks.findIndex((w) => w.start === start);
+    return i >= 0 ? r.values[i] : null;
+  }
+
+  async function save(r, start) {
+    const raw = drafts[`${r.id}:${start}`];
+    if (raw == null || raw === "" || !start) return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+    setBusy(r.id);
+    try {
+      await postJSON("/ulrg/scorecard/values", { metric_id: r.id, week_start: start, value });
+      onSaved && onSaved();
+    } finally { setBusy(null); }
+  }
+
+  return (
+    <div style={{ marginTop: 16, background: T.paper, borderRadius: 12, border: `1px solid ${T.line}`, overflow: "hidden" }}>
+      <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.line}` }}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>Reviewed when it updates</div>
+        <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}>Monthly and per-event numbers. Type a figure and save it onto that week.</div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <tbody>
+            {rows.map((r) => {
+              const anchors = (r.anchors && r.anchors.length) ? r.anchors : [{ label: "This period", date: current }];
+              return (
+                <tr key={r.id} style={{ borderTop: `1px solid ${T.lineSoft}` }}>
+                  <td style={{ padding: "10px 16px", fontWeight: 500, whiteSpace: "nowrap" }}>{r.measurable}</td>
+                  <td style={{ padding: "10px 8px", color: T.muted, whiteSpace: "nowrap" }}>{(r.owner && r.owner.initials) || ""}</td>
+                  <td style={{ padding: "10px 8px", color: T.faint }}>{r.goal == null ? "Goal not set" : `${r.direction === "lte" ? "≤" : "≥"} ${r.goal}`}</td>
+                  {anchors.map((a) => {
+                    const start = a.date ? mondayOf(a.date) : current;
+                    const have = valueOn(r, start);
+                    const key = `${r.id}:${start}`;
+                    return (
+                      <td key={a.label} style={{ padding: "8px" }}>
+                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 4 }}>{a.label}{have != null ? ` · ${have}` : ""}</div>
+                        {canEdit && !r.auto && (
+                          <span style={{ display: "inline-flex", gap: 6 }}>
+                            <input aria-label={`${r.measurable} ${a.label}`} value={drafts[key] || ""} onChange={(e) => setDrafts({ ...drafts, [key]: e.target.value })}
+                              style={{ width: 88, font: "inherit", fontSize: 13, padding: "4px 6px", border: `1px solid ${T.line}`, borderRadius: 4 }} />
+                            <button type="button" disabled={busy === r.id} onClick={() => save(r, start)}
+                              style={{ font: "inherit", fontSize: 12, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.line}`, background: T.paper, cursor: "pointer" }}>
+                              Save
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

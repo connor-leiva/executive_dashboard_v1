@@ -166,7 +166,9 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
     recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
     label = (scorecard_sympli.source_label(m.resolver_key) if scorecard_sympli.is_sympli_key(m.resolver_key)
              else scorecard_portfolio.source_label(m.resolver_key) if scorecard_portfolio.is_portfolio_key(m.resolver_key)
-             else "GHL" if m.resolver_key.startswith(("forum_", "ghl_")) else "Sisu")
+             else "Books" if m.resolver_key == "sb_net_cash"
+             else "Stripe" if m.resolver_key == "sb_edge_paid_added"
+             else "GHL" if m.resolver_key.startswith(("forum_", "ghl_", "sb_")) else "Sisu")
     return {"source": "resolver", "source_label": label, "measurable": m.name, "records": recs or []}
 
 
@@ -192,7 +194,7 @@ async def set_value(body: ValueIn, user: User = Depends(current_user),
     if scope is None:
         raise HTTPException(404, "Unknown metric")
     await _assert_scope_view(user, s, scope)          # must be able to see the board this metric is on
-    if m.resolver_key and user.role not in ("owner", "admin") and m.owner_user_id != user.id:
+    if (m.resolver_key or m.source_spec) and user.role not in ("owner", "admin") and m.owner_user_id != user.id:
         raise HTTPException(403, "This measurable is auto-sourced — only an owner or admin can override it")
     try:
         wk = dt.date.fromisoformat(body.week_start)
@@ -711,8 +713,12 @@ async def get_goals(period: str, scope: str = "ulrg", user: User = Depends(curre
             for mid, gv, cg in (await s.execute(select(
                 ScorecardGoal.metric_id, ScorecardGoal.goal, ScorecardGoal.cumulative_goal).where(
                 ScorecardGoal.tenant_id == user.tenant_id, ScorecardGoal.period_key == period))).all()}
+    def _g(v):
+        return None if v is None else float(v)
+
     goals = [{"metric_id": str(m.id), "name": m.name, "group": gname, "type": m.type,
-              "default": float(m.goal), "goal": over.get(str(m.id), (float(m.goal), None))[0],
+              "default": _g(m.goal),
+              "goal": over[str(m.id)][0] if str(m.id) in over else _g(m.goal),
               "cumulative_goal": over.get(str(m.id), (None, None))[1],
               "supports_cumulative": m.type == "flow",   # only flow metrics accumulate toward a total
               "overridden": str(m.id) in over}

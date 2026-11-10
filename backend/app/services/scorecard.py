@@ -89,11 +89,11 @@ def trend_4v4(values, goal: float, type_: str, direction: str):
     return None if a is None or b is None else round(a - b, 1)   # goal 0 → no scoreable trend
 
 
-def miss_streak(values, goal: float, direction: str) -> int:
+def miss_streak(values, goal: float, direction: str, *, score_zero: bool = False) -> int:
     """Consecutive weeks from the NEWEST end failing the goal test. Nulls skipped, not misses.
-    No goal (0 = track-only) → nothing can be missed: the cell isn't colored (l10tokens), so an IDS
-    badge would be the only judgement on the row — and on an `lte` line every week above 0 'missed'."""
-    if not goal:
+    No goal (None, or 0 without score_zero) → nothing can be missed: the cell isn't colored, so an
+    IDS badge would be the only judgement on the row. score_zero marks a real ≤ 0 target."""
+    if goal is None or (not goal and not score_zero):
         return 0
     streak = 0
     for v in reversed(values):                              # newest end = end of chronological array
@@ -185,6 +185,18 @@ def move(group_rows):
 # ── payload assembly (SPEC Part 5.1) ─────────────────────────────────────────
 def _fv(v):
     return None if v is None else float(v)
+
+
+def _scored_goal(goal, scores_zero: bool):
+    """The goal a cell, a streak and a pace bar should use.
+
+    None and a legacy 0 (scores_zero false) are track-only. 0 with scores_zero is a real cap."""
+    if goal is None:
+        return None
+    g = float(goal)
+    if g == 0 and not scores_zero:
+        return None
+    return g
 
 
 def quarter_of(fiscal_quarters, today: dt.date) -> dict:
@@ -313,8 +325,10 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
             # null the in-progress week (keep its calendar slot so the rolling window doesn't shift;
             # _clean drops it, and miss_streak/trend skip None) — it counts only once it has closed.
             all_vals = [vmap.get(m.id, {}).get(w) if _done(w) else None for w in all_weeks]
-            default_goal, d = float(m.goal), m.direction
-            goal = _goal_for(m.id, cur_key, default_goal)   # WEEKLY goal: cells + display + streak
+            d = m.direction
+            raw_default = None if m.goal is None else float(m.goal)
+            raw_goal = _goal_for(m.id, cur_key, raw_default)
+            goal = _scored_goal(raw_goal, bool(getattr(m, "scores_zero", False)))
             # A flow metric with a period-TOTAL goal becomes a quarter thermometer: count only weeks
             # WITHIN the current period and track toward the full total (all windows show the same
             # quarter-to-date block). Otherwise the standard rolling cumulative on the weekly goal.
@@ -326,13 +340,18 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 pb = period_block(period_vals, cum_goal, q["weeks_total"], q["weeks_closed"], wl)
                 cum = {"w4": pb, wkey: pb, "qtd": pb}
             else:
-                cum_basis = goal
-                cum = _cum(all_vals, m, goal)
+                cum_basis = goal if goal is not None else 0
+                cum = _cum(all_vals, m, cum_basis)
+            scored_zero = goal == 0
             rows.append({
-                "id": str(m.id), "measurable": m.name, "note": m.note, "goal": goal,
+                "id": str(m.id), "measurable": m.name, "note": m.note,
+                # 0 stays 0 on the wire (legacy track-only). `scored` says whether to color it.
+                "goal": raw_goal,
                 "cumulative_goal": cum_goal,            # the period total (flow only); None → weekly×weeks
                 "direction": d, "type": m.type, "stage": m.stage, "lever": m.lever,
-                "owner": {"initials": m.owner_initials} if m.owner_initials else None,
+                "owner": ({"initials": m.owner_initials, "name": getattr(m, "owner_name", None),
+                           "tbd": m.owner_initials == "TBD"}
+                          if m.owner_initials else None),
                 "source": m.source, "source_synced_at": None,
                 # auto-sourced (no HAND chip; a click drills the records instead of editing values) —
                 # by a resolver OR a routing spec. Spec-only lines read as hand-entered before, so a
@@ -340,11 +359,24 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                 "auto": m.resolver_key is not None or m.source_spec is not None,
                 "values": [vmap.get(m.id, {}).get(w) for w in weeks],
                 # each week keeps its OWN period's goal, so past periods don't recolor when a new
-                # period's goal changes (Phase C history)
-                "week_goals": [_goal_for(m.id, _period_of(w), default_goal) for w in weeks],
+                # period's goal changes (Phase C history). A legacy 0 stays unscored.
+                "week_goals": [_goal_for(m.id, _period_of(w), raw_default) for w in weeks],
                 "trend_4v4": trend_4v4(all_vals, cum_basis, m.type, d),   # trend follows the cumulative basis
-                "streak": miss_streak(all_vals, goal, d),                 # streak = missed WEEKLY goal
+                "streak": miss_streak(all_vals, 0 if goal is None else goal, d, score_zero=scored_zero),
                 "cumulative": cum,
+                "tier": getattr(m, "tier", None),
+                "cadence": getattr(m, "cadence", None) or "weekly",
+                "cadence_label": getattr(m, "cadence_label", None),
+                "unit": getattr(m, "unit", None) or "count",
+                "target_by": getattr(m, "target_by", None),
+                "slug": getattr(m, "slug", None),
+                "provenance": getattr(m, "provenance", None),
+                "provenance_from": getattr(m, "provenance_from", None),
+                "provenance_detail": getattr(m, "provenance_detail", None),
+                "why": getattr(m, "why", None),
+                "check": getattr(m, "check_note", None),
+                "anchors": getattr(m, "anchors", None),
+                "scored": goal is not None,
             })
             move_rows.append({"id": str(m.id), "stage": m.stage, "lever": m.lever,
                               "cum": (cum or {}).get(wkey) if cum else None})
@@ -357,16 +389,40 @@ async def build_scorecard(s, tenant_id, business_id, weeks_param: int, today: dt
                                      if g.owner_photo_ref else None)}
                       if (g.owner_name or g.owner_photo_ref) else None),
             "read": g.read,
+            "lens": getattr(g, "lens", None),
+            "season": getattr(g, "season", None),
+            "reviewed_in": getattr(g, "reviewed_in", None),
+            "dept_key": getattr(g, "dept_key", None),
+            "dept_name": getattr(g, "dept_name", None),
+            "lead_name": getattr(g, "lead_name", None),
             "move": {"constraint_metric_id": constraint["id"] if constraint else None,
                      "free_win_metric_id": free_win["id"] if free_win else None},
             "rows": rows,
         })
+
+    enterprise = any(r.get("tier") for g in groups_out for r in g["rows"])
+    ids_after = 2 if enterprise else 3
+    escalations = [ {"id": r["id"], "measurable": r["measurable"], "streak": r["streak"],
+                     "owner": (r.get("owner") or {}).get("initials"), "tier": r.get("tier")}
+                    for g in groups_out for r in g["rows"]
+                    if r.get("tier") in ("dept", "person") and r.get("streak", 0) >= ids_after]
+    checks = [{"id": r["id"], "measurable": r["measurable"], "check": r["check"]}
+              for g in groups_out for r in g["rows"] if r.get("check")]
+    people = None
+    if enterprise:
+        from .springb_enterprise import PEOPLE
+        people = PEOPLE
 
     return {
         "weeks": weeks_out,
         "current_week": weeks_out[-1]["n"] if weeks_out else None,
         "quarter": {k: q[k] for k in ("key", "start", "end", "weeks_total", "weeks_closed", "weeks_left")},
         "windows": [4, weeks_param, "qtd"], "default_window": weeks_param,
+        "enterprise": enterprise,
+        "ids_after": ids_after,
+        "escalations": escalations,
+        "checks": checks,
+        "people": people,
         "groups": groups_out,
         "gates": await _gates(s, tenant_id, business_id, today),
         "sources": await _sources(s, tenant_id, {m.source for g in groups for m in by_group.get(g.id, [])}),

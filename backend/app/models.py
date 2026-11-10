@@ -2361,6 +2361,14 @@ class ScorecardGroup(Base):
     lo_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     owner_photo_ref: Mapped[str | None] = mapped_column(String(300), nullable=True)   # headshot in object storage
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))   # soft-remove an office
+    # Enterprise board (Spring B tiers). Null on every older board, so ULRG / Sympli / Portfolio
+    # keep rendering exactly as they do. lens picks the view; dept_* groups a department's seats.
+    season: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reviewed_in: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    lens: Mapped[str | None] = mapped_column(String(16), nullable=True)   # l10|dept|monthly|event|person|elsewhere
+    dept_key: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    dept_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    lead_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     __table_args__ = (UniqueConstraint("tenant_id", "business_id", "key", name="uq_scorecard_group"),)
 
 
@@ -2385,8 +2393,11 @@ class ScorecardMetric(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
     group_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("scorecard_group.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(160))
-    note: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    goal: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Null = track only (no color, no pace, no miss streak). 0 is a real "≤ 0" target only when
+    # scores_zero is set; a stored 0 with scores_zero false stays track-only, which is what every
+    # existing board already means by goal 0.
+    goal: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     direction: Mapped[str] = mapped_column(String(4), default="gte")             # gte | lte
     type: Mapped[str] = mapped_column(String(10))                                # flow | rate | snapshot
     stage: Mapped[int | None] = mapped_column(Integer, nullable=True)            # funnel position, null off-funnel
@@ -2398,6 +2409,21 @@ class ScorecardMetric(Base):
     owner_initials: Mapped[str | None] = mapped_column(String(4), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Enterprise tiers. All null/default on older boards. slug is the stable seed key.
+    tier: Mapped[str | None] = mapped_column(String(16), nullable=True)   # l10|dept|monthly|event|person|elsewhere
+    cadence: Mapped[str] = mapped_column(String(12), default="weekly", server_default=text("'weekly'"))
+    unit: Mapped[str] = mapped_column(String(8), default="count", server_default=text("'count'"))  # count|pct|usd
+    target_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    slug: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    provenance: Mapped[str | None] = mapped_column(String(8), nullable=True)   # live|hand|sync
+    provenance_from: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    provenance_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    scores_zero: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    cadence_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    check_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    why: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anchors: Mapped[list | None] = mapped_column(JSONType, nullable=True)
 
 
 class ScorecardValue(Base):
