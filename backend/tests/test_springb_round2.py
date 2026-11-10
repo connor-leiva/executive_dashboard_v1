@@ -186,3 +186,66 @@ async def test_spring_break_is_blank_before_the_season_and_cumulative_after(env)
             s, e["tid"], e["bid"], dt.date(2026, 11, 9), dt.date(2026, 11, 15)) is None
         assert await R.sb_spring_break_tickets(
             s, e["tid"], e["bid"], dt.date(2026, 11, 23), dt.date(2026, 11, 29)) == 1
+
+
+def test_sprints_handle_a_gap_and_a_midweek_start():
+    from app.services.scorecard import assign_sprints
+    sprints = assign_sprints([
+        {"key": "2026Q3", "start": "2026-07-27", "end": "2026-10-30"},
+        {"key": "2026Q4", "start": "2026-11-02", "end": "2027-01-18"},
+    ], dt.date(2026, 11, 10))
+    q3 = next(s for s in sprints if s["key"] == "2026Q3")
+    q4 = next(s for s in sprints if s["key"] == "2026Q4")
+    assert "2026-10-26" in q3["mondays"] and "2026-11-02" not in q3["mondays"]
+    assert q4["mondays"][0] == "2026-11-02" and q4["current"] is True
+    assert "2027-01-18" in q4["mondays"]
+    mid = assign_sprints([
+        {"key": "A", "start": "2026-10-05", "end": "2026-11-03"},
+        {"key": "B", "start": "2026-11-04", "end": "2026-12-31"},
+    ], dt.date(2026, 11, 10))
+    assert "2026-11-02" not in next(s for s in mid if s["key"] == "A")["mondays"]
+    assert "2026-11-02" in next(s for s in mid if s["key"] == "B")["mondays"]
+    gap = assign_sprints([
+        {"key": "A", "start": "2026-10-05", "end": "2026-10-25"},
+        {"key": "B", "start": "2026-11-09", "end": "2026-12-31"},
+    ], dt.date(2026, 11, 10))
+    assert "2026-11-02" not in {m for s in gap for m in s["mondays"]}
+
+
+async def test_drawers_match_the_cell(env):
+    e = env
+    mon = dt.date(2026, 11, 2)
+    we = mon + dt.timedelta(days=6)
+    async with SessionLocal() as s:
+        s.add(MetricRecord(
+            tenant_id=e["tid"], business_id=e["bid"], source="ghl", kind="forum_stage_event",
+            external_id="opp1:vip_guest_seat", segment="vip_guest_seat", occurred_on=mon,
+            status="entered", name="Ada",
+            meta={"opp_id": "opp1", "to_stage": "VIP Guest: Confirmed", "opp_source": "VIP Page", "proxy": True}))
+        s.add(MetricRecord(tenant_id=e["tid"], business_id=e["bid"], source="ghl", kind="payment",
+                           external_id="ok", status="succeeded", occurred_on=mon, amount=Decimal("80"),
+                           name="Ada", meta={"entity_source_name": "The Forum Monthly"}))
+        bc = Business(tenant_id=e["tid"], key="bc1", name="beCollective", tag="bc", kind="membership", sort_order=1)
+        coach = Business(tenant_id=e["tid"], key="coach", name="SB Coaching", tag="c", kind="holding", sort_order=2)
+        s.add_all([bc, coach])
+        await s.flush()
+        s.add(BookTxn(tenant_id=e["tid"], business_id=e["bid"], realm_id="forum", qbo_type="JournalEntry",
+                      qbo_id="je", txn_date=mon, amount=Decimal("11500"), payee="Kimmi Shaw"))
+        s.add(BookTxn(tenant_id=e["tid"], business_id=e["bid"], realm_id="forum", qbo_type="Purchase",
+                      qbo_id="pay", txn_date=mon, amount=Decimal("8032"), payee="Payroll Pay"))
+        s.add(BookTxn(tenant_id=e["tid"], business_id=coach.id, realm_id="coach", qbo_type="Deposit",
+                      qbo_id="dep", txn_date=mon, amount=Decimal("500"), payee="Client"))
+        await s.commit()
+        seats = await R.springb_drill(s, e["tid"], e["bid"], "forum_vip_guests_seats", mon, we)
+        assert len(seats["records"]) == 1
+        assert "proxy" in seats["records"][0]["detail"] and "VIP Page" in seats["records"][0]["detail"]
+        cash = await R.springb_drill(s, e["tid"], e["bid"], "sb_cash_collected_rate", mon, we)
+        assert cash["records"] and "Succeeded $80.00" in cash["summary"]
+        books = await R.springb_drill(s, e["tid"], e["bid"], "sb_net_cash", mon, we)
+        assert all(not r["excluded"] for r in books["records"])
+        assert any(r["client"] == "Kimmi Shaw" for r in books["excluded"])
+        nets = {g["company"]: g["net"] for g in books["groups"]}
+        assert nets["The Forum"] == -8032
+        assert nets["SB Coaching"] == 500
+        assert nets["beCollective"] == 0
+        assert round(sum(nets.values()), 2) == await R.sb_net_cash(s, e["tid"], e["bid"], mon, we)

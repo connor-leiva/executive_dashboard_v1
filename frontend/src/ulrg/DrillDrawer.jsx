@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { getJSON, postJSON } from "../api.js";
 import { T, NUM, FONT, LBL } from "./l10tokens.jsx";
+import { fmtMoney } from "./scorecardMath.js";
 
 const muted = { fontSize: 13, color: T.muted, padding: "8px 0" };
 
@@ -19,6 +20,7 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.ink }}>{r.measurable}</div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{label}{r.owner && r.owner.initials ? ` · ${r.owner.initials}` : ""}</div>
+            {r.provenance_detail && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 6, lineHeight: 1.45 }}>{r.provenance_detail}</div>}
           </div>
           <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", fontSize: 22, color: T.muted, lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
@@ -30,26 +32,62 @@ export default function DrillDrawer({ drill, canEdit, onClose, onSaved }) {
   );
 }
 
+function moneyBit(v) {
+  if (v == null || v === 0) return "";
+  const cents = Math.round(Math.abs(Number(v)) * 100) % 100 !== 0;
+  return fmtMoney(v, { cents });
+}
+
+function RecordLine({ x, attach, vendor }) {
+  return (
+    <div style={{ padding: "10px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client || "—"}</span>
+        <span style={{ ...NUM, fontSize: 12, color: T.ink, flexShrink: 0, whiteSpace: "nowrap" }}>
+          {x.sale_price != null ? moneyBit(x.sale_price) || fmtMoney(0) : fmtDate(x.date)}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
+        {x.side === "sell" && <Tag on={false} label="Listing" />}
+        <span>{[x.side && x.side !== "sell" ? x.side : null, x.detail, x.sale_price != null ? fmtDate(x.date) : null].filter(Boolean).join(" · ") || "—"}{x.address ? ` · ${x.address}` : ""}{x.agent ? ` · ${x.agent}` : ""}</span>
+      </div>
+    </div>
+  );
+}
+
 function Records({ r, ws, we }) {
   const [recs, setRecs] = useState(null);
   const [src, setSrc] = useState("Sisu");      // where the rows came from — the server says (Sisu / GHL / Arive)
   const [restricted, setRestricted] = useState(false);   // agent-level rows on the lending board
+  const [summary, setSummary] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [excluded, setExcluded] = useState([]);
   const [sort, setSort] = useState("name");   // alphabetical by default; toggle to date
   useEffect(() => {
     let ok = true;
     setRecs(null);
     getJSON(`/ulrg/metric/${r.id}/records?week_start=${ws}&week_end=${we}`)
-      .then((d) => { if (ok) { setRecs(d.records || []); setSrc(d.source_label || "Sisu"); setRestricted(!!d.restricted); } })
+      .then((d) => { if (ok) {
+        setRecs(d.records || []);
+        setSrc(d.source_label || "Sisu");
+        setRestricted(!!d.restricted);
+        setSummary(d.summary || null);
+        setGroups(d.groups || []);
+        setExcluded(d.excluded || []);
+      } })
       .catch(() => { if (ok) setRecs([]); });
     return () => { ok = false; };
   }, [r.id, ws, we]);
 
   if (recs === null) return <div style={muted}>Loading records…</div>;
   if (restricted) return <div style={muted}>The agent-level detail behind this number is limited to leadership.</div>;
-  if (!recs.length) return <div style={muted}>No records from {src} in this window.</div>;
+  if (!recs.length && !groups.length && !excluded.length) {
+    return <div style={muted}>{summary || `No records from ${src} in this window.`}</div>;
+  }
   // attach-rate drill → the denominator deals, each flagged `captured` (the numerator subset), so the
   // list reads back as the rate. Count metrics have no `captured` field → plain "N records".
-  const attach = "captured" in recs[0];
+  const attach = recs.length > 0 && "captured" in recs[0];
   const vendor = /sympli/i.test(r.measurable) ? "Sympli" : /meraki/i.test(r.measurable) ? "Meraki" : "Attached";
   const capped = recs.filter((x) => x.captured).length;
   const pct = recs.length ? Math.round((capped / recs.length) * 1000) / 10 : 0;
@@ -79,20 +117,27 @@ function Records({ r, ws, we }) {
           ))}
         </div>
       </div>
+      {summary && <div style={{ fontSize: 13, color: T.ink, marginTop: -2, marginBottom: 10 }}>{summary}</div>}
       {denomNote && <div style={{ fontSize: 12, color: T.muted, marginTop: -2, marginBottom: 8 }}>{denomNote}</div>}
-      {sorted.map((x) => (
-        <div key={x.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.client || "—"}</span>
-            <span style={{ ...NUM, fontSize: 12, color: T.muted, flexShrink: 0 }}>{fmtDate(x.date)}</span>
+      {groups.length ? groups.map((g) => (
+        <div key={g.company} style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.line}` }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{g.company}</span>
+            <span style={{ ...NUM, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }} title={moneyBit(g.net) || fmtMoney(g.net, { cents: true })}>
+              {fmtMoney(g.net)}
+            </span>
           </div>
-          <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {attach && <Tag on={x.captured} label={x.captured ? vendor : "Other"} />}
-            {x.side === "sell" && <Tag on={false} label="Listing" />}
-            <span>{[x.agent, x.detail].filter(Boolean).join(" · ") || "—"}{x.address ? ` · ${x.address}` : ""}{x.sale_price ? ` · $${Math.round(x.sale_price).toLocaleString()}` : ""}</span>
-          </div>
+          {(g.records || []).map((x) => <RecordLine key={`${g.company}-${x.id}-${x.date}`} x={x} attach={attach} vendor={vendor} />)}
+          {!(g.records || []).length && <div style={muted}>No cash in or out this week.</div>}
         </div>
-      ))}
+      )) : sorted.map((x) => <RecordLine key={`${x.id}-${x.date}`} x={x} attach={attach} vendor={vendor} />)}
+      {excluded.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={LBL}>Excluded from the total</div>
+          <div style={{ fontSize: 12, color: T.muted, margin: "4px 0 6px" }}>Journal entries and transfers are listed here and left out of the cell.</div>
+          {excluded.map((x) => <RecordLine key={`x-${x.id}-${x.date}`} x={x} attach={false} vendor={vendor} />)}
+        </div>
+      )}
     </>
   );
 }
@@ -119,6 +164,7 @@ function ManualWeeks({ drill, canEdit, onSaved }) {
   return (
     <>
       <div style={{ ...LBL, marginBottom: 6 }}>Hand-entered{canEdit ? " · edit any week" : ""}</div>
+      <div style={{ ...muted, marginTop: 0 }}>This number is typed by hand. There is no source feed behind it.</div>
       {weeks.map((w) => (
         <div key={w.start} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.lineSoft}` }}>
           <span style={{ flex: 1, fontSize: 13, color: T.inkSoft }}>W{w.n} · {w.label}</span>

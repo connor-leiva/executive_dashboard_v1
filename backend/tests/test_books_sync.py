@@ -27,6 +27,14 @@ def _row(entity_type, obj):
     return _txn_to_row(TENANT, INTEG, entity_type, obj)
 
 
+def test_sales_receipt_and_payment_are_pulled():
+    from app.services.books_sync import _QBO_TXN_ENTITIES
+    assert "SalesReceipt" in _QBO_TXN_ENTITIES and "Payment" in _QBO_TXN_ENTITIES
+    rec = _row("SalesReceipt", {"Id": "9", "TxnDate": "2026-11-03", "TotalAmt": 40,
+                                "DepositToAccountRef": {"name": "Checking"}, "CustomerRef": {"name": "Ada"}})
+    assert rec["qbo_type"] == "SalesReceipt" and rec["amount"] == 40 and rec["bank_account_label"] == "Checking"
+
+
 # ── parse_pl_lines ────────────────────────────────────────────────────────────
 
 def test_parse_pl_lines_shape_and_sections():

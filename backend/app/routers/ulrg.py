@@ -34,7 +34,7 @@ from ..services import (binder_storage, recruiting, recruiting_accountability,
 from ..services.audit import audit
 from ..tenancy import tenant_app_url
 from ..services import roles
-from ..services.scorecard_resolvers import resolver_records, RESOLVERS, UNAVAILABLE
+from ..services.scorecard_resolvers import resolver_records, springb_drill, RESOLVERS, UNAVAILABLE
 from ..services import scorecard_portfolio, scorecard_sympli
 from ..services.scorecard_routing import (run_spec, spec_records, validate_spec, RESOLVER_SPECS,
                                           catalog as routing_catalog)
@@ -163,6 +163,11 @@ async def metric_records(metric_id: str, week_start: str, week_end: str,
     # The lending board's agent-level rows are for coaching, so the names behind them are leadership-only.
     if m.resolver_key in scorecard_sympli.AGENT_LEVEL_KEYS and user.role not in ("owner", "admin"):
         return {"source": "resolver", "source_label": "Sisu", "measurable": m.name, "records": [], "restricted": True}
+    detail = await springb_drill(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
+    if detail is not None:
+        return {"source": "resolver", "measurable": m.name, "records": detail.get("records") or [],
+                "excluded": detail.get("excluded") or [], "groups": detail.get("groups") or [],
+                "summary": detail.get("summary"), "source_label": detail.get("source_label") or "GHL"}
     recs = await resolver_records(s, user.tenant_id, business_id, m.resolver_key, ws, we, group=group)
     label = (scorecard_sympli.source_label(m.resolver_key) if scorecard_sympli.is_sympli_key(m.resolver_key)
              else scorecard_portfolio.source_label(m.resolver_key) if scorecard_portfolio.is_portfolio_key(m.resolver_key)

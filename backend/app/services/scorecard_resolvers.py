@@ -314,6 +314,404 @@ async def _forum_vip_records(s, tenant_id, business_id, week_start, week_end, li
              "side": None, "sale_price": None, "detail": (r.meta or {}).get("to_stage")} for r in rows]
 
 
+def _drill_row(rid, client, date, detail, *, side=None, sale_price=None, company=None,
+               direction=None, excluded=False, status=None):
+    when = date.isoformat() if hasattr(date, "isoformat") else date
+    return {"id": None if rid is None else str(rid), "client": client or "—", "agent": None,
+            "date": when, "address": None, "side": side, "sale_price": sale_price, "detail": detail,
+            "company": company, "direction": direction, "excluded": excluded, "status": status}
+
+
+_DRILL_KEYS = frozenset({
+    "forum_vip_guests_seats", "forum_vip_guests_spring", "forum_vip_guests_sisu",
+    "sb_cost_per_qualified_lead", "sb_cash_collected_rate", "sb_edge_paid_added",
+    "sb_renewals_confirmed", "sb_spring_break_tickets", "sb_net_cash",
+    "sb_active_members", "sb_decisions_open", "sb_failed_payments_open",
+    "sb_renewal_dates_current",
+})
+
+
+async def springb_drill(s, tenant_id, business_id, key: str, week_start: dt.date, week_end: dt.date,
+                        group=None, limit: int = 500):
+    """The rows behind a Spring B cell. None when this key isn't one of those resolvers.
+
+    The list is the same filter as the number: a drawer that says there are no records
+    while the cell shows 3 is a bug. Journal entries and transfers come back under
+    `excluded` so they stay visible without being added into the total."""
+    if key not in _DRILL_KEYS:
+        return None
+    from ..models import MetricRecord
+    if key == "forum_vip_guests_seats":
+        return await _seat_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key in ("forum_vip_guests_spring", "forum_vip_guests_sisu"):
+        split = await _vip_split(s, tenant_id, business_id, week_start, week_end)
+        channel = "sisu" if key.endswith("sisu") else "spring"
+        if split is UNAVAILABLE:
+            return {"records": [], "summary": "GHL hasn't synced this week, so these leads can't be listed.",
+                    "source_label": "GHL"}
+        _counts, recs = split
+        rows = recs[channel][:limit]
+        return {"records": rows, "summary": f"{len(rows)} qualified lead{'s' if len(rows) != 1 else ''}.",
+                "source_label": "GHL"}
+    if key == "sb_cost_per_qualified_lead":
+        return await _cpl_drill(s, tenant_id, business_id, week_start, week_end, group, limit)
+    if key == "sb_cash_collected_rate":
+        return await _cash_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "sb_edge_paid_added":
+        return await _edge_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "sb_renewals_confirmed":
+        return await _renewals_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "sb_spring_break_tickets":
+        return await _tickets_drill(s, tenant_id, business_id, week_end, limit)
+    if key == "sb_net_cash":
+        return await _net_cash_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "sb_active_members":
+        return await _active_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    if key == "sb_decisions_open":
+        return await _decisions_drill(s, tenant_id, business_id, week_end, limit)
+    if key == "sb_failed_payments_open":
+        return await _failed_drill(s, tenant_id, business_id, week_end, limit)
+    if key == "sb_renewal_dates_current":
+        return await _renewal_dates_drill(s, tenant_id, business_id, week_start, week_end, limit)
+    return None
+
+
+async def _seat_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    events = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "forum_stage_event",
+        MetricRecord.segment == "vip_guest_seat",
+        MetricRecord.occurred_on >= week_start, MetricRecord.occurred_on <= week_end)
+        .order_by(MetricRecord.occurred_on.desc()).limit(limit))).scalars().all()
+    snaps = {ext: (meta or {}) for ext, meta in (await s.execute(select(
+        MetricRecord.external_id, MetricRecord.meta).where(
+            MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+            MetricRecord.source == "ghl", MetricRecord.kind == "recruiting"))).all()}
+    rows = []
+    for ev in events:
+        meta = {**(snaps.get((ev.meta or {}).get("opp_id")) or {}), **(ev.meta or {})}
+        stage = meta.get("to_stage") or meta.get("stage") or "seat"
+        source = meta.get("opp_source") or meta.get("page_url") or "no source"
+        proxy = bool(meta.get("proxy"))
+        who = ev.name or meta.get("contact_name") or "Opportunity"
+        rows.append(_drill_row(
+            ev.external_id, who, ev.occurred_on,
+            f"{stage} · {source} · {'proxy' if proxy else 'observed'}",
+            side=stage, status="proxy" if proxy else "observed"))
+    return {"records": rows,
+            "summary": f"{len(rows)} seat{'s' if len(rows) != 1 else ''} entered this week.",
+            "source_label": "GHL"}
+
+
+async def _cpl_drill(s, tenant_id, business_id, week_start, week_end, group, limit):
+    from ..models import AdAccount, AdCampaign, AdInsightDaily
+    leads = await forum_vip_guests_spring(s, tenant_id, business_id, week_start, week_end, group)
+    split = await _vip_split(s, tenant_id, business_id, week_start, week_end)
+    lead_rows = [] if split is UNAVAILABLE else split[1]["spring"]
+    accts = (await s.execute(select(AdAccount).where(
+        AdAccount.tenant_id == tenant_id, AdAccount.platform == "meta"))).scalars().all()
+    named = [a for a in accts if (a.external_id or "") in (_META_AD_ACCOUNT, _META_AD_ACCOUNT.removeprefix("act_"))]
+    use = named or (accts if len(accts) == 1 else [])
+    ids = [a.id for a in use]
+    insights = []
+    if ids:
+        insights = (await s.execute(select(AdInsightDaily).where(
+            AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id.in_(ids),
+            AdInsightDaily.level == "campaign",
+            AdInsightDaily.occurred_on >= week_start, AdInsightDaily.occurred_on <= week_end))).scalars().all()
+    names = {c.id: c.name for c in (await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == tenant_id))).scalars().all()} if insights else {}
+    spend_by = {}
+    for row in insights:
+        key = row.campaign_id or row.object_external_id
+        spend_by.setdefault(key, {"name": names.get(row.campaign_id) or row.object_external_id, "spend": 0.0})
+        spend_by[key]["spend"] += float(row.spend or 0)
+    records = []
+    total = 0.0
+    for key, info in sorted(spend_by.items(), key=lambda kv: -kv[1]["spend"]):
+        total += info["spend"]
+        records.append(_drill_row(key, info["name"], week_start,
+                                  "Meta campaign spend", side="Meta", sale_price=round(info["spend"], 2)))
+    for lead in lead_rows[:limit]:
+        records.append({**lead, "side": "Lead", "detail": lead.get("detail") or "Qualified guest lead"})
+    n = 0 if leads in (None, UNAVAILABLE) else int(leads)
+    if leads is UNAVAILABLE and not records:
+        summary = "Meta or GHL hasn't synced, so cost per lead can't be listed."
+    elif not n:
+        summary = f"Meta spend ${total:,.2f}. No qualified leads this week, so the cell stays blank."
+    else:
+        summary = f"${total:,.2f} Meta spend ÷ {n} qualified lead{'s' if n != 1 else ''}."
+    return {"records": records, "summary": summary, "source_label": "Meta"}
+
+
+async def _cash_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    from .billing import merge_payment_sources
+    ghl_rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment"))).scalars().all()
+    legacy = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "payment"))).scalars().all()
+    if not ghl_rows and not legacy:
+        return {"records": [], "summary": "Neither GHL nor Stripe has payment rows yet.",
+                "source_label": "Stripe"}
+    native = [p for p in ghl_rows if not (p.meta or {}).get("imported")]
+    merged, _sup = merge_payment_sources(native, legacy) if legacy else (native, 0)
+    week = [p for p in merged if p.occurred_on and week_start <= p.occurred_on <= week_end
+            and _forum_cash_row(p)]
+    succ = sum(_cash_amount(p) for p in week if p.status == "succeeded")
+    fail = sum(_cash_amount(p) for p in week if p.status == "failed")
+    records = []
+    for p in sorted(week, key=lambda r: r.occurred_on or week_start, reverse=True)[:limit]:
+        src = "Stripe" if p.source == "stripe_legacy" else "GHL"
+        records.append(_drill_row(
+            p.external_id, p.name or p.email or "Member", p.occurred_on,
+            f"{src} · {p.status or 'unknown'}", side=src, status=p.status,
+            sale_price=round(_cash_amount(p), 2)))
+    den = succ + fail
+    if den == 0:
+        summary = "No Forum attempts this week, so the cell stays blank."
+    else:
+        summary = f"Succeeded ${succ:,.2f} of ${den:,.2f} attempted."
+    return {"records": records, "summary": summary, "source_label": "Stripe"}
+
+
+async def _edge_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "edge_subscription"))).scalars().all()
+    kept = []
+    for r in rows:
+        meta = r.meta or {}
+        start = _parse_day(meta.get("start_date"))
+        if not start or not (week_start <= start <= week_end):
+            continue
+        if r.amount is not None and float(r.amount) <= 0:
+            continue
+        if "comp" in (meta.get("plan_name") or "").lower():
+            continue
+        if (r.status or "") not in ("active", "trialing", "past_due"):
+            continue
+        kept.append((r, start, meta))
+    if not rows:
+        return {"records": [], "summary": "Stripe hasn't synced Edge subscriptions yet.",
+                "source_label": "Stripe"}
+    records = [_drill_row(r.external_id, r.name or r.email or "Member", start,
+                          meta.get("plan_name") or "Edge", side="Stripe", status=r.status,
+                          sale_price=float(r.amount) if r.amount is not None else None)
+               for r, start, meta in kept[:limit]]
+    return {"records": records, "summary": f"{len(kept)} new paid Edge subscription{'s' if len(kept) != 1 else ''}.",
+            "source_label": "Stripe"}
+
+
+async def _renewals_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    from .forum import _pdate
+    if not _week_holds_today(week_start, week_end):
+        return {"records": [], "summary": "Renewal status is a snapshot of this week only.",
+                "source_label": "GHL"}
+    members = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    end = week_end + dt.timedelta(days=60)
+    due = []
+    for m in members:
+        mem = (m.meta or {}).get("membership") or {}
+        if mem.get("member_kind") == "admin":
+            continue
+        rd = _pdate(mem.get("renewal_date"))
+        if rd and week_end < rd <= end:
+            due.append((m, rd, mem))
+    records = [_drill_row(m.external_id, m.name or m.email or "Member", rd,
+                          f"Renewal {rd.isoformat()} · {(mem.get('renewal_status') or 'blank')}",
+                          side="GHL", status=mem.get("renewal_status") or "blank")
+               for m, rd, mem in due[:limit]]
+    confirmed = sum(1 for _m, _rd, mem in due if (mem.get("renewal_status") or "").strip().lower() == "confirmed")
+    if not due:
+        summary = "Nobody is due in the next 60 days, so the cell stays blank."
+    else:
+        summary = f"{confirmed} confirmed of {len(due)} due."
+    return {"records": records, "summary": summary, "source_label": "GHL"}
+
+
+async def _tickets_drill(s, tenant_id, business_id, week_end, limit):
+    from ..models import MetricRecord
+    if week_end < _SPRING_BREAK_ON:
+        return {"records": [], "summary": "Spring Break tickets stay blank until Nov 27.",
+                "source_label": "Stripe"}
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "stripe_legacy", MetricRecord.kind == "spring_break_payment",
+        MetricRecord.status == "succeeded"))).scalars().all()
+    kept = [r for r in rows if r.occurred_on and r.occurred_on <= week_end]
+    kept.sort(key=lambda r: r.occurred_on, reverse=True)
+    records = [_drill_row(r.external_id, r.name or r.email or "Charge", r.occurred_on,
+                          f"Spring Break · {r.segment or 'ticket'}", side="Stripe", status=r.status,
+                          sale_price=float(r.amount) if r.amount is not None else None)
+               for r in kept[:limit]]
+    return {"records": records, "summary": f"{len(kept)} ticket{'s' if len(kept) != 1 else ''} sold through this week.",
+            "source_label": "Stripe"}
+
+
+def _book_signed(t):
+    kind = (t.qbo_type or "").replace(" ", "").lower()
+    amt = float(t.amount or 0)
+    if kind in _CASH_IN:
+        return "in", amt
+    if kind in _CASH_OUT:
+        return "out", -amt
+    return None, amt
+
+
+async def _net_cash_books(s, tenant_id, business_id):
+    from ..models import Business
+    books = [b for b in (await s.execute(select(Business).where(
+        Business.tenant_id == tenant_id).order_by(Business.sort_order))).scalars().all()
+             if _spring_book(b, business_id)]
+    return books or []
+
+
+async def _net_cash_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import BookTxn
+    books = await _net_cash_books(s, tenant_id, business_id)
+    ids = [b.id for b in books] or [business_id]
+    names = {b.id: b.name for b in books}
+    txns = (await s.execute(select(BookTxn).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.business_id.in_(ids),
+        BookTxn.txn_date >= week_start, BookTxn.txn_date <= week_end)
+        .order_by(BookTxn.txn_date.desc()))).scalars().all()
+    included, excluded = [], []
+    for t in txns:
+        direction, signed = _book_signed(t)
+        company = names.get(t.business_id) or "Books"
+        row = _drill_row(t.qbo_id, t.payee or t.qbo_type, t.txn_date, t.qbo_type,
+                         side=t.qbo_type, sale_price=round(signed, 2), company=company,
+                         direction=direction or "excluded", excluded=direction is None,
+                         status=t.realm_id)
+        if direction is None:
+            excluded.append(row)
+        else:
+            included.append(row)
+    groups = []
+    targets = books or []
+    for b in targets:
+        rows = [r for r in included if r["company"] == b.name]
+        groups.append({
+            "company": b.name,
+            "in": round(sum(r["sale_price"] for r in rows if r["direction"] == "in"), 2),
+            "out": round(sum(-r["sale_price"] for r in rows if r["direction"] == "out"), 2),
+            "net": round(sum(r["sale_price"] for r in rows), 2),
+            "records": rows[:limit],
+        })
+    net = round(sum(g["net"] for g in groups), 2)
+    names_l = ", ".join(g["company"] for g in groups) or "the three books"
+    sign = "−" if net < 0 else ""
+    summary = f"Net {sign}${abs(net):,.2f} across {names_l}."
+    return {"records": included[:limit], "excluded": excluded[:limit], "groups": groups,
+            "summary": summary, "source_label": "Books"}
+
+
+async def _active_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    if not _week_holds_today(week_start, week_end):
+        return {"records": [], "summary": "Active members is a snapshot of this week only.",
+                "source_label": "GHL"}
+    members = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active").limit(limit))).scalars().all()
+    records = [_drill_row(m.external_id, m.name or m.email or "Member", m.occurred_on,
+                          "Active member", side="GHL", status=m.status) for m in members]
+    return {"records": records, "summary": f"{len(records)} active member{'s' if len(records) != 1 else ''}.",
+            "source_label": "GHL"}
+
+
+async def _decisions_drill(s, tenant_id, business_id, week_end, limit):
+    from ..models import MetricRecord
+    from .sync import _forum_stage_group
+    rows = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "recruiting",
+        MetricRecord.status == "open"))).scalars().all()
+    cutoff = week_end - dt.timedelta(days=21)
+    stuck = []
+    for r in rows:
+        meta = r.meta or {}
+        if _forum_stage_group(meta.get("stage")) != "vip_guest":
+            continue
+        changed = _parse_day(meta.get("last_stage_change_at"))
+        if changed and changed <= cutoff:
+            stuck.append((r, changed, meta))
+    records = [_drill_row(r.external_id, r.name or "Opportunity", changed,
+                          f"{meta.get('stage') or 'VIP guest'} · quiet since {changed.isoformat()}",
+                          side="GHL") for r, changed, meta in stuck[:limit]]
+    return {"records": records, "summary": f"{len(stuck)} open decision{'s' if len(stuck) != 1 else ''}.",
+            "source_label": "GHL"}
+
+
+async def _failed_drill(s, tenant_id, business_id, week_end, limit):
+    from ..models import MetricRecord
+    pays = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "payment"))).scalars().all()
+    cutoff = week_end - dt.timedelta(days=7)
+    failed, succeeded = [], []
+    for p in pays:
+        if not p.occurred_on:
+            continue
+        if p.status == "succeeded":
+            succeeded.append(p)
+        elif p.status == "failed" and p.occurred_on <= cutoff:
+            failed.append(p)
+
+    def _recovered(f) -> bool:
+        sub = (f.meta or {}).get("subscription_id")
+        em = (f.email or "").strip().lower()
+        for ok in succeeded:
+            if ok.occurred_on <= f.occurred_on:
+                continue
+            if sub and (ok.meta or {}).get("subscription_id") == sub:
+                return True
+            if em and (ok.email or "").strip().lower() == em:
+                return True
+        return False
+
+    open_ = [f for f in failed if not _recovered(f)]
+    records = [_drill_row(p.external_id, p.name or p.email or "Member", p.occurred_on,
+                          "Failed, still open", side="GHL", status="failed",
+                          sale_price=float(p.amount) if p.amount is not None else None)
+               for p in open_[:limit]]
+    return {"records": records, "summary": f"{len(open_)} failed payment{'s' if len(open_) != 1 else ''} still open.",
+            "source_label": "GHL"}
+
+
+async def _renewal_dates_drill(s, tenant_id, business_id, week_start, week_end, limit):
+    from ..models import MetricRecord
+    from .forum import _pdate
+    if not _week_holds_today(week_start, week_end):
+        return {"records": [], "summary": "Renewal dates are a snapshot of this week only.",
+                "source_label": "GHL"}
+    members = (await s.execute(select(MetricRecord).where(
+        MetricRecord.tenant_id == tenant_id, MetricRecord.business_id == business_id,
+        MetricRecord.source == "ghl", MetricRecord.kind == "member",
+        MetricRecord.status == "active"))).scalars().all()
+    dated = []
+    for m in members:
+        rd = _pdate(((m.meta or {}).get("membership") or {}).get("renewal_date"))
+        dated.append((m, rd))
+    records = [_drill_row(m.external_id, m.name or m.email or "Member", rd,
+                          rd.isoformat() if rd else "No renewal date",
+                          side="GHL", status="dated" if rd else "missing")
+               for m, rd in dated[:limit]]
+    have = sum(1 for _m, rd in dated if rd)
+    summary = f"{have} of {len(dated)} active members have a renewal date." if dated else "No active members."
+    return {"records": records, "summary": summary, "source_label": "GHL"}
+
+
 async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.date, week_end: dt.date,
                            group=None, limit: int = 500):
     """The underlying Sisu deals behind a resolver's figure for a (metric, window) — powers the grid
@@ -321,6 +719,9 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
     office restriction, so the list is exactly what was counted. For the two RATE keys (attach rates)
     it's the denominator deals, each flagged `captured` (numerator subset). Returns [] for an office
     that maps to no agents (or an unmapped/overall-only key with no records), None for an unknown key."""
+    if key in _DRILL_KEYS:
+        detail = await springb_drill(s, tenant_id, business_id, key, week_start, week_end, group, limit)
+        return (detail or {}).get("records") or []
     if key in ROSTER_KEYS:
         return await _roster_records(key, s, tenant_id, business_id, week_start, week_end, group, limit)
     if key and key.startswith("sympli_"):
@@ -336,16 +737,6 @@ async def resolver_records(s, tenant_id, business_id, key: str, week_start: dt.d
         _counts, recs = split
         channel = "sisu" if key.endswith("sisu") else "spring"
         return recs[channel][:limit]
-    if key == "sb_net_cash":
-        from ..models import BookTxn
-        rows = (await s.execute(select(BookTxn).where(
-            BookTxn.tenant_id == tenant_id, BookTxn.business_id == business_id,
-            BookTxn.txn_date >= week_start, BookTxn.txn_date <= week_end)
-            .order_by(BookTxn.txn_date.desc()).limit(limit))).scalars().all()
-        return [{"id": t.qbo_id, "client": t.payee or t.qbo_type, "agent": None,
-                 "date": t.txn_date.isoformat() if t.txn_date else None, "address": None,
-                 "side": t.qbo_type, "sale_price": float(t.amount) if t.amount is not None else None,
-                 "detail": t.qbo_type} for t in rows]
     if key == "ulrg_team_sympli_attach":
         return await _sympli_records(s, tenant_id, week_start, week_end, group, limit)
     if key == "ulrg_team_meraki_attach":
@@ -1019,6 +1410,34 @@ def _spring_book(b, scorecard_business_id) -> bool:
 _net_cash_logged = False
 
 
+async def _log_net_cash_census(s, tenant_id, books) -> None:
+    """One line per realm, type, and recent week so a deploy log shows what the books actually hold.
+
+    Sales receipts and customer payments were not in the QuickBooks pull, so a week can
+    score $0 while the company did take cash. This count is the check."""
+    from collections import Counter
+    from ..models import BookTxn
+    ids = [b.id for b in books]
+    names = {b.id: b.name for b in books}
+    since = dt.date.today() - dt.timedelta(weeks=16)
+    rows = (await s.execute(select(
+        BookTxn.business_id, BookTxn.realm_id, BookTxn.qbo_type, BookTxn.txn_date, func.count()
+    ).where(BookTxn.tenant_id == tenant_id, BookTxn.business_id.in_(ids), BookTxn.txn_date >= since)
+        .group_by(BookTxn.business_id, BookTxn.realm_id, BookTxn.qbo_type, BookTxn.txn_date))).all()
+    by_type = Counter()
+    by_week = Counter()
+    for bid, realm, qbo_type, txn_date, n in rows:
+        kind = (qbo_type or "").replace(" ", "").lower()
+        bucket = "in" if kind in _CASH_IN else "out" if kind in _CASH_OUT else "excluded"
+        week = txn_date - dt.timedelta(days=txn_date.weekday())
+        by_type[(names.get(bid), realm, qbo_type, bucket)] += n
+        by_week[(week.isoformat(), names.get(bid), qbo_type, bucket)] += n
+    for (name, realm, qbo_type, bucket), n in sorted(by_type.items(), key=lambda kv: (str(kv[0][0]), kv[0][2])):
+        print(f"[sb_net_cash] realm={realm} business={name} type={qbo_type} {bucket}={n}", flush=True)
+    for (week, name, qbo_type, bucket), n in sorted(by_week.items()):
+        print(f"[sb_net_cash] week={week} business={name} type={qbo_type} {bucket}={n}", flush=True)
+
+
 @resolver("sb_net_cash")
 async def sb_net_cash(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date, group=None):
     """Cash in minus cash out for the week across The Forum, beCollective, and SB Coaching.
@@ -1038,6 +1457,7 @@ async def sb_net_cash(s, tenant_id, business_id, week_start: dt.date, week_end: 
     if not _net_cash_logged:
         realms = sorted({b.key for b in books})
         print(f"[sb_net_cash] businesses={[b.name for b in books]} keys={realms}", flush=True)
+        await _log_net_cash_census(s, tenant_id, books)
         _net_cash_logged = True
     txns = (await s.execute(select(BookTxn).where(
         BookTxn.tenant_id == tenant_id, BookTxn.business_id.in_(ids),
