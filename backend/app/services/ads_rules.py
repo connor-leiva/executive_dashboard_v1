@@ -18,14 +18,21 @@ from __future__ import annotations
 
 import re
 
-# The mockup's heuristic, preserved to the letter. `split: True` means the label carries the
-# token after the prefix, so "KB-Webinar-Retarget" groups as "KB · Webinar" rather than
-# collapsing every KB campaign into one bucket.
+# Spring B runs one Meta account for several programmes. The default groups are the brands
+# and launches the L10 actually discusses. First match wins, so Dallas and Scottsdale are
+# named before the generic Forum rule, and The Shift before a bare "edge".
 DEFAULT_GROUP_RULES: list[dict] = [
-    {"match": "prefix", "value": "kb-", "label": "KB", "split": True},
-    {"match": "contains", "value": "event name research", "label": "Event Name Research"},
-    {"match": "contains", "value": "webinar", "label": "Webinar"},
+    {"match": "contains", "value": "forum dallas", "label": "Forum Dallas"},
+    {"match": "contains", "value": "dallas forum", "label": "Forum Dallas"},
+    {"match": "contains", "value": "scottsdale", "label": "Forum Scottsdale"},
+    {"match": "contains", "value": "the shift", "label": "beCollective / The Shift"},
+    {"match": "contains", "value": "becollective", "label": "beCollective / The Shift"},
+    {"match": "contains", "value": "be collective", "label": "beCollective / The Shift"},
+    {"match": "contains", "value": "edge", "label": "Edge Webinar"},
+    {"match": "contains", "value": "forum", "label": "Forum"},
 ]
+
+FORUM_GROUPS = frozenset({"Forum Dallas", "Forum Scottsdale", "Forum"})
 
 FALLBACK_GROUP = "Other"
 
@@ -71,6 +78,18 @@ def match_name(name: str, match: str, value: str) -> bool:
     if match == "contains":
         return v in low
     return False
+
+
+def is_forum_group(label: str | None) -> bool:
+    """Spend that belongs on Cost per Qualified Lead: Forum, not The Shift or the Edge."""
+    return (label or "") in FORUM_GROUPS
+
+
+def fatigue_signal(ctr_recent, ctr_prior, freq_recent, freq_prior) -> bool:
+    """Frequency rising while CTR falls. Missing numbers are not a flag."""
+    if None in (ctr_recent, ctr_prior, freq_recent, freq_prior):
+        return False
+    return float(freq_recent) > float(freq_prior) and float(ctr_recent) < float(ctr_prior)
 
 
 def classify_campaign(name: str, rules: list[dict] | None = None) -> str:

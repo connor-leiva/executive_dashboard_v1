@@ -7,9 +7,10 @@
  * they go.
  *
  * The live failure that motivated this is worth stating, because it is what the preview exists
- * to prevent: the shipped default matches the prefix `kb-`, the account names its campaigns
+ * to prevent: an earlier default matched the prefix `kb-`, the account names its campaigns
  * `KB - The Shift - August2026`, and two spaces meant all nineteen fell to Other and the whole
  * "where it came from" panel became one bar. Nobody could have seen that by reading the rules.
+ * The shipped default is now brand and event (Forum Dallas, Forum Scottsdale, the Shift, Edge).
  *
  * So the preview is the feature. Every edit asks the SERVER what that rule set would do and
  * shows the answer beside the rule - classifying in the browser would mean two implementations

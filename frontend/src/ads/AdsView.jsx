@@ -20,7 +20,7 @@ import CreativeWall from "./CreativeWall.jsx";
 import DrillPanel from "./DrillPanel.jsx";
 import GroupingRules from "./GroupingRules.jsx";
 import Funnel from "./Funnel.jsx";
-import { API_BASE, getJSON, postJSON } from "../api";
+import { API_BASE, getJSON, patchJSON, postJSON } from "../api";
 import { cashNote, Fig as ChromeFig, Hero, Kicker,
          Section as ChromeSection,
          Source } from "./AdsChrome.jsx";
@@ -110,6 +110,78 @@ function Bars({ rows, valueKey, format, max }) {
   );
 }
 
+function WeeklyPlan({ accountId, groups, budgets, onSaved }) {
+  const [draft, setDraft] = useState({});
+  const [saving, setSaving] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const rows = groups || [];
+  if (!rows.length) return null;
+
+  async function save(name) {
+    const typed = draft[name];
+    const next = { ...(budgets || {}) };
+    if (typed === "" || typed == null) {
+      delete next[name];
+    } else {
+      const n = Number(typed);
+      if (!Number.isFinite(n) || n < 0) {
+        setMsg("Enter a weekly dollar amount, or leave the field blank to clear it.");
+        return;
+      }
+      next[name] = n;
+    }
+    if (!API_BASE) {
+      setMsg("This preview has no API, so the weekly plan stays on screen only.");
+      return;
+    }
+    setSaving(name);
+    setMsg(null);
+    try {
+      await patchJSON(`/ads/accounts/${accountId}`, { weekly_budgets: next });
+      setDraft((d) => {
+        const copy = { ...d };
+        delete copy[name];
+        return copy;
+      });
+      onSaved?.();
+    } catch (e) {
+      setMsg(e.message || "Could not save the weekly plan.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>
+        Weekly plan
+      </div>
+      {rows.map((g) => {
+        const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
+        return (
+          <label key={g.name}
+                 style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                          fontFamily: FONT, fontSize: 13, color: C.ink }}>
+            <span style={{ minWidth: 180 }}>{g.name}</span>
+            <span style={{ color: C.muted }}>$</span>
+            <input aria-label={`Weekly budget for ${g.name}`} inputMode="decimal" value={shown}
+                   onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))}
+                   style={{ width: 110, fontFamily: FIG, fontSize: 13, padding: "6px 8px",
+                            border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink,
+                            background: C.surface }} />
+            <span style={{ color: C.slate }}>per week</span>
+            <button type="button" className="per" disabled={saving === g.name}
+                    onClick={() => save(g.name)}>
+              {saving === g.name ? "Saving" : "Save"}
+            </button>
+          </label>
+        );
+      })}
+      {msg && <p style={{ fontSize: 12, color: C.warnInk, margin: 0 }}>{msg}</p>}
+    </div>
+  );
+}
+
 function Pill({ tone, children }) {
   const b = band(tone);
   return (
@@ -130,6 +202,9 @@ export default function AdsView() {
      one's clothes. Reset when the account changes: a campaign id from another account resolves
      to a 404 rather than to nothing. */
   const [campaign, setCampaign] = useState(null);
+  /* The page opens on a brand, not the whole account. All campaigns is still one chip away. */
+  const [brand, setBrand] = useState(null);
+  const [brandTouched, setBrandTouched] = useState(false);
 
   /* The drill is fetched on demand rather than with the page: it returns names and emails for
      every rung, and pre-loading six lists nobody may open would be both slow and a wider spill
@@ -144,6 +219,16 @@ export default function AdsView() {
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 24 });
+  const brands = (data && data.groups) || [];
+  useEffect(() => {
+    if (brandTouched || !brands.length) return;
+    const first = brands.find((g) => g.name !== "Other") || brands[0];
+    setBrand(first.name);
+  }, [data, brandTouched]);
+  const shownCampaigns = brand
+    ? (data?.campaigns || []).filter((c) => c.group === brand)
+    : (data?.campaigns || []);
+  const shownGroups = brand ? brands.filter((g) => g.name === brand) : brands;
 
   /* Scrollspy for the jump rail. Sections are found through the ref rather than document,
      because the tree is committed before it is attached; whichever section has crossed the rail
@@ -342,6 +427,20 @@ export default function AdsView() {
                 </button>
               </>
             )}
+          </div>
+
+          <div className="ctrl">
+            <span className="periods" aria-label="Brand or event">
+              <button type="button" className={`per${brand ? "" : " on"}`}
+                      onClick={() => { setBrand(null); setBrandTouched(true); }}>All brands</button>
+              {brands.map((g) => (
+                <button key={g.name} type="button"
+                        className={`per${brand === g.name ? " on" : ""}`}
+                        onClick={() => { setBrand(g.name); setBrandTouched(true); }}>
+                  {g.name}
+                </button>
+              ))}
+            </span>
           </div>
         </div>
       </div>
@@ -564,7 +663,16 @@ export default function AdsView() {
         lede="Groups are resolved live from this workspace&rsquo;s rules, never stored — rename a
               campaign and it regroups on the next read rather than silently staying where it was.">
         <Card>
-          <Bars rows={(data.groups || []).map((g) => ({ name: g.name, spend: g.spend }))}
+          <p style={{ fontSize: 13, color: C.slate, margin: "0 0 12px" }}>
+            {brand
+              ? `${brand} is selected. The chain above stays the whole account; spend and the campaign table below follow the brand.`
+              : "All brands. Pick one to read that launch on its own."}
+            {shownGroups.length === 1 && shownGroups[0].weekly_budget != null && (
+              <> {usd(shownGroups[0].spend)} spent in this window against a {usd(shownGroups[0].weekly_budget)} weekly plan
+                {shownGroups[0].pace != null ? ` (${shownGroups[0].pace}% of the plan for these days).` : "."}</>
+            )}
+          </p>
+          <Bars rows={shownGroups.map((g) => ({ name: g.name, spend: g.spend }))}
                 valueKey="spend" format={(v) => usd(v)} />
           {data.unmatched_count > 0 && (
             <p style={{ fontSize: 12, color: C.warnInk, margin: "14px 0 0" }}>
@@ -577,6 +685,8 @@ export default function AdsView() {
               somebody creates one, and the person who named it is the person who can say where
               it belongs - sending them to another page to guess at rules without seeing the
               campaigns is how the drift persists. */}
+          <WeeklyPlan accountId={data.account?.id} groups={shownGroups}
+                      budgets={data.weekly_budgets} onSaved={retry} />
           <GroupingRules account={account} onSaved={retry} />
         </Card>
       </Section>
@@ -593,7 +703,7 @@ export default function AdsView() {
             <span>Campaign</span><span>Spend</span><span>Link clicks</span>
             <span>CTR</span><span>CPC</span><span>Cost / lead</span>
           </div>
-          {(data.campaigns || []).map((c) => (
+          {shownCampaigns.map((c) => (
             <div key={c.external_id} className="ads-table-row"
                  style={{ padding: "12px 16px", borderBottom: `1px solid ${C.hair}`, fontSize: 13 }}>
               <div className="ads-cell-name" style={{ minWidth: 0 }}>
@@ -601,6 +711,14 @@ export default function AdsView() {
                   {c.name}
                 </div>
                 <div style={{ fontSize: 12, color: C.muted }}>{c.group}</div>
+                {(c.daily_budget != null || c.lifetime_budget != null) && (
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                    {c.daily_budget != null ? `Daily budget ${usd(c.daily_budget)}` : ""}
+                    {c.daily_budget != null && c.lifetime_budget != null ? " · " : ""}
+                    {c.lifetime_budget != null ? `Lifetime ${usd(c.lifetime_budget)}` : ""}
+                    {` · spent ${usd(c.spend)}`}
+                  </div>
+                )}
               </div>
               <Fig lead="$" value={compact(c.spend).replace("$", "")} />
               <Fig value={compact(c.link_clicks)} />

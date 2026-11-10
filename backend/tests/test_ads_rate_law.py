@@ -132,17 +132,17 @@ def test_default_group_rules_reproduce_the_mockup():
     Real naming here is dash-delimited, and any account that disagrees can now say so in the
     grouping editor rather than filing a bug.
     """
-    assert ads_rules.classify_campaign("KB-Webinar-Retarget") == "KB · Webinar"
-    assert ads_rules.classify_campaign("kb-shift lookalike") == "KB · shift lookalike"
-    assert ads_rules.classify_campaign("2026 Event Name Research v2") == "Event Name Research"
-    assert ads_rules.classify_campaign("Spring Webinar Broad") == "Webinar"
+    assert ads_rules.classify_campaign("Forum Dallas - VIP Guest") == "Forum Dallas"
+    assert ads_rules.classify_campaign("Forum Scottsdale January") == "Forum Scottsdale"
+    assert ads_rules.classify_campaign("KB - The Shift - August2026") == "beCollective / The Shift"
+    assert ads_rules.classify_campaign("The Edge Webinar") == "Edge Webinar"
     assert ads_rules.classify_campaign("Retargeting - warm") == ads_rules.FALLBACK_GROUP
 
 
 def test_an_unmatched_campaign_is_counted_not_hidden():
     """A rising Other count is the leading indicator that the naming convention drifted away
     from the rules - the moment before every group total quietly stops meaning what it did."""
-    rows = [{"name": "KB-Webinar-A"}, {"name": "mystery one"}, {"name": "mystery two"}]
+    rows = [{"name": "Forum Dallas VIP"}, {"name": "mystery one"}, {"name": "mystery two"}]
     groups, unmatched = ads_rules.group_campaigns(rows)
     assert unmatched == 2
     assert len(groups[ads_rules.FALLBACK_GROUP]) == 2
@@ -154,13 +154,13 @@ def test_a_tenant_can_supply_its_own_grouping_without_affecting_anyone():
     mine = [{"match": "prefix", "value": "acme_", "label": "Acme", "split": False}]
     assert ads_rules.classify_campaign("ACME_spring_promo", mine) == "Acme"
     assert ads_rules.classify_campaign("KB-Webinar-A", mine) == ads_rules.FALLBACK_GROUP
-    assert ads_rules.classify_campaign("KB-Webinar-A") == "KB · Webinar"
+    assert ads_rules.classify_campaign("Forum Dallas VIP") == "Forum Dallas"
 
 
 def test_classification_never_raises_on_junk():
     for bad in ("", None, "   "):
         assert ads_rules.classify_campaign(bad) == ads_rules.FALLBACK_GROUP
-    assert ads_rules.classify_campaign("kb-", ) == "KB"        # prefix with no tail to split
+    assert ads_rules.classify_campaign("kb-") == ads_rules.FALLBACK_GROUP
 
 
 # ── period resolution ─────────────────────────────────────────────────────────────────

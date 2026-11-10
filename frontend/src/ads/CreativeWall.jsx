@@ -103,6 +103,8 @@ function AdTile({ ad }) {
                     borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
         <Cell label="Spend">{usd(ad.spend)}</Cell>
         <Cell label="Link CTR">{pct(ad.ctr)}</Cell>
+        <Cell label="Frequency">{ad.frequency == null ? "—" : Number(ad.frequency).toFixed(2)}</Cell>
+        {ad.fatigue && <Cell label="Fatigue">CTR down as frequency rose</Cell>}
         <Cell label="Link clicks">{compact(ad.link_clicks)}</Cell>
         {/* Cost per lead against META's lead count, which is Meta measuring itself. Named that
             way here for the same reason the strip names it: it is not the owned funnel. */}

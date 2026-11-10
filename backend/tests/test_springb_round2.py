@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import SessionLocal, engine
-from app.models import (AdAccount, AdInsightDaily, Base, BookTxn, Business, Integration,
+from app.models import (AdAccount, AdCampaign, AdInsightDaily, Base, BookTxn, Business, Integration,
                         MetricRecord, ScorecardGroup, ScorecardMetric, Tenant)
 from app.services import scorecard_resolvers as R
 from app.services.billing import forum_offering, spring_break_offering
@@ -149,12 +149,45 @@ async def test_cost_per_lead_uses_campaign_spend_only(env):
                          last_synced_at=dt.datetime.now(dt.timezone.utc))
         s.add(acct)
         await s.flush()
+        forum = AdCampaign(tenant_id=e["tid"], ad_account_id=acct.id, external_id="c-forum",
+                           name="Forum Dallas - VIP")
+        edge = AdCampaign(tenant_id=e["tid"], ad_account_id=acct.id, external_id="c-edge",
+                          name="The Edge Webinar")
+        s.add_all([forum, edge])
+        await s.flush()
         s.add(AdInsightDaily(tenant_id=e["tid"], ad_account_id=acct.id, level="campaign",
-                             object_external_id="c1", occurred_on=mon, spend=Decimal("50")))
+                             campaign_id=forum.id, object_external_id="c-forum", occurred_on=mon,
+                             spend=Decimal("50")))
+        s.add(AdInsightDaily(tenant_id=e["tid"], ad_account_id=acct.id, level="campaign",
+                             campaign_id=edge.id, object_external_id="c-edge", occurred_on=mon,
+                             spend=Decimal("80")))
         s.add(AdInsightDaily(tenant_id=e["tid"], ad_account_id=acct.id, level="ad",
                              object_external_id="a1", occurred_on=mon, spend=Decimal("50")))
         await s.commit()
         assert await R.sb_cost_per_qualified_lead(s, e["tid"], e["bid"], mon, mon + dt.timedelta(days=6)) == 50.0
+
+
+async def test_ad_spend_vs_budget_uses_the_weekly_plan(env):
+    e = env
+    mon = dt.date(2026, 11, 2)
+    async with SessionLocal() as s:
+        integ = Integration(tenant_id=e["tid"], provider="meta_ads", status="connected")
+        s.add(integ)
+        await s.flush()
+        acct = AdAccount(tenant_id=e["tid"], integration_id=integ.id, business_id=e["bid"],
+                         platform="meta", external_id="act_budget", name="Meta",
+                         weekly_budgets={"Forum Dallas": 1000, "Edge Webinar": 500})
+        s.add(acct)
+        await s.flush()
+        s.add(AdInsightDaily(tenant_id=e["tid"], ad_account_id=acct.id, level="campaign",
+                             object_external_id="c1", occurred_on=mon, spend=Decimal("200")))
+        await s.commit()
+        assert await R.sb_ad_spend_vs_budget(
+            s, e["tid"], e["bid"], mon, mon + dt.timedelta(days=6)) == 13.3
+        acct.weekly_budgets = {}
+        await s.commit()
+        assert await R.sb_ad_spend_vs_budget(
+            s, e["tid"], e["bid"], mon, mon + dt.timedelta(days=6)) is None
 
 
 async def test_renewals_confirmed_rate(env):

@@ -10,15 +10,20 @@
  * rather than rendering an empty ladder.
  */
 const CAMPAIGNS = [
-  { external_id: "23851", id: null, name: "KB-Webinar-Retarget-Q3", group: "KB · Webinar",
+  { external_id: "23851", id: null, name: "Forum Dallas - VIP Guest", group: "Forum Dallas",
+    daily_budget: 150, lifetime_budget: 4500,
     spend: 18240, impressions: 1_284_000, clicks: 21_400, link_clicks: 14_820, leads: 214 },
-  { external_id: "23852", id: null, name: "KB-Shift-Broad", group: "KB · Shift",
+  { external_id: "23852", id: null, name: "KB - The Shift - August2026", group: "beCollective / The Shift",
+    daily_budget: 200, lifetime_budget: null,
     spend: 12980, impressions: 962_000, clicks: 13_100, link_clicks: 8_940, leads: 121 },
-  { external_id: "23853", id: null, name: "2026 Event Name Research v2", group: "Event Name Research",
+  { external_id: "23853", id: null, name: "Forum Scottsdale - January", group: "Forum Scottsdale",
+    daily_budget: 80, lifetime_budget: 2400,
     spend: 7420, impressions: 511_000, clicks: 6_800, link_clicks: 4_120, leads: 38 },
-  { external_id: "23854", id: null, name: "Spring Webinar Broad", group: "Webinar",
+  { external_id: "23854", id: null, name: "The Edge Webinar", group: "Edge Webinar",
+    daily_budget: 40, lifetime_budget: null,
     spend: 6110, impressions: 402_000, clicks: 5_900, link_clicks: 3_640, leads: 44 },
   { external_id: "23855", id: null, name: "Retargeting - warm list", group: "Other",
+    daily_budget: null, lifetime_budget: null,
     spend: 3180, impressions: 148_000, clicks: 2_240, link_clicks: 1_510, leads: 0 },
 ];
 
@@ -73,13 +78,25 @@ export const sampleAdsOverview = {
   },
   bands: { ctr: "good", cpm: "good", cpl: "good" },
   campaigns: withRates,
-  groups: groupsOf(withRates),
+  weekly_budgets: {
+    "Forum Dallas": 2500, "Forum Scottsdale": 1200,
+    "beCollective / The Shift": 4000, "Edge Webinar": 800,
+  },
+  groups: groupsOf(withRates).map((g) => {
+    const weekly = { "Forum Dallas": 2500, "Forum Scottsdale": 1200,
+                     "beCollective / The Shift": 4000, "Edge Webinar": 800 }[g.name] || null;
+    const plan = weekly ? weekly * 30 / 7 : null;
+    return { ...g, weekly_budget: weekly, plan_spend: plan,
+             pace: plan ? Math.round(g.spend / plan * 1000) / 10 : null };
+  }),
   unmatched_count: 1,
   alerts: [
     { tone: "bad", metric: "cpl",
       text: "Retargeting - warm list spent $3,180 and reported no leads" },
     { tone: "warn", metric: "grouping",
       text: "1 campaign fell to Other - the grouping rules may have drifted from how the account is being named" },
+    { tone: "warn", metric: "fatigue",
+      text: "1 ad with rising frequency and falling CTR: Forum-Dallas-1080x1080-v3" },
   ],
   // The ladder. Counts are what the server would return; conversions are computed from them, so
   // a wrong number here shows up on screen rather than hiding.
@@ -154,9 +171,11 @@ export const sampleAdsCreatives = {
   connected: true,
   total: 4,
   ads: [
-    { id: "a1", name: "KB-Webinar-1080x1080-v3", headline: "The room where it changes",
+    { id: "a1", name: "Forum-Dallas-1080x1080-v3", headline: "The room where it changes",
       thumbnail_url: null, spend: 6420, impressions: 448_000, link_clicks: 5_210, leads: 88,
-      ctr: rate(5210, 448000, 100), cpl: rate(6420, 88), url_tags: "utm_source=meta&utm_campaign=KB-Webinar" },
+      ctr: rate(5210, 448000, 100), ctr_prior: rate(6400, 448000, 100),
+      frequency: 2.4, fatigue: true,
+      cpl: rate(6420, 88), url_tags: "utm_source=meta&utm_content={{ad.id}}" },
     { id: "a2", name: "KB-Shift-30s-motion", headline: "Ninety days from now",
       thumbnail_url: null, spend: 5180, impressions: 372_000, link_clicks: 3_640, leads: 51,
       ctr: rate(3640, 372000, 100), cpl: rate(5180, 51), url_tags: "utm_source=meta&utm_campaign=KB-Shift" },
@@ -177,10 +196,8 @@ export const sampleAdsCreatives = {
     "mapped in the CRM. 0 of 34 ads carry it today.",
 };
 
-/* The grouping editor's offline payload. Uses the LIVE account's real campaign names, because
-   the whole point of the editor is that the shipped default silently failed against exactly this
-   naming - `KB - The Shift` does not start with `kb-` - and a sample with tidy mockup names
-   would demonstrate the opposite of the problem. */
+/* The grouping editor's offline payload. Uses the live account's real campaign names so the
+   preview shows where those names land under the brand defaults. */
 export const sampleAdsGrouping = {
   connected: true,
   account: "sample",
@@ -189,20 +206,21 @@ export const sampleAdsGrouping = {
   fallback: "Other",
   match_kinds: ["prefix", "contains"],
   defaults: [
-    { match: "prefix", value: "kb-", label: "KB", split: true },
-    { match: "contains", value: "event name research", label: "Event Name Research" },
-    { match: "contains", value: "webinar", label: "Webinar" },
+    { match: "contains", value: "forum dallas", label: "Forum Dallas" },
+    { match: "contains", value: "scottsdale", label: "Forum Scottsdale" },
+    { match: "contains", value: "the shift", label: "beCollective / The Shift" },
+    { match: "contains", value: "edge", label: "Edge Webinar" },
+    { match: "contains", value: "forum", label: "Forum" },
   ],
   campaigns: [
-    { id: "g1", name: "KB - The Shift - August2026", spend: 99_200, group: "KB · The Shift" },
-    { id: "g2", name: "KB - ForumVIP - SubmitApplication", spend: 9_900, group: "KB · ForumVIP" },
-    { id: "g3", name: "KB - Upgrade", spend: 5_400, group: "KB · Upgrade" },
-    { id: "g4", name: "KB - BeCollective", spend: 3_100, group: "KB · BeCollective" },
-    { id: "g5", name: "KB - Utah Life Mastermind - Lead Form", spend: 1_900,
-      group: "KB · Utah Life Mastermind" },
+    { id: "g1", name: "KB - The Shift - August2026", spend: 99_200, group: "beCollective / The Shift" },
+    { id: "g2", name: "KB - ForumVIP - SubmitApplication", spend: 9_900, group: "Forum" },
+    { id: "g3", name: "KB - Upgrade", spend: 5_400, group: "Other" },
+    { id: "g4", name: "KB - BeCollective", spend: 3_100, group: "beCollective / The Shift" },
+    { id: "g5", name: "KB - Utah Life Mastermind - Lead Form", spend: 1_900, group: "Other" },
     { id: "g6", name: "Generate Inner Circle Interest [Messages]", spend: 640, group: "Other" },
   ],
-  unmatched: 1,
+  unmatched: 3,
   period: ["2026-06-02", "2026-08-30"],
 };
 
