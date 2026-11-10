@@ -6,7 +6,7 @@ import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -440,6 +440,12 @@ async def create_integration(body: dict, bg: BackgroundTasks,
     if integ.id is None:
         s.add(integ)
     await s.flush()
+    if provider == "meta_ads" and body.get("token"):
+        from ..models import AdAccount
+        await s.execute(update(AdAccount).where(
+            AdAccount.integration_id == integ.id).values(
+            write_scope=None,
+            write_scope_detail="Token replaced. The next sync checks ads_management."))
     audit(s, user.tenant_id, user.id, "integration.connected", "integration", integ.id,
           {"provider": provider, "business": biz.key})
     await s.commit()

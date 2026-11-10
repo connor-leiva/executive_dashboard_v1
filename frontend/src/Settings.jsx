@@ -489,9 +489,10 @@ function MetaAdsConnectForm({ row, onClose, onDone }) {
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={{ width: "100%", maxWidth: 460, background: T.white, borderRadius: 14, padding: 22, boxShadow: "0 20px 60px rgba(0,46,44,.22)" }}>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 600, color: T.ink }}>{editing ? "Edit Meta Ads" : "Connect Meta Ads"}</div>
         <div style={{ fontFamily: "var(--font-text)", fontSize: 12, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
-          A <strong>System User</strong> token from Meta Business Settings → System Users. Grant it{" "}
-          <strong>ads_read</strong> only — this module never writes, so ads_management is more
-          access than it needs. Stored encrypted; the browser never calls Meta.
+          A <strong>System User</strong> token from Meta Business Settings → System Users. Grant{" "}
+          <strong>ads_read</strong> and <strong>ads_management</strong>. Reports work with ads_read
+          alone. Pausing, budgets, and tagging need ads_management — until then Apply only previews.
+          Stored encrypted; the browser never calls Meta.
         </div>
         <label style={label}>System User token {editing && <span style={{ fontWeight: 400, color: T.muted }}>· leave blank to keep current</span>}
           <input style={field} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required={!editing} placeholder={editing ? "•••••••• (unchanged)" : ""} />
@@ -1389,7 +1390,7 @@ const DESC = {
   stripe_legacy: () => "Original Stripe · read-only. Backfills legacy dues the newer sub-account never sees, and feeds the GHL delta-import file",
   stripe_bc: () => "A program's own Stripe · read-only. Membership payments only (event tickets + other products filtered out) — powers the Cash & Billing view",
   ghl_legacy: () => "The legacy GHL location · read-only. Labels each legacy Stripe charge (join by charge id) so the classifier knows what it's for",
-  meta_ads: () => "Paid social delivery, joined through to registrations and enrollments · read-only. Needs a System User token with ads_read — never ads_management",
+  meta_ads: () => "Paid social delivery, joined through to registrations and enrollments. Needs a System User token with ads_read and ads_management. Without ads_management, changes stay a preview.",
 };
 
 /* A provider with no DESC entry used to WHITE-SCREEN this whole page.

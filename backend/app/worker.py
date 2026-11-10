@@ -425,6 +425,29 @@ async def ads_funnel_tick():
             print(f"[ads_funnel_tick] tenant {tid}: {type(e).__name__}: {e}", flush=True)
 
 
+async def ads_autopilot_tick():
+    """Apply Kill and Scale for brands that turned autopilot on. Off by default."""
+    from .services.ads_write import run_autopilot_for
+    from .models import AdAccount
+    from .services.ads import ads_period
+    async with SessionLocal() as s:
+        rows = (await s.execute(select(AdAccount).where(
+            AdAccount.status == "active", AdAccount.autopilot.is_not(None)))).scalars().all()
+        picked = [(a.id, a.tenant_id, a.timezone_name) for a in rows
+                  if any(isinstance(v, dict) and v.get("on") for v in (a.autopilot or {}).values())]
+    for account_id, tid, tz in picked:
+        try:
+            async with SessionLocal() as s:
+                account = await s.get(AdAccount, account_id)
+                if account is None:
+                    continue
+                start, end, _ = ads_period("7d", None, None, tz)
+                await run_autopilot_for(s, account, start, end)
+                await s.commit()
+        except Exception as e:  # noqa: BLE001
+            print(f"[ads_autopilot] {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 async def marketing_delivery_tick():
     """Drain the marketing-request delivery queue. Intranet Phase 3.
 
@@ -587,6 +610,9 @@ def build_scheduler() -> AsyncIOScheduler:
     # After the syncs have had the night to land: attribution reads registrations the GHL sync
     # wrote, so running it earlier would freeze cohort days against yesterday's data.
     sched.add_job(beat(ads_funnel_tick), "cron", hour=5, minute=45, timezone=_tz)
+    # After attribution, before the office is reading the tab. Autopilot is off until a
+    # brand is switched on, and it still cannot write without ads_management.
+    sched.add_job(beat(ads_autopilot_tick), "cron", hour=6, minute=0, timezone=_tz)
     # Every minute, because this is the path a person is waiting on: an agent files a request and
     # somebody in marketing should see it while they still remember filing it. It is also cheap --
     # one indexed query that usually returns nothing.

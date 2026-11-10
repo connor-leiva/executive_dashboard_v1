@@ -403,6 +403,13 @@ async def sync_meta_ads(s: AsyncSession, tenant_id, integ: Integration) -> dict:
                       f"{type(ce).__name__}: {ce}", flush=True)
             acct.last_synced_at = dt.datetime.now(dt.timezone.utc)
             acct.last_error = None
+            if acct.write_scope is None:
+                try:
+                    from .ads_write import probe_scope
+                    await probe_scope(s, acct, token)
+                except Exception as pe:  # noqa: BLE001 - a scope check must not fail the sync
+                    acct.write_scope = "unknown"
+                    acct.write_scope_detail = f"{type(pe).__name__}: {pe}"[:500]
             await s.commit()
             out["results"].append({"account": acct.external_id, "campaigns": n_camp, "ads": n_ads,
                                    "insight_rows": w_c + w_a, "restated": r_c + r_a,
