@@ -560,36 +560,131 @@ BACKFILL_KEYS = (
 )
 
 
-async def backfill(tenant_slug: str = "springb", weeks: int = 8) -> int:
-    """Resolve the wired Spring B rows for the recent weeks. Does not touch other boards' metrics."""
+# Startup runs this once. A row in scorecard_backfill_mark is the lock.
+BACKFILL_MARK = "springb_enterprise_13w"
+
+
+async def _fill_cell(s, tenant_id, metric_id, week_start: dt.date, val, key: str) -> str:
+    """Write one auto value without ever clearing a cell or touching a hand-entered one.
+
+    Returns filled | updated | unchanged | skipped_manual | blank | unavailable.
+    A resolver result of None (looked, nothing to score) leaves the stored cell alone.
+    """
+    from decimal import Decimal
+
+    from ..models import ScorecardValue
+    from .scorecard_resolvers import UNAVAILABLE
+
+    row = (await s.execute(select(ScorecardValue).where(
+        ScorecardValue.metric_id == metric_id,
+        ScorecardValue.week_start == week_start))).scalar_one_or_none()
+    if val is UNAVAILABLE:
+        return "unavailable"
+    if val is None:
+        return "blank"
+    dec = Decimal(str(val))
+    if row is None or row.value is None:
+        if row is None:
+            s.add(ScorecardValue(tenant_id=tenant_id, metric_id=metric_id, week_start=week_start,
+                                 value=dec, source="resolver"))
+        else:
+            row.value, row.source, row.entered_by = dec, "resolver", None
+        return "filled"
+    if row.source == "manual":
+        return "skipped_manual"
+    if row.value == dec:
+        return "unchanged"
+    row.value, row.source, row.entered_by = dec, "resolver", None
+    return "updated"
+
+
+async def backfill_tenant(tenant_id, weeks: int = 13) -> dict:
+    """Fill the wired Spring B rows for `weeks` recent weeks. Other boards are not queried."""
     from ..db import SessionLocal
-    from ..models import Tenant
-    from .scorecard_resolvers import RESOLVERS, _recent_weeks, _write
+    from .scorecard_resolvers import RESOLVERS, UNAVAILABLE, _recent_weeks
 
     async with SessionLocal() as s:
-        tenant = (await s.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
-        if tenant is None:
-            raise SystemExit(f"no tenant {tenant_slug}")
-        tid = tenant.id
         rows = (await s.execute(
-            select(ScorecardMetric.id, ScorecardMetric.resolver_key, ScorecardGroup.business_id)
+            select(ScorecardMetric.id, ScorecardMetric.slug, ScorecardMetric.resolver_key,
+                   ScorecardGroup.business_id)
             .join(ScorecardGroup, ScorecardMetric.group_id == ScorecardGroup.id)
-            .where(ScorecardMetric.tenant_id == tid, ScorecardMetric.active.is_(True),
+            .where(ScorecardMetric.tenant_id == tenant_id, ScorecardMetric.active.is_(True),
                    ScorecardMetric.resolver_key.in_(BACKFILL_KEYS)))).all()
     today = dt.date.today()
     windows = _recent_weeks(today, weeks)
-    written = 0
-    for mid, key, bid in rows:
+    stats = {"weeks": weeks, "metrics": len(rows), "filled": 0, "updated": 0,
+             "unchanged": 0, "skipped_manual": 0, "blank": 0, "unavailable": 0, "errors": 0,
+             "sample": {}}
+    current_monday = windows[0][0] if windows else None
+    for mid, slug, key, bid in rows:
         fn = RESOLVERS.get(key)
         if fn is None:
             continue
         for ws, we in windows:
             async with SessionLocal() as s:
-                val = await fn(s, tid, bid, ws, we)
-                await _write(s, tid, mid, ws, val, key)
+                try:
+                    val = await fn(s, tenant_id, bid, ws, we)
+                    outcome = await _fill_cell(s, tenant_id, mid, ws, val, key)
+                    await s.commit()
+                except Exception as exc:  # one bad week must not stop the rest
+                    await s.rollback()
+                    stats["errors"] += 1
+                    print(f"[springb_backfill] {slug or key} {ws} error {type(exc).__name__}", flush=True)
+                    continue
+            stats[outcome] = stats.get(outcome, 0) + 1
+            if ws == current_monday and slug:
+                stats["sample"][slug] = "unavailable" if val is UNAVAILABLE else val
+    return stats
+
+
+async def run_backfill_once(weeks: int = 13) -> dict | None:
+    """Run the 13-week fill for every tenant that has these rows, unless the marker is already there.
+
+    Returns the stats of the run, or None when every such tenant was already marked.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from ..db import SessionLocal
+    from ..models import ScorecardBackfillMark
+
+    async with SessionLocal() as s:
+        tids = (await s.execute(
+            select(ScorecardMetric.tenant_id)
+            .where(ScorecardMetric.active.is_(True),
+                   ScorecardMetric.resolver_key.in_(BACKFILL_KEYS))
+            .distinct())).scalars().all()
+    if not tids:
+        print("[springb_backfill] no wired metrics", flush=True)
+        return None
+    async with SessionLocal() as s:
+        marked = set((await s.execute(
+            select(ScorecardBackfillMark.tenant_id).where(
+                ScorecardBackfillMark.key == BACKFILL_MARK,
+                ScorecardBackfillMark.tenant_id.in_(tids)))).scalars().all())
+    pending = [t for t in tids if t not in marked]
+    if not pending:
+        print("[springb_backfill] already done", flush=True)
+        return None
+    all_stats = []
+    for tid in pending:
+        print(f"[springb_backfill] start tenant={tid} weeks={weeks}", flush=True)
+        stats = await backfill_tenant(tid, weeks)
+        async with SessionLocal() as s:
+            s.add(ScorecardBackfillMark(tenant_id=tid, key=BACKFILL_MARK, stats=stats))
+            try:
                 await s.commit()
-                written += 1
-    return written
+            except IntegrityError:
+                await s.rollback()  # another process finished the same mark first
+        sample = " ".join(f"{k}={v}" for k, v in sorted(stats["sample"].items()))
+        print(
+            f"[springb_backfill] done tenant={tid} weeks={stats['weeks']} metrics={stats['metrics']} "
+            f"filled={stats['filled']} updated={stats['updated']} unchanged={stats['unchanged']} "
+            f"skipped_manual={stats['skipped_manual']} blank={stats['blank']} "
+            f"unavailable={stats['unavailable']} errors={stats['errors']}",
+            flush=True)
+        print(f"[springb_backfill] sample {sample}", flush=True)
+        all_stats.append(stats)
+    return {"tenants": len(all_stats), "runs": all_stats}
 
 
 def _main():
@@ -615,8 +710,14 @@ def _main():
             stats = await conn.run_sync(_run)
         print(stats)
         if args.backfill:
-            n = await backfill(args.tenant, args.backfill)
-            print(f"backfill writes: {n}")
+            from ..models import Tenant
+            from ..db import SessionLocal
+            async with SessionLocal() as s:
+                tenant = (await s.execute(select(Tenant).where(Tenant.slug == args.tenant))).scalar_one_or_none()
+            if tenant is None:
+                raise SystemExit(f"no tenant {args.tenant}")
+            stats = await backfill_tenant(tenant.id, args.backfill)
+            print(f"backfill {stats}")
 
     asyncio.run(go())
 
