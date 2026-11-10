@@ -303,7 +303,7 @@ async def _rewrite(model: str, blocks: list[dict]) -> list[dict] | None:
         if not isinstance(out, list) or len(out) != len(blocks):
             return None
         new = []
-        for b, o in zip(blocks, out):
+        for b, o in zip(blocks, out, strict=True):
             body = str((o or {}).get("body") or "").strip()
             if not body or not set(_NUM.findall(body)) <= set(_NUM.findall(b["body"])):
                 return None

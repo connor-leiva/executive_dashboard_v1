@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import random
-import uuid
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -184,7 +183,7 @@ async def main() -> None:
                                           expected_close_date=TODAY.date() + dt.timedelta(days=RNG.randint(8, 40)),
                                           lost_signal=False, lead_id=lead.id, lead_type="realtor.com"))
             # Other sources the group must NOT pick up.
-            for k in range(RNG.randint(8, 12)):
+            for _ in range(RNG.randint(8, 12)):
                 day = m.replace(day=RNG.randint(1, last_day))
                 if day > TODAY.date():
                     continue
@@ -200,7 +199,7 @@ async def main() -> None:
         seeded = (await s.execute(select(Transaction).where(
             Transaction.tenant_id == t.id, Transaction.external_id.like("txn-closed-%"),
             Transaction.side == "buy"))).scalars().all()
-        for lead, txn in zip(mine, seeded[:5]):
+        for lead, txn in zip(mine, seeded[:5], strict=False):
             txn.lead_id = lead.id
             pay = (txn.gci * Decimal("0.7")).quantize(Decimal("0.01"))
             txn.trans_fee, txn.exp_risk_team, txn.exp_risk_agent = Decimal(295), Decimal(69), Decimal(49)

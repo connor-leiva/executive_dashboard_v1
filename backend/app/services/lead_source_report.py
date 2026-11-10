@@ -21,7 +21,6 @@ from __future__ import annotations
 import datetime as dt
 from collections import defaultdict
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
@@ -327,7 +326,7 @@ def sisu_rollup(people: list[dict], rows: list[dict], *, today: dt.date) -> dict
         if not p["sisu_matched"]:
             continue
         a["matched"] += 1
-        for t, state in zip(p["transactions"], p["tx_states"]):
+        for t, state in zip(p["transactions"], p["tx_states"], strict=True):
             a["txns"] += 1
             a[state] += 1
             if state == "closed":
