@@ -165,4 +165,10 @@ def ads_period(period: str | None, start: dt.date | None, end: dt.date | None,
     # the platform is worse than a boundary that moves by a day. Trailing keys - which are what
     # the ads tab defaults to and what Ads Manager is compared against - do use the account zone.
     s, e = _period_range(key)
-    return s, e, key.upper()
+    if key.startswith("c:"):
+        return s, e, f"{s.isoformat()} to {e.isoformat()}"
+    labels = {
+        "mtd": "Month to date", "qtd": "Quarter to date", "ytd": "Year to date",
+        "last_7": "Last 7 days", "last_month": "Last month", "year": "This year",
+    }
+    return s, e, labels.get(key, key.upper())

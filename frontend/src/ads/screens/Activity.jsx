@@ -1,7 +1,8 @@
-import { API_BASE, postJSON } from "../../api";
-import { C, FONT } from "../adsTokens.js";
-import { Btn, Card, Empty, ErrorNote, PageTitle } from "../ui.jsx";
 import { useState } from "react";
+
+import { API_BASE, postJSON } from "../../api";
+import { C, FONT, usd } from "../adsTokens.js";
+import { Btn, Card, Empty, ErrorNote, PageTitle, sentenceStatus } from "../ui.jsx";
 
 const ACTION = {
   pause: "Paused",
@@ -14,23 +15,68 @@ const ACTION = {
   create_ad: "New ad",
 };
 
+const FILTERS = [
+  ["all", "All"],
+  ["applied", "Applied"],
+  ["autopilot", "Autopilot"],
+  ["preview", "Previews"],
+];
+
 function when(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function money(n) {
+  const v = Number(n);
+  return Number.isFinite(v) ? usd(v) : null;
+}
+
+function word(value, fallback) {
+  const raw = value || fallback;
+  if (!raw) return "—";
+  return /^[A-Z_]+$/.test(String(raw)) ? sentenceStatus(raw) : String(raw);
+}
+
+function change(row) {
+  const before = row.before || {};
+  const after = row.after || {};
+  if (row.action === "pause" || row.action === "activate") {
+    return `${word(before.status, "—")} → ${word(after.status, row.action === "pause" ? "Paused" : "Active")}`;
+  }
+  if (row.action === "set_daily_budget") {
+    return `${money(before.daily_budget) || "—"} → ${money(after.daily_budget) || "—"}`;
+  }
+  if (before.url_tags || after.url_tags) return "URL tags updated";
+  if (after.created_id) return `Created ${after.created_id}`;
+  return "—";
+}
+
 export default function Activity({ log, accountId, canUndo, onSaved }) {
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState("all");
   const rows = log.data?.writes || [];
+  const shown = rows.filter((row) => {
+    if (filter === "applied") return row.status === "applied" && row.source !== "autopilot";
+    if (filter === "autopilot") return row.source === "autopilot";
+    if (filter === "preview") return row.dry_run || row.status === "preview";
+    return true;
+  });
+  const newest = rows[0];
+  const undoWhy = canUndo
+    ? null
+    : newest && (newest.dry_run || newest.status === "preview")
+      ? "Nothing to undo: last change was a preview."
+      : "Nothing to undo yet.";
 
   async function undo() {
     setBusy(true);
     setMsg(null);
     try {
       if (!API_BASE) {
-        setMsg("This preview has no applied change to undo.");
+        setMsg(undoWhy || "This preview has no applied change to undo.");
         return;
       }
       const out = await postJSON("/ads/writes/undo", { account: accountId });
@@ -47,28 +93,44 @@ export default function Activity({ log, accountId, canUndo, onSaved }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <PageTitle title="Activity">
-        <Btn primary disabled={busy || !canUndo} onClick={undo}>Undo last change</Btn>
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn primary disabled={busy || !canUndo} onClick={undo}>Undo last change</Btn>
+        </span>
       </PageTitle>
+      {!canUndo && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{undoWhy}</p>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {FILTERS.map(([id, label]) => (
+          <Btn key={id} primary={filter === id} onClick={() => setFilter(id)}>{label}</Btn>
+        ))}
+      </div>
       {log.error && <ErrorNote onRetry={log.retry}>Couldn&apos;t load the change log.</ErrorNote>}
       {log.loading && <Empty>Loading the change log…</Empty>}
-      {!log.loading && rows.length === 0 && <Empty>No changes yet.</Empty>}
-      {rows.length > 0 && (
-        <Card style={{ padding: 0 }}>
-          {rows.map((row, i) => (
-            <div key={row.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
-              <div>
-                <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink }}>
-                  {ACTION[row.action] || row.action} · {row.name || row.external_id}
-                </div>
-                {row.reason && <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 4 }}>{row.reason}</div>}
-                {row.meta_error && <div style={{ fontFamily: FONT, fontSize: 13, color: C.badInk, marginTop: 4 }}>{row.meta_error}</div>}
-              </div>
-              <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted, textAlign: "right" }}>
-                <div>{row.dry_run ? "Preview" : row.status}</div>
-                <div>{row.actor} · {when(row.at)}</div>
-              </div>
-            </div>
-          ))}
+      {!log.loading && shown.length === 0 && <Empty>No changes in this filter.</Empty>}
+      {shown.length > 0 && (
+        <Card style={{ padding: 0, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT, fontSize: 13 }}>
+            <thead>
+              <tr>
+                {["When", "Who", "What changed", "Before → after", "Why", "Result"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: C.muted, fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((row) => (
+                <tr key={row.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                  <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{when(row.at)}</td>
+                  <td style={{ padding: "10px 12px" }}>{row.actor || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{ACTION[row.action] || row.action} · {row.name || row.external_id}</td>
+                  <td style={{ padding: "10px 12px" }}>{change(row)}</td>
+                  <td style={{ padding: "10px 12px", color: C.slate }}>{row.reason || "—"}</td>
+                  <td style={{ padding: "10px 12px", color: row.meta_error ? C.badInk : C.ink }}>
+                    {row.meta_error || (row.dry_run ? "Preview" : row.status)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       )}
       {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}

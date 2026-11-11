@@ -309,11 +309,30 @@ async def recommendation_items(s: AsyncSession, account: AdAccount, start, end) 
             "daily_budget": float(camp.daily_budget) if camp and camp.daily_budget is not None else None,
             "budget_external_id": camp.external_id if camp and camp.daily_budget is not None else None,
         }
-        items.append(recommend(row, account.thresholds, _guard_for(account, group)))
+        verdict = recommend(row, account.thresholds, _guard_for(account, group))
+        people = []
+        for seat in seat_rows:
+            if str((seat.meta or {}).get("utm_content") or "") != ad.external_id:
+                continue
+            people.append({"name": seat.name, "email": seat.email})
+            if len(people) >= 8:
+                break
+        verdict.update({
+            "campaign": camp.name if camp else None,
+            "adset": ad.adset_name,
+            "seats": seats,
+            "leads": d["leads"],
+            "impressions": d["impressions"],
+            "thumbnail_url": ad.thumbnail_url,
+            "status": ad.status,
+            "people": people,
+        })
+        items.append(verdict)
         if ad.adset_external_id:
             g = adset.setdefault(ad.adset_external_id, {
                 "level": "adset", "external_id": ad.adset_external_id,
                 "name": ad.adset_name or "Ad set", "group": group,
+                "campaign": camp.name if camp else None,
                 "spend": 0.0, "impressions": 0, "link_clicks": 0, "leads": 0, "seats": 0 if seats is not None else None,
                 "daily_budget": row["daily_budget"],
             })
@@ -327,7 +346,17 @@ async def recommendation_items(s: AsyncSession, account: AdAccount, start, end) 
         g["ctr"] = ctr(g["link_clicks"], g["impressions"])
         g["cpl"] = cpl(g["spend"], g["leads"])
         g["cost_per_seat"] = (g["spend"] / g["seats"]) if g.get("seats") else None
-        items.append(recommend(g, account.thresholds, _guard_for(account, g["group"])))
+        verdict = recommend(g, account.thresholds, _guard_for(account, g["group"]))
+        verdict.update({
+            "campaign": g.get("campaign"),
+            "adset": g.get("name"),
+            "seats": g.get("seats"),
+            "leads": g.get("leads"),
+            "impressions": g.get("impressions"),
+            "status": None,
+            "people": [],
+        })
+        items.append(verdict)
     order = {"kill": 0, "scale": 1, "keep": 2}
     items.sort(key=lambda r: (order.get(r["verdict"], 9), -float(r.get("spend") or 0)))
     return items

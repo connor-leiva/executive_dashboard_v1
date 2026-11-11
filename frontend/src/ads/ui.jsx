@@ -1,5 +1,7 @@
 /* Ads screen primitives. One accent, one type scale, scoped to this module.
    Colours come from adsTokens so a rebrand still has a single place to move. */
+import { useEffect } from "react";
+
 import { C, FIG, FONT, HEAD } from "./adsTokens.js";
 
 export const SCREENS = [
@@ -120,6 +122,13 @@ export function PaceBar({ pace }) {
 }
 
 export function Drawer({ title, onClose, children }) {
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <aside style={{
       position: "fixed", top: 0, right: 0, bottom: 0, width: "min(420px, 100%)",
@@ -142,6 +151,38 @@ export function Field({ label, children }) {
       {children}
     </label>
   );
+}
+
+export function sentenceStatus(status) {
+  if (!status) return null;
+  const s = String(status).toLowerCase().replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/* Yoga2 and ResultsH3 are headline variants of one video, not a new ad. Size
+   tokens like 1080 stay, so a static crop is not folded into a different file. */
+export function familyKey(name) {
+  let s = String(name || "");
+  const variant = /\bresults\s*h\d+\b/i.test(s) || /^\s*video\b/i.test(s);
+  s = s.replace(/\bresults\s*h\d+\b/gi, "");
+  s = s.replace(/\bv\d+\b/gi, "");
+  if (variant) s = s.replace(/(\D)\d+\b/g, "$1");
+  return s.replace(/[-–—_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export function foldRows(rows) {
+  const groups = [];
+  const index = new Map();
+  for (const row of rows) {
+    const key = `${row.verdict}:${familyKey(row.name) || row.external_id}`;
+    if (!index.has(key)) {
+      const bucket = { key, rows: [] };
+      index.set(key, bucket);
+      groups.push(bucket);
+    }
+    index.get(key).rows.push(row);
+  }
+  return groups;
 }
 
 export const inputStyle = {
