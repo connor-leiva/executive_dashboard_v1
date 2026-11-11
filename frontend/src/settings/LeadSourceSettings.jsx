@@ -221,6 +221,166 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
   );
 }
 
+/* ── Follow Up Boss source strings ─────────────────────────────────────────────────────── */
+
+const count = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
+
+/* Where a string stands against the group. The sync asks Follow Up Boss for each VARIANT by its exact
+   spelling, so a string the group only matches by "contains" is in the reports once it is synced some
+   other way, but is not fetched by source until it is listed. */
+function SourceStatus({ row }) {
+  if (row.is_variant) return <Pill tone="good">Variant</Pill>;
+  if (row.in_group) return <Pill tone="warn">Matched, not listed</Pill>;
+  return <Pill tone="muted">Not in this group</Pill>;
+}
+
+function FubSourcesCard({ bizKey, group, bizName, onChanged }) {
+  const [view, setView] = useState(null);
+  const [busy, setBusy] = useState(null);           // "check" | a source being added
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(() => {
+    setView(null);
+    getJSON(`/businesses/${bizKey}/lead-sources/${group.key}/fub-sources`)
+      .then((v) => { setView(v); setErr(null); })
+      .catch((e) => setErr(errOf(e, "Couldn't load the Follow Up Boss sources.")));
+  }, [bizKey, group.key]);
+  useEffect(load, [load, group.variants.join("\n")]);
+
+  async function check() {
+    setBusy("check"); setErr(null);
+    try { setView(await postJSON(`/businesses/${bizKey}/lead-sources/${group.key}/fub-sources/check`, {})); }
+    catch (e) { setErr(errOf(e, "Couldn't reach Follow Up Boss.")); }
+    finally { setBusy(null); }
+  }
+
+  async function add(source) {
+    setBusy(source); setErr(null);
+    try {
+      await patchJSON(`/businesses/${bizKey}/lead-sources/${group.key}`, { variants: [...group.variants, source] });
+      onChanged(group.key);
+    } catch (e) { setErr(errOf(e, "Couldn't add the variant.")); }
+    finally { setBusy(null); }
+  }
+
+  if (!view) {
+    return <Card><div style={h2}>Follow Up Boss sources</div>
+      <div style={{ ...lede, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Card>;
+  }
+
+  const fub = view.fub;
+  const since = view.program_start ? monthLabel(view.program_start.slice(0, 7)) : null;
+  const run = fub.last_run || {};
+  // Against the group's variants as saved now: one added since the last sync is not read yet.
+  const listed = [...new Set(group.variants)];
+  const done = listed.filter((v) => fub.variants?.[v]?.backfilled).length;
+  const inGroup = view.sources.filter((r) => r.in_group).reduce((a, r) => a + (r.synced_count || 0), 0);
+  const th = { fontSize: 12, fontWeight: 600, color: T.muted, padding: "8px 12px", textAlign: "left", whiteSpace: "nowrap" };
+  const td = { padding: "8px 12px", borderTop: `1px solid ${T.line}`, verticalAlign: "middle" };
+  const numCell = { ...td, textAlign: "right", fontFamily: FM, color: T.ink, fontVariantNumeric: "tabular-nums" };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 320px" }}>
+          <div style={h2}>Follow Up Boss sources · {group.display_name}</div>
+          <div style={lede}>
+            The source strings Follow Up Boss holds near this group's, and how many people each has brought
+            {since ? ` since ${since}` : ""}. The sync reads each variant by its exact spelling, so a string that
+            isn't listed is a cohort coming up short. Add it as a variant.
+          </div>
+        </div>
+        {view.can_edit && fub.state === "connected" && (
+          <SBtn icon="search" disabled={!!busy} onClick={check}>{busy === "check" ? "Checking…" : "Check Follow Up Boss"}</SBtn>
+        )}
+      </div>
+
+      {fub.state === "missing" && (
+        <Note>Follow Up Boss isn't connected for {bizName}, so no lead is read for this group. <Link to="/settings/integrations" style={{ color: T.teal, fontWeight: 600 }}>Connect it in Integrations</Link>.</Note>
+      )}
+      {fub.state === "elsewhere" && (
+        <Note>
+          Follow Up Boss is connected to {fub.elsewhere}, not {bizName}. The sync reads people for the lead sources on
+          the business Follow Up Boss is attached to, so this group gets none. <Link to="/settings/integrations" style={{ color: T.teal, fontWeight: 600 }}>Change it in Integrations</Link>.
+        </Note>
+      )}
+      {fub.state === "no_key" && <Note>Follow Up Boss is set up for {bizName} without an API key, so nothing is read yet.</Note>}
+      {view.stale && <Note>These counts were taken before the program start changed. Check again for the new range.</Note>}
+
+      <div style={{ ...meta, fontFamily: FB, marginTop: 12, lineHeight: 1.5 }}>
+        {fub.last_run_at
+          ? [`Last Follow Up Boss sync ${dayLabel(fub.last_run_at.slice(0, 10))}`,
+             listed.length ? `${done} of ${listed.length} variant${listed.length === 1 ? "" : "s"} fully read` : null,
+             `${count(inGroup)} of this group's people synced here`,
+             run.errors && run.errors.length ? `${run.errors.length} failed` : null].filter(Boolean).join(" · ")
+          : "Follow Up Boss hasn't synced since this was set up. The next sync reads this group's people."}
+        {view.checked_at ? ` · Sources checked ${dayLabel(view.checked_at.slice(0, 10))}` : ""}
+      </div>
+      {run.errors && run.errors.length > 0 && (
+        <Note>{run.errors.join("; ")}. The next sync tries those variants again.</Note>
+      )}
+
+      <div style={{ marginTop: 16, border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FB, fontSize: 13 }}>
+          <thead style={{ background: T.parchment }}>
+            <tr>
+              <th style={th}>Source, as Follow Up Boss spells it</th>
+              <th style={{ ...th, textAlign: "right" }}>In Follow Up Boss</th>
+              <th style={{ ...th, textAlign: "right" }}>Synced here</th>
+              <th style={th}>This group</th>
+              <th style={th} aria-label="Action" />
+            </tr>
+          </thead>
+          <tbody>
+            {view.sources.map((r) => (
+              <tr key={r.source}>
+                <td style={{ ...td, fontFamily: FM, color: T.ink }}>{r.source}</td>
+                <td style={numCell} title={r.fub_count == null ? "Not checked in Follow Up Boss yet" : undefined}>{count(r.fub_count)}</td>
+                <td style={numCell}>{count(r.synced_count)}</td>
+                <td style={td}><SourceStatus row={r} /></td>
+                <td style={{ ...td, textAlign: "right" }}>
+                  {view.can_edit && !r.is_variant && (
+                    <SBtn small disabled={!!busy} onClick={() => add(r.source)}>{busy === r.source ? "Adding…" : "Add as variant"}</SBtn>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {view.sources.length === 0 && (
+              <tr><td colSpan={5} style={{ ...td, borderTop: "none", color: T.muted, padding: "16px 12px" }}>
+                {view.checked_at ? "Follow Up Boss holds none of these strings, and none is synced here yet."
+                  : fub.state === "connected" ? "Not checked yet. Check Follow Up Boss to see which strings it holds."
+                    : "Nothing synced here yet."}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {view.searches.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontFamily: FB, fontSize: 13, fontWeight: 600, color: T.ink }}>Follow Up Boss search</div>
+          <div style={{ ...lede, marginTop: 4 }}>
+            Search reads names and addresses as well as sources, so these totals are a hint, not a count.
+          </div>
+          {view.searches.map((sr) => (
+            <div key={sr.q} style={{ ...meta, fontFamily: FB, marginTop: 6 }}>
+              “{sr.q}”: {count(sr.total)} {sr.total === 1 ? "person" : "people"}{since ? ` since ${since}` : ""}
+              {sr.sample_source ? <>, one with source <span style={{ fontFamily: FM, color: T.ink }}>{sr.sample_source}</span></> : null}
+            </div>
+          ))}
+        </div>
+      )}
+      {view.other_sources > 0 && (
+        <div style={{ ...meta, fontFamily: FB, marginTop: 12 }}>
+          {view.other_sources} other source string{view.other_sources === 1 ? "" : "s"} synced{since ? ` since ${since}` : ""} share no
+          word with this group and aren't shown.
+        </div>
+      )}
+      {err && <div style={errText}>{err}</div>}
+    </Card>
+  );
+}
+
 /* ── QuickBooks spend ───────────────────────────────────────────────────────────────────── */
 
 function SpendCard({ bizKey, group, bizName }) {
@@ -493,6 +653,7 @@ export default function LeadSourceSettings() {
         <>
           <GroupEditor bizKey={bizKey} group={group} creating={false} onSaved={(key) => load(key)}
             onDeleted={() => { setParams({ business: bizKey }); load(); }} />
+          <FubSourcesCard bizKey={bizKey} group={group} bizName={biz.name} onChanged={(key) => load(key)} />
           <SpendCard bizKey={bizKey} group={group} bizName={biz.name} />
           <DigestCard bizKey={bizKey} group={group} />
         </>
