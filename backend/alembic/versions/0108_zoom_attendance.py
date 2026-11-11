@@ -1,7 +1,7 @@
 """Zoom session attendance.
 
 Revision ID: 0108_zoom_attendance
-Revises: 0107_ad_digest, 0106_lead_source_digest
+Revises: a4de17c29596
 """
 import sqlalchemy as sa
 from alembic import op
@@ -9,7 +9,7 @@ from alembic import op
 from app.dbtypes import GUID, JSONType
 
 revision = "0108_zoom_attendance"
-down_revision = ("0107_ad_digest", "0106_lead_source_digest")
+down_revision = "a4de17c29596"
 branch_labels = None
 depends_on = None
 
