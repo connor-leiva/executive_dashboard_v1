@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 
 import { getJSON } from "../api";
-import { sampleAdsOverview, sampleAdsCreatives } from "./sampleAds.js";
+import { sampleAdsOverview, sampleAdsCreatives, sampleAdsWrites } from "./sampleAds.js";
 
 const API = import.meta.env.VITE_API_BASE;
 
@@ -56,6 +56,11 @@ export function useAdsOverview({ account, period, basis, campaign }) {
   // launch's fully-rendered figures on screen under the new launch's label.
   const path = `/ads?${qs({ account, period, basis, campaign })}`;
   return useEndpoint(path, sampleAdsOverview, [account, period, basis, campaign]);
+}
+
+export function useAdsWrites(account) {
+  const path = `/ads/writes?${qs({ account })}`;
+  return useEndpoint(path, sampleAdsWrites, [account]);
 }
 
 export function useAdsCreatives({ account, period, campaign, sort, limit }) {

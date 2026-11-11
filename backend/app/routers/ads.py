@@ -813,6 +813,34 @@ def _opt_num(value):
     return num
 
 
+@router.get("/ads/writes")
+async def list_writes(account: str | None = Query(None),
+                      user: User = Depends(require_tab("ads")),
+                      s: AsyncSession = Depends(get_session)):
+    """The change log. Newest first. Previews are included so a dry run is visible."""
+    from ..models import AdWrite
+    acct = await _account(s, user.tenant_id, account) if account else await _first_account(s, user.tenant_id)
+    if acct is None:
+        return {"writes": []}
+    rows = (await s.execute(select(AdWrite).where(
+        AdWrite.tenant_id == user.tenant_id, AdWrite.ad_account_id == acct.id
+    ).order_by(AdWrite.created_at.desc()).limit(40))).scalars()
+    return {"writes": [{
+        "id": str(r.id),
+        "action": r.action,
+        "level": r.object_level,
+        "name": r.object_name,
+        "external_id": r.object_external_id,
+        "reason": r.reason,
+        "status": r.status,
+        "dry_run": r.dry_run,
+        "meta_error": r.meta_error,
+        "actor": r.actor_label,
+        "source": r.source,
+        "at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]}
+
+
 @router.post("/ads/writes/apply")
 async def apply_writes(body: dict, user: User = Depends(require_role("owner", "admin")),
                        s: AsyncSession = Depends(get_session)):
