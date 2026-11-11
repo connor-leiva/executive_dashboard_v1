@@ -8,7 +8,13 @@ account, every thirty minutes, and read every field of every person to use four 
 `fields` asks for only what the app stores.
 
 RATE LIMITS. 125 requests per 10 seconds without a registered system key. A 429 comes back with
-Retry-After; the page is retried after it rather than failing a sync halfway through a walk.
+Retry-After; the page is retried after it rather than failing a sync halfway through a walk. A
+gateway error (502, 503, 504) is retried with a growing wait, as the legacy reporting client did.
+
+`nextLink`. FUB's `_metadata` carries the cursor twice: `next`, a token, and `nextLink`, the whole
+next URL. The lead-source walk follows `nextLink` the way the legacy dashboard did (`pages(...,
+follow_link=True)`), and only when it points at the same host as the client -- the API key is never
+sent anywhere else. Every other walk keeps the `next` token.
 
 DATES ARE DATES. FUB sends ISO timestamps in UTC. Everything here returns `datetime`/`date`
 objects, never the string: a string in a Date column is exactly what asyncpg refused on every
@@ -30,6 +36,7 @@ TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 PAGE = 100
 MAX_RETRIES = 5
+GATEWAY_ERRORS = (502, 503, 504)
 # The wait between retries. A name of its own so a test can skip the waiting.
 _sleep = asyncio.sleep
 
@@ -40,6 +47,9 @@ _sleep = asyncio.sleep
 PERSON_FIELDS = ",".join((
     "id", "name", "firstName", "lastName", "stage", "source", "contacted", "assignedUserId",
     "created", "updated", "lastActivity", "emails",
+    # FUB's own assigned-to name, for a person whose FUB user Axcion does not hold as an agent: the
+    # name the legacy lead-source report showed.
+    "assignedTo",
     # One number, for What's Working's median-price row (lead-source spec phase 5). Not a reason
     # to keep anything else from the person payload.
     "price",
@@ -74,7 +84,8 @@ def client(creds: FubCreds) -> httpx.AsyncClient:
 
 
 async def get(c: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
-    """GET one page, waiting out a 429 rather than failing the walk it belongs to."""
+    """GET one page, waiting out a 429 (and a gateway error) rather than failing the walk it
+    belongs to. `path` may also be a whole URL on the client's own host: a `nextLink`."""
     for attempt in range(MAX_RETRIES + 1):
         r = await c.get(path, params=params)
         if r.status_code == 429 and attempt < MAX_RETRIES:
@@ -84,25 +95,46 @@ async def get(c: httpx.AsyncClient, path: str, params: dict | None = None) -> di
                 wait = 0
             await _sleep(min(max(wait, 1.0), 30.0))
             continue
+        if r.status_code in GATEWAY_ERRORS and attempt < MAX_RETRIES:
+            await _sleep(min(2.0 ** attempt, 30.0))
+            continue
         r.raise_for_status()
         return r.json()
     raise RuntimeError("unreachable")  # pragma: no cover -- the loop returns or raises
 
 
+def _same_host(c: httpx.AsyncClient, link) -> bool:
+    """A `nextLink` is followed only on the host this client was opened for."""
+    if not isinstance(link, str) or not link.startswith(("http://", "https://")):
+        return False
+    try:
+        return httpx.URL(link).host == c.base_url.host
+    except (httpx.InvalidURL, ValueError):
+        return False
+
+
 async def pages(c: httpx.AsyncClient, path: str, key: str, params: dict | None = None,
-                *, start: str | None = None, max_pages: int | None = None):
+                *, start: str | None = None, max_pages: int | None = None,
+                follow_link: bool = False):
     """Yield (rows, next_token) page by page, following `_metadata.next`.
 
     `start` resumes a walk from a saved token; `max_pages` stops early, and the token yielded with
     the last page is where to resume. A token of None means the walk is complete.
+
+    With `follow_link`, the token is `_metadata.nextLink` when FUB sends one on this host -- the
+    whole next URL, query included, as the legacy client followed it -- else the `next` token.
     """
     base = {"limit": PAGE, **(params or {})}
     token, n = start, 0
     while True:
-        query = {**base, "next": token} if token else base
-        data = await get(c, path, query)
+        if token and follow_link and _same_host(c, token):
+            data = await get(c, token)
+        else:
+            data = await get(c, path, {**base, "next": token} if token else base)
         rows = data.get(key) or []
-        token = (data.get("_metadata") or {}).get("next") or None
+        meta = data.get("_metadata") or {}
+        link = meta.get("nextLink")
+        token = (link if follow_link and _same_host(c, link) else None) or meta.get("next") or None
         n += 1
         if not rows:
             token = None
@@ -217,7 +249,17 @@ def primary_email(p: dict) -> str | None:
     return clip(flat, 255) or None
 
 
-def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
+def _assigned_name(p: dict) -> str | None:
+    """FUB's `assignedTo`: a name string, or on some payloads an object with one."""
+    v = p.get("assignedTo")
+    if isinstance(v, dict):
+        v = v.get("name") or " ".join(x for x in (v.get("firstName"), v.get("lastName")) if x)
+    return clip(str(v).strip(), 120) if v not in (None, "", 0) else None
+
+
+def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc, link_base: str | None = None) -> dict:
+    """One FUB person as the lead row's fields. `link_base` is the account's people URL
+    (`https://{domain}.followupboss.com/2/people/view`), known once `/identity` has been read."""
     assigned = p.get("assignedUserId")
     created = parse_ts(p.get("created") or p.get("createdAt"))
     name = p.get("name") or f'{p.get("firstName") or ""} {p.get("lastName") or ""}'.strip()
@@ -238,7 +280,28 @@ def map_person(p: dict, tz: dt.tzinfo = dt.timezone.utc) -> dict:
         "src_updated_at": parse_ts(p.get("updated")),
         "last_activity_at": parse_ts(p.get("lastActivity")),
         "price": coerce_price(p.get("price")),
+        "assigned_name": _assigned_name(p),
+        "src_url": clip(f"{link_base}/{p.get('id')}", 255) if link_base and p.get("id") else None,
     }
+
+
+def link_base(account_domain: str | None) -> str | None:
+    """The account's people URL, from the domain `/identity` reports -- never a host in code."""
+    domain = (account_domain or "").strip()
+    return f"https://{domain}.followupboss.com/2/people/view" if domain else None
+
+
+async def count_people(c: httpx.AsyncClient, params: dict) -> tuple[int, dict | None]:
+    """How many people FUB holds for a filter, and the first of them: one request, `limit=1`.
+    The legacy dashboard's variant probe. The total is FUB's `_metadata.total`."""
+    data = await get(c, "/people", {"limit": 1, "fields": "id,source,created", **params})
+    rows = data.get("people") or []
+    total = (data.get("_metadata") or {}).get("total")
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        total = len(rows)
+    return total, (rows[0] if rows else None)
 
 
 def coerce_price(value) -> float | None:
@@ -269,6 +332,9 @@ ACTIVITY_ENDPOINTS = (
     ("text", "/textMessages", "textMessages"),
     ("email", "/emEvents", "emEvents"),
     ("appointment", "/appointments", "appointments"),
+    # Deals, read per person as the legacy report read them: the pipeline counts an offer from a
+    # deal's stage, and the cohort table a close from its status, before Sisu has the deal.
+    ("deal", "/deals", "deals"),
 )
 LIVE_OUTCOMES = ("met", "kept", "completed")
 SENT_EMAIL = ("sent", "delivered")
@@ -301,7 +367,8 @@ def map_activity(kind: str, row: dict, person_id) -> dict | None:
     if ext in (None, ""):
         return None
     base = {"kind": kind, "external_id": str(ext)[:64], "person_external_id": str(person_id)[:64],
-            "duration_sec": None, "has_note": False, "outcome": None, "is_live": False}
+            "duration_sec": None, "has_note": False, "outcome": None, "is_live": False,
+            "deal_stage": None, "deal_status": None}
     if kind == "call":
         try:
             dur = float(row.get("duration") or 0)
@@ -324,4 +391,11 @@ def map_activity(kind: str, row: dict, person_id) -> dict | None:
         return {**base, "channel": "appt", "direction": "unknown",
                 "occurred_at": parse_ts(row.get("start") or row.get("startTime")),
                 "outcome": clip(outcome, 60), "is_live": outcome in LIVE_OUTCOMES}
+    if kind == "deal":
+        # The legacy client read `stage`; FUB's deals payload names it `stageName`. Either is kept.
+        stage = str(row.get("stageName") or row.get("stage") or "").strip().lower() or None
+        status = str(row.get("status") or "").strip().lower() or None
+        return {**base, "channel": "deal", "direction": "unknown",
+                "occurred_at": parse_ts(row.get("actualCloseDate") or row.get("closeDate")),
+                "deal_stage": clip(stage, 80), "deal_status": clip(status, 40)}
     return None

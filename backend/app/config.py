@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # never on the quick tick. Four FUB calls a person, so 120 people is about 480 requests, inside a
     # full sync's budget at FUB's 125 per 10 seconds. A backlog drains over a few runs.
     FUB_ACTIVITY_PEOPLE_PER_RUN: int = 120
+    # The scoped lead-source ingestion (services/fub_sync._lead_sources): pages of 100 people a run,
+    # across every variant of every active group. A source with a few thousand people since its
+    # program start is a few dozen pages, so its first backfill finishes in one run; the budget only
+    # spreads a long history over several.
+    FUB_LEAD_SOURCE_PAGES_PER_RUN: int = 100
     # Sisu, for the same people: contact lookups (/v1/contact/external) and the commission lines of
     # their closed deals (commission-info + edit-client), each bounded per run.
     SISU_CONTACT_LOOKUPS_PER_RUN: int = 150

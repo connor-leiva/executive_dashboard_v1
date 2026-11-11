@@ -1,0 +1,65 @@
+{
+  "_metadata": {
+    "collection": "people",
+    "offset": 0,
+    "limit": 100,
+    "total": 4,
+    "next": "eyJpZCI6MTAwMDJ9",
+    "nextLink": "https://api.followupboss.com/v1/people?source=Realtor.com&createdAfter=2026-02-01+07%3A00%3A00&limit=100&next=eyJpZCI6MTAwMDJ9"
+  },
+  "people": [
+    {
+      "id": 10001,
+      "created": "2026-02-03T18:22:41Z",
+      "updated": "2026-02-04T16:05:10Z",
+      "createdVia": "API",
+      "lastActivity": "2026-02-04T16:05:10Z",
+      "name": "Avery Lindqvist",
+      "firstName": "Avery",
+      "lastName": "Lindqvist",
+      "stage": "Lead",
+      "stageId": 2,
+      "source": "Realtor.com",
+      "sourceId": 7,
+      "sourceUrl": "",
+      "delayed": false,
+      "contacted": 1,
+      "price": "$485,000",
+      "assignedLenderId": null,
+      "assignedUserId": 12,
+      "assignedPondId": null,
+      "assignedTo": "Jordan Ellis",
+      "tags": ["Buyer"],
+      "emails": [
+        {"value": "avery.old@example.com", "type": "work", "status": "Valid", "isPrimary": 0},
+        {"value": "Avery.Lindqvist@example.com", "type": "home", "status": "Valid", "isPrimary": 1}
+      ],
+      "phones": [
+        {"value": "8015550101", "type": "mobile", "status": "Valid", "isPrimary": 1}
+      ],
+      "addresses": [],
+      "claimed": true
+    },
+    {
+      "id": 10002,
+      "created": "2026-02-01T05:30:00Z",
+      "updated": "2026-02-01T05:30:00Z",
+      "createdVia": "API",
+      "lastActivity": "2026-02-01T05:30:00Z",
+      "name": "Blake Osei",
+      "firstName": "Blake",
+      "lastName": "Osei",
+      "stage": "Lead",
+      "stageId": 2,
+      "source": "Realtor.com",
+      "sourceId": 7,
+      "contacted": 0,
+      "price": 0,
+      "assignedUserId": 12,
+      "assignedTo": "Jordan Ellis",
+      "emails": [{"value": "blake@example.com", "type": "home", "status": "Valid", "isPrimary": 1}],
+      "phones": [{"value": "8015550102", "type": "mobile", "status": "Valid", "isPrimary": 1}],
+      "addresses": []
+    }
+  ]
+}

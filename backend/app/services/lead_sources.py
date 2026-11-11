@@ -89,6 +89,10 @@ def clean_key(key) -> str:
 
 
 def clean_variants(variants, match_mode: str) -> list[str]:
+    """Trimmed, non-empty, each spelling once. Spellings that differ only in CASE are both kept:
+    matching ignores case, but the FUB sync asks for each variant as `source=<variant>`, and the
+    legacy dashboard listed "market vip via opcity bla" beside "Market VIP via Opcity BLA" on
+    purpose -- whether FUB's filter ignores case has not been confirmed on a live account."""
     if variants is None:
         return []
     if not isinstance(variants, list):
@@ -96,7 +100,7 @@ def clean_variants(variants, match_mode: str) -> list[str]:
     out, seen = [], set()
     for v in variants:
         s = str(v or "").strip()
-        if not s or s.lower() in seen:
+        if not s or s in seen:
             continue
         if len(s) > MAX_VARIANT_LEN:
             raise InvalidGroup(f"A variant is at most {MAX_VARIANT_LEN} characters: {s[:40]}…")
@@ -105,7 +109,7 @@ def clean_variants(variants, match_mode: str) -> list[str]:
                 re.compile(s)
             except re.error as e:
                 raise InvalidGroup(f"“{s}” is not a valid pattern ({e}).") from None
-        seen.add(s.lower())
+        seen.add(s)
         out.append(s)
     if len(out) > MAX_VARIANTS:
         raise InvalidGroup(f"A group holds at most {MAX_VARIANTS} variants.")

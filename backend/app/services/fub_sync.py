@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 import uuid
 from dataclasses import dataclass, field
 
@@ -70,6 +71,7 @@ MISSING_PEOPLE_BATCHES = 20
 NEWEST_PAGES = 20
 
 _LOCKS: dict = {}
+log = logging.getLogger("app")
 
 
 def lock_for(integration_id) -> asyncio.Lock:
@@ -188,7 +190,8 @@ async def _know_users(run: _Run, ids) -> None:
 # ── people ───────────────────────────────────────────────────────────────────────────────
 
 async def _write_people(run: _Run, rows: list[dict]) -> None:
-    mapped = [fub.map_person(p, run.tz) for p in rows]
+    link = fub.link_base(run.state.get("account_domain"))
+    mapped = [fub.map_person(p, run.tz, link) for p in rows]
     await _know_users(run, [p["agent_external_id"] for p in mapped])
     await upsert(run.s, Lead, [
         {"id": uuid.uuid4(), "tenant_id": run.tenant_id, "business_id": run.business_id,
@@ -198,11 +201,13 @@ async def _write_people(run: _Run, rows: list[dict]) -> None:
          "email": p["email"],
          "contacted": p["contacted"], "src_created_at": p["src_created_at"],
          "src_updated_at": p["src_updated_at"], "last_activity_at": p["last_activity_at"],
-         "price": p["price"], "synced_at": run.now}
+         "price": p["price"], "assigned_name": p["assigned_name"], "src_url": p["src_url"],
+         "synced_at": run.now}
         for p in mapped],
         keys=["tenant_id", "source", "external_id"],
         update=["stage", "agent_id", "created_at_src", "name", "origin", "email", "contacted",
-                "src_created_at", "src_updated_at", "last_activity_at", "price", "synced_at"])
+                "src_created_at", "src_updated_at", "last_activity_at", "price", "assigned_name",
+                "src_url", "synced_at"])
     await run.s.commit()
 
 
@@ -331,19 +336,27 @@ async def _backfill(run: _Run) -> None:
 # ── activity, for the lead-source reports ────────────────────────────────────────────────
 
 async def _person_activity(run: _Run, person_id: str) -> list[dict]:
-    """Every call, text, email event and appointment FUB holds for one person, mapped."""
+    """Every call, text, email event, appointment and deal FUB holds for one person, mapped."""
     rows: list[dict] = []
     for kind, path, key in fub.ACTIVITY_ENDPOINTS:
-        async for page, _ in fub.pages(run.c, path, key, {"personId": person_id}):
-            for raw in page:
-                mapped = fub.map_activity(kind, raw, person_id)
-                if mapped is not None:
-                    rows.append(mapped)
+        try:
+            async for page, _ in fub.pages(run.c, path, key, {"personId": person_id}):
+                for raw in page:
+                    mapped = fub.map_activity(kind, raw, person_id)
+                    if mapped is not None:
+                        rows.append(mapped)
+        except httpx.HTTPStatusError as e:
+            # Deals are a feature an account or a key may not have: refused, the person simply has
+            # none here, and their calls, texts and appointments still count.
+            if kind != "deal" or e.response.status_code not in (403, 404):
+                raise
+            run.stats["deals_refused"] = e.response.status_code
     return rows
 
 
 async def _activity(run: _Run) -> None:
-    """Calls, texts, email events and appointments for the people the lead-source reports cover.
+    """Calls, texts, email events, appointments and deals for the people the lead-source reports
+    cover: the legacy report's per-person fan-out (cohorts_live._fetch_person_payload).
 
     BOUNDED THREE WAYS, because the account is 130,000 people and these endpoints are per person:
       * only people inside an ACTIVE lead-source group, from that group's program start
@@ -381,7 +394,7 @@ async def _activity(run: _Run) -> None:
              "source": "fub", **r, "synced_at": stamp} for r in rows],
             keys=["tenant_id", "source", "kind", "external_id"],
             update=["person_external_id", "occurred_at", "direction", "is_live", "duration_sec",
-                    "has_note", "outcome", "channel", "synced_at"])
+                    "has_note", "outcome", "channel", "deal_stage", "deal_status", "synced_at"])
         await run.s.execute(delete(CrmActivity).where(
             CrmActivity.tenant_id == run.tenant_id, CrmActivity.source == "fub",
             CrmActivity.person_external_id == person_id,
@@ -392,6 +405,196 @@ async def _activity(run: _Run) -> None:
     run.stats["activity_people"] = len(batch)
     run.stats["activity_rows"] = written
     run.stats["activity_pending"] = len(pending) - len(batch)
+
+
+# ── the lead-source ingestion: the people the lead-source reports cover, by source ─────────
+
+DISCOVER_EVERY = dt.timedelta(hours=24)
+
+
+def _program_start(g, tz: dt.tzinfo) -> dt.datetime | None:
+    """A group's program start as the workspace's midnight: the cohort month is the workspace's
+    calendar date, so a lead at 11pm Mountain on the last day before it is not in scope."""
+    return _day_start(g.program_start, tz) if g.program_start else None
+
+
+async def _lead_sources(run: _Run) -> None:
+    """The people inside each ACTIVE lead-source group on this business, fetched by their source.
+
+    The way the legacy dashboard read them (cohorts_live._fetch_realtor_people): for every variant
+    of every active group, `/people?source=<variant>&createdAfter=<program start>`, following
+    `nextLink`. The whole-CRM backfill above reaches the same people eventually, oldest first, on
+    an account of 130,000; the lead-source reports cannot wait for it -- and in production they
+    never had these people at all.
+
+    PER VARIANT, RESUMABLE, THEN INCREMENTAL. State in fub_state["lead_sources"][group][variant]:
+      * first the BACKFILL from the program start, under a page budget a run shared by every
+        variant (FUB_LEAD_SOURCE_PAGES_PER_RUN), its cursor checkpointed after each page;
+      * then each run reads only who CHANGED since the last one: `updatedAfter`, CHECKED against
+        what comes back -- a person updated before it means FUB ignored the parameter, and from
+        then on the run reads `createdAfter` and `lastActivityAfter` instead (both documented);
+      * and once a day the variant is walked again from the program start, because a stage change
+        or a reassignment made without any activity reaches neither cursor.
+
+    Only people whose returned source still matches the group, created on or after its program
+    start, are written (the legacy filter). A variant that fails records why and the run moves on
+    to the next; a rejected key (401, 403) stops it, as it stops the rest of the sync.
+    """
+    from . import lead_sources as ls
+    groups = [g for g in await ls.groups_for_business(run.s, run.tenant_id, run.business_id)
+              if g.is_active]
+    summary = {"groups": 0, "variants": 0, "pages": 0, "people_fetched": 0, "people_upserted": 0,
+               "skipped_source": 0, "errors": []}
+    run.stats["lead_sources"] = summary
+    if not groups:
+        summary["note"] = "no active lead-source group on this business"
+        return
+    state = dict(run.state.get("lead_sources") or {})
+    budget = [settings.FUB_LEAD_SOURCE_PAGES_PER_RUN]
+    seen: set[str] = set()
+    for g in groups:
+        variants = list(dict.fromkeys(str(v).strip() for v in (g.variants or []) if str(v).strip()))
+        if not variants:
+            continue
+        summary["groups"] += 1
+        since = _program_start(g, run.tz)
+        start_key = g.program_start.isoformat() if g.program_start else None
+        gst = dict(state.get(g.key) or {})
+        if gst.get("program_start") != start_key:          # a moved start reads everything again
+            gst = {"program_start": start_key, "variants": {}}
+        old = dict(gst.get("variants") or {})
+        gst["variants"] = {v: dict(old.get(v) or {}) for v in variants}   # a removed variant is forgotten
+        matcher = ls.build_matcher(g.variants or [], g.match_mode)
+
+        def save(gst=gst, key=g.key):
+            state[key] = gst
+            run.state["lead_sources"] = state
+            _save(run.integ, run.state)
+
+        for v in variants:
+            summary["variants"] += 1
+            vs = gst["variants"][v]
+            try:
+                await _ingest_variant(run, v, since, matcher, vs, budget, summary, seen, save)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403):
+                    raise
+                summary["errors"].append(f"{g.key} / {v}: HTTP {e.response.status_code}")
+            except httpx.HTTPError as e:
+                summary["errors"].append(f"{g.key} / {v}: {type(e).__name__}")
+            save()
+        await run.s.commit()
+    summary["people_upserted"] = len(seen)
+    summary["budget_left"] = budget[0]
+
+
+async def _ingest_variant(run: _Run, variant: str, since, matcher, vs: dict, budget: list,
+                          summary: dict, seen: set, save) -> None:
+    base = {"fields": fub.PERSON_FIELDS, "source": variant, "includeTrash": "true"}
+    if since is not None:
+        base["createdAfter"] = fmt(since)
+
+    async def walk(params, *, start=None, on_page=None, check_after=None) -> tuple[bool, bool]:
+        """Returns (complete, honoured): whether the walk reached its end inside the budget, and,
+        with `check_after`, whether every person came back updated after it."""
+        if budget[0] <= 0:
+            return False, True
+        token = start
+        async for rows, token in fub.pages(run.c, "/people", "people", params, start=start,
+                                           max_pages=budget[0], follow_link=True):
+            budget[0] -= 1
+            summary["pages"] += 1
+            summary["people_fetched"] += len(rows)
+            keep = []
+            for p in rows:
+                created = fub.parse_ts(p.get("created"))
+                if not matcher(str(p.get("source") or "")) or (since and (created is None or created < since)):
+                    summary["skipped_source"] += 1
+                    continue
+                keep.append(p)
+            if keep:
+                await _write_people(run, keep)
+                seen.update(str(p.get("id")) for p in keep)
+            if on_page is not None:
+                on_page(token)
+            if check_after is not None:
+                stamps = [fub.parse_ts(p.get("updated")) for p in rows]
+                if any(t is not None and t < check_after - dt.timedelta(seconds=1) for t in stamps):
+                    return False, False
+        return token is None, True
+
+    done = fub.parse_ts(vs.get("complete_at"))
+    if vs.get("walking") or done is None or run.now - done >= REWALK_EVERY:
+        if not vs.get("walking"):
+            vs.update({"walking": True, "next": None, "walk_started": _iso(run.now)})
+
+        def keep_token(token):
+            vs["next"] = token
+            save()
+
+        complete, _ = await walk(base, start=vs.get("next"), on_page=keep_token)
+        if complete:
+            vs.update({"walking": False, "next": None, "complete_at": vs["walk_started"],
+                       "mark": vs["walk_started"]})
+        return
+
+    mark = (fub.parse_ts(vs.get("mark")) or done) - MARGIN
+    complete = True
+    if run.state.get("lead_sources_updated_after") != "ignored":
+        try:
+            complete, honoured = await walk({**base, "updatedAfter": fmt(mark)}, check_after=mark)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in (400, 422):
+                raise
+            honoured = False
+        run.state["lead_sources_updated_after"] = "ok" if honoured else "ignored"
+        if honoured:
+            if complete:
+                vs["mark"] = _iso(run.now)
+            return
+    # `updatedAfter` is not honoured: new people by creation, changed ones by activity.
+    created_after = max(mark, since) if since else mark
+    c1, _ = await walk({**base, "createdAfter": fmt(created_after)})
+    c2, _ = await walk({**base, "lastActivityAfter": fmt(mark)})
+    if c1 and c2 and complete:
+        vs["mark"] = _iso(run.now)
+
+
+async def _discover_sources(run: _Run, *, force: bool = False) -> None:
+    """Once a day per active group, ask FUB which source strings it holds near the group's own
+    (services/lead_source_discovery), for Settings to suggest."""
+    from . import lead_source_discovery as disc
+    from . import lead_sources as ls
+    found = dict(run.state.get("lead_source_discovery") or {})
+    for g in await ls.groups_for_business(run.s, run.tenant_id, run.business_id):
+        if not g.is_active or not any(str(v).strip() for v in (g.variants or [])):
+            continue
+        last = fub.parse_ts((found.get(g.key) or {}).get("at"))
+        if not force and last is not None and run.now - last < DISCOVER_EVERY:
+            continue
+        synced = await disc.synced_counts(run.s, run.tenant_id, run.business_id, g)
+        found[g.key] = await disc.discover(run.c, g, _program_start(g, run.tz), synced, now=run.now)
+        run.stats.setdefault("lead_sources", {})["discovered"] = (
+            run.stats.get("lead_sources", {}).get("discovered", 0) + 1)
+    run.state["lead_source_discovery"] = found
+    _save(run.integ, run.state)
+
+
+def _log_lead_sources(run: _Run) -> None:
+    """One line a run: what the lead-source ingestion read and wrote, and what failed."""
+    ls_ = run.stats.get("lead_sources") or {}
+    errors = list(ls_.get("errors") or [])
+    for key in ("lead_sources_error", "activity_error"):
+        if run.stats.get(key):
+            errors.append(f"{key}: {run.stats[key]}")
+    log.info("fub lead sources tenant=%s business=%s groups=%s variants=%s pages=%s "
+             "people_fetched=%s people_upserted=%s skipped_source=%s touches_people=%s "
+             "touches_rows=%s touches_pending=%s errors=%d%s",
+             run.tenant_id, run.business_id, ls_.get("groups", 0), ls_.get("variants", 0),
+             ls_.get("pages", 0), ls_.get("people_fetched", 0), ls_.get("people_upserted", 0),
+             ls_.get("skipped_source", 0), run.stats.get("activity_people", 0),
+             run.stats.get("activity_rows", 0), run.stats.get("activity_pending", 0), len(errors),
+             (" " + " | ".join(errors))[:600] if errors else "")
 
 
 # ── tasks ────────────────────────────────────────────────────────────────────────────────
@@ -480,14 +683,22 @@ async def full_sync(s: AsyncSession, tenant_id, integ: Integration, creds: fub.F
             await _identity(run)
             await _users(run)
             await _quick_passes(run)
-            await _backfill(run)
-            # After the people are current, so a lead that just arrived is in scope this run. Its
-            # own try: the lead-source report's activity must never cost Needs You Today its sync.
+            # The lead-source reports' people, then their touches -- BEFORE the whole-CRM backfill,
+            # so they never wait behind it. Each in its own try: the lead-source reports must
+            # never cost Needs You Today its sync.
+            try:
+                await _lead_sources(run)
+                await _discover_sources(run)
+            except Exception as e:  # noqa: BLE001 -- recorded on the run, the sync carries on
+                await s.rollback()
+                run.stats["lead_sources_error"] = f"{type(e).__name__}: {e}"[:300]
             try:
                 await _activity(run)
             except Exception as e:  # noqa: BLE001 -- recorded on the run, the sync carries on
                 await s.rollback()
                 run.stats["activity_error"] = f"{type(e).__name__}: {e}"[:300]
+            _log_lead_sources(run)
+            await _backfill(run)
         run.state["quick"] = {"at": _iso(run.now), "ok": True}
         run.state["last_run"] = {"at": _iso(run.now), **run.stats}
         _save(integ, run.state)

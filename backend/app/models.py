@@ -1564,9 +1564,17 @@ class Lead(Base):
     sisu_contact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     sisu_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # ── the scoped Follow Up Boss lead ingestion (services/fub_sync._lead_sources) ──
+    #   src_url         the person's page in Follow Up Boss, so a report row opens it
+    #   assigned_name   FUB's own assigned-to name: the agent the legacy report showed, kept for a
+    #                   person whose FUB user Axcion does not hold as an agent
+    src_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    assigned_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_lead_src_ext"),
         Index("ix_lead_follow_up", "tenant_id", "agent_id", "contacted"),
+        # Every lead-source query filters on the FUB source strings a group matches.
+        Index("ix_lead_origin", "tenant_id", "business_id", "origin"),
     )
 
 
@@ -1596,7 +1604,7 @@ class CrmTask(Base):
 
 
 class CrmActivity(Base):
-    """One CRM touch on one person: a call, a text, an email event, or an appointment.
+    """One CRM touch on one person: a call, a text, an email event, an appointment, or a deal.
 
     THE FACTS THE LEAD-SOURCE REPORT NEEDS AND THE LEAD ROW DOES NOT HOLD. Speed to lead, "was this
     person contacted", stuck leads and every What's Working median are read off these rows
@@ -1609,13 +1617,17 @@ class CrmActivity(Base):
 
     `external_id` is unique per KIND, not per account: Follow Up Boss numbers calls and texts
     independently, so call 101 and text 101 are different events.
+
+    A DEAL is a row of its own kind, as the legacy report read it per person: `deal_stage` and
+    `deal_status` (lowercased), `occurred_at` its close date. The pipeline counts an offer from the
+    stage and the cohort table a close from the status, before Sisu has the deal.
     """
     __tablename__ = "crm_activity"
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
     business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
     source: Mapped[str] = mapped_column(String(24), default="fub")
-    kind: Mapped[str] = mapped_column(String(16))                  # call | text | email | appointment
+    kind: Mapped[str] = mapped_column(String(16))                  # call | text | email | appointment | deal
     external_id: Mapped[str] = mapped_column(String(64))
     person_external_id: Mapped[str] = mapped_column(String(64))    # the lead's external_id
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1624,8 +1636,10 @@ class CrmActivity(Base):
     duration_sec: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
     has_note: Mapped[bool] = mapped_column(Boolean, default=False)
     outcome: Mapped[str | None] = mapped_column(String(60), nullable=True)  # appointments, lowercased
-    channel: Mapped[str] = mapped_column(String(8))                # call | text | email | appt
+    channel: Mapped[str] = mapped_column(String(8))                # call | text | email | appt | deal
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deal_stage: Mapped[str | None] = mapped_column(String(80), nullable=True)    # deals only
+    deal_status: Mapped[str | None] = mapped_column(String(40), nullable=True)   # deals only
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "kind", "external_id", name="uq_crm_activity_src"),
         Index("ix_crm_activity_person", "tenant_id", "person_external_id"),

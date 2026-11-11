@@ -1,0 +1,53 @@
+{
+  "_metadata": {
+    "collection": "people",
+    "offset": 2,
+    "limit": 100,
+    "total": 4,
+    "next": null,
+    "nextLink": null
+  },
+  "people": [
+    {
+      "id": 10003,
+      "created": "2026-03-14T21:10:00Z",
+      "updated": "2026-03-20T15:00:00Z",
+      "createdVia": "API",
+      "lastActivity": "2026-03-20T15:00:00Z",
+      "name": "Casey Moreno",
+      "firstName": "Casey",
+      "lastName": "Moreno",
+      "stage": "Appointment Set",
+      "stageId": 4,
+      "source": "Realtor.com",
+      "sourceId": 7,
+      "contacted": 1,
+      "price": 612500,
+      "assignedUserId": 0,
+      "assignedTo": "Morgan Pruitt",
+      "emails": [{"value": "casey.moreno@example.com", "type": "home", "status": "Valid", "isPrimary": 1}],
+      "phones": [{"value": "8015550103", "type": "mobile", "status": "Valid", "isPrimary": 1}],
+      "addresses": []
+    },
+    {
+      "id": 10004,
+      "created": "2026-03-15T12:00:00Z",
+      "updated": "2026-03-15T12:00:00Z",
+      "createdVia": "API",
+      "lastActivity": "2026-03-15T12:00:00Z",
+      "name": "Drew Halvorsen",
+      "firstName": "Drew",
+      "lastName": "Halvorsen",
+      "stage": "Lead",
+      "stageId": 2,
+      "source": "Zillow",
+      "sourceId": 3,
+      "contacted": 0,
+      "assignedUserId": 12,
+      "assignedTo": "Jordan Ellis",
+      "emails": [{"value": "drew@example.com", "type": "home", "status": "Valid", "isPrimary": 1}],
+      "phones": [],
+      "addresses": []
+    }
+  ]
+}

@@ -19,6 +19,7 @@ both ROI multiples, and a month with spend and no leads still in the program tot
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from collections import defaultdict
 from decimal import Decimal
 
@@ -136,6 +137,16 @@ async def fub_link_base(s, tenant_id, business_id) -> str | None:
     return None
 
 
+def agent_key(lead: Lead) -> str | None:
+    """The key a person's agent is grouped under: the Axcion agent, else FUB's own assigned-to name
+    (a user Axcion does not hold, such as one who has left), so two such agents are not merged into
+    Unassigned. None only when FUB names nobody."""
+    if lead.agent_id:
+        return str(lead.agent_id)
+    name = (lead.assigned_name or "").strip()
+    return "fub-" + hashlib.sha1(name.lower().encode()).hexdigest()[:12] if name else None
+
+
 async def load_universe(s, tenant_id, business_id, group: LeadSourceGroup, *, now=None) -> dict:
     """Every lead in the group from its program-start month, with what each report needs.
 
@@ -180,9 +191,13 @@ async def load_universe(s, tenant_id, business_id, group: LeadSourceGroup, *, no
         created = _aware(lead.src_created_at)
         if created is None:                               # no timestamp: the workspace's midnight
             created = dt.datetime.combine(lead.created_at_src, dt.time.min, tzinfo=tz).astimezone(dt.timezone.utc)
-        touches, appts = [], []
+        touches, appts, fub_deals = [], [], []
         for a in acts.get(lead.external_id, []):
             at = _aware(a.occurred_at)
+            if a.kind == "deal":
+                # FUB's own deals, in the legacy shape the pipeline and cohort rules read.
+                fub_deals.append({"status": a.deal_status or "", "stage": a.deal_stage or "", "close": at})
+                continue
             if a.kind == "appointment":
                 appts.append({"start": at, "outcome": (a.outcome or "").lower()})
                 if at is None:
@@ -209,17 +224,17 @@ async def load_universe(s, tenant_id, business_id, group: LeadSourceGroup, *, no
             "email": lead.email, "source": lead.origin, "created": created,
             "cohort_key": lead.created_at_src.strftime("%Y-%m"), "created_date": lead.created_at_src,
             "stage": (lead.stage or ""),
-            "agent_id": str(lead.agent_id) if lead.agent_id else None,
-            "assigned_to": agents.get(lead.agent_id) or "Unassigned",
+            "agent_id": agent_key(lead),
+            "assigned_to": agents.get(lead.agent_id) or lead.assigned_name or "Unassigned",
             "contacted_flag": bool(lead.contacted),
             "price": float(lead.price) if lead.price is not None else None,
             "first_outbound_at": touches[0]["at"] if touches else None,
             "last_activity_at": touches[-1]["at"] if touches else None,
-            "touches": touches, "appointments": appts, "deals": [],
+            "touches": touches, "appointments": appts, "deals": fub_deals,
             "transactions": deals, "tx_states": states, "sisu_state": best_state(states),
             "sisu_matched": bool(lead.sisu_contact_id) or bool(deals),
             "sisu_checked": lead.sisu_checked_at is not None,
-            "fub_url": f"{link_base}/{lead.external_id}" if link_base else None,
+            "fub_url": lead.src_url or (f"{link_base}/{lead.external_id}" if link_base else None),
         })
     return out
 
