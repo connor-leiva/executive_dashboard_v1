@@ -111,22 +111,49 @@ async def users() -> list[dict]:
     return await _pages("/users", {"status": "active"}, "users")
 
 
+def _unique(rows: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for row in rows:
+        key = str(row.get("id") or row.get("uuid") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+async def _optional(path: str, params: dict, key: str) -> list[dict]:
+    """A 400/404 means this user has nothing on that edge, not that the sync failed."""
+    try:
+        return await _pages(path, params, key)
+    except ZoomError as err:
+        if err.status in (400, 404):
+            return []
+        raise
+
+
 async def meetings(user_id: str, start: date, end: date) -> list[dict]:
     rows = []
     for frm, to in _chunks(start, end):
-        rows.extend(await _pages(
+        rows.extend(await _optional(
             f"/report/users/{user_id}/meetings",
             {"from": frm.isoformat(), "to": to.isoformat()}, "meetings"))
-    return rows
+    # The report is sometimes empty for a meeting the user list still has.
+    rows.extend(await _optional(
+        f"/users/{user_id}/meetings", {"type": "previous_meetings"}, "meetings"))
+    return _unique(rows)
 
 
 async def webinars(user_id: str, start: date, end: date) -> list[dict]:
     rows = []
     for frm, to in _chunks(start, end):
-        rows.extend(await _pages(
+        rows.extend(await _optional(
             f"/report/users/{user_id}/webinars",
             {"from": frm.isoformat(), "to": to.isoformat()}, "webinars"))
-    return rows
+    rows.extend(await _optional(
+        f"/users/{user_id}/webinars", {"type": "past"}, "webinars"))
+    return _unique(rows)
 
 
 async def participants(zoom_id: str, kind: str) -> tuple[list[dict], str]:
