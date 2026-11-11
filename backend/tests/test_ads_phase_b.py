@@ -66,6 +66,11 @@ async def test_forum_and_edge_ladders_name_the_people_and_leave_attendance_blank
     forum = {r["key"]: r for r in out["forum"]["rungs"]}
     assert forum["qualified"]["n"] == 1
     assert forum["qualified"]["people"][0]["name"] == "Ada Lovelace"
+    # Meta's lead actions and Spring's guests are different denominators.
+    # $700 / 10 Meta leads is not $700 / 1 Spring guest.
+    assert forum["lead"]["n"] == 10
+    assert forum["lead"]["cost_per"] == 70
+    assert forum["qualified"]["cost_per"] == 700
     assert forum["seat"]["n"] == 1
     assert forum["seat"]["cost_per"] == 700
     assert forum["member"]["n"] == 1

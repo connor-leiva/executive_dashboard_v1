@@ -55,6 +55,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
     const leads = filtered.reduce((a, r) => a + (Number(r.leads) || 0), 0);
     const totals = (brand || q || mode === "ads") ? {
       spend,
+      leads,
       ctr: impr ? (clicks / impr) * 100 : null,
       cpc: clicks ? spend / clicks : null,
       cpl: leads ? spend / leads : null,
@@ -75,17 +76,18 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <PageTitle title="Performance" lede="One table. Click a row for the detail. The funnel is Spring's leads in, then Justin's guest seats." />
+      <PageTitle title="Performance" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
         {[
-          ["Spend", usd(cards.spend)],
-          ["Link CTR", pct(cards.ctr)],
-          ["CPC", usd(cards.cpc, 2)],
-          ["Cost / lead", usd(cards.cpl, 2)],
-        ].map(([label, value]) => (
+          ["Spend", usd(cards.spend), null],
+          ["Link CTR", pct(cards.ctr), null],
+          ["CPC", usd(cards.cpc, 2), null],
+          ["Meta cost / lead", usd(cards.cpl, 2), cards.leads == null ? null : `${num(cards.leads)} Meta lead actions`],
+        ].map(([label, value, note]) => (
           <Card key={label} style={{ padding: 12 }}>
             <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</div>
             <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink, marginTop: 4 }}>{value}</div>
+            {note && <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate, marginTop: 4 }}>{note}</div>}
           </Card>
         ))}
       </div>
@@ -105,6 +107,10 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
               <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{justin?.missing ? "Not recorded" : num(justin?.n)}</div>
             </button>
             <div>
+              <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Cost / Spring lead</div>
+              <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{usd(spring?.cost_per)}</div>
+            </div>
+            <div>
               <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Cost per seat</div>
               <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{usd(justin?.cost_per)}</div>
             </div>
@@ -117,7 +123,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
         <Btn primary={mode === "ads"} onClick={() => setMode("ads")}>Ads</Btn>
         <input aria-label="Filter by name" value={q} placeholder="Filter" onChange={(e) => setQ(e.target.value)}
                style={{ fontFamily: FONT, fontSize: 13, padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.line}`, color: C.ink, background: C.surface }} />
-        <Btn onClick={() => { setBrand(null); }}>All brands</Btn>
+        <Btn primary={!brand} onClick={() => setBrand(null)}>All brands</Btn>
         {(data.groups || []).map((g) => (
           <Btn key={g.name} primary={brand === g.name} onClick={() => setBrand(g.name)}>{g.name}</Btn>
         ))}

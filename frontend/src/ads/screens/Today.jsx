@@ -1,10 +1,19 @@
 import { useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
-import { C, FONT, usd } from "../adsTokens.js";
-import { Banner, Btn, Card, Empty, PageTitle, PaceBar, weeklyPace } from "../ui.jsx";
+import { C, FIG, FONT, num, usd } from "../adsTokens.js";
+import { Banner, Btn, Card, Empty, PaceBar, tone, weeklyPace } from "../ui.jsx";
 
 const VERDICT = { kill: "Turn off", keep: "Keep", scale: "Scale" };
+
+function Stat({ label, value, valueColor }) {
+  return (
+    <Card style={{ padding: 14 }}>
+      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FIG, fontSize: 26, color: valueColor || C.ink, marginTop: 6 }}>{value}</div>
+    </Card>
+  );
+}
 
 export default function Today({ data, onSaved }) {
   const writes = data.writes || {};
@@ -14,7 +23,10 @@ export default function Today({ data, onSaved }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const pace = weeklyPace(data);
+  const paceTone = tone(pace.status, pace.open);
+  const spring = (data.brand_funnels?.forum?.rungs || []).find((r) => r.key === "qualified");
   const selected = items.filter((i) => i.action && picked[`${i.level}:${i.external_id}`]);
+  const paceWord = pace.status === "behind" ? "Behind" : pace.status === "ahead" ? "Ahead" : pace.status === "on" ? "On pace" : "No plan";
 
   async function apply(list, dry) {
     setBusy(true);
@@ -42,11 +54,16 @@ export default function Today({ data, onSaved }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <PageTitle kicker="This morning" title="What to do with the spend" lede="Scale, keep, or turn off. Approve sends the server's recommendation. Skip leaves it alone." />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+        <Stat label="Spent" value={usd(pace.spend)} />
+        <Stat label="Spring leads" value={spring?.missing ? "Not recorded" : num(spring?.n)} />
+        <Stat label="Cost / Spring lead" value={usd(spring?.cost_per)} />
+        <Stat label="Pace" value={paceWord} valueColor={paceTone.ink} />
+      </div>
       <PaceBar pace={pace} />
       {!writes.can_write && (
         <Banner title="Reconnect Meta to enable changes" tone="bad">
-          {writes.detail || "Apply runs as a preview until the token includes ads_management."}
+          Approve previews the change until the token includes ads_management.
         </Banner>
       )}
       {writes.killed && <Banner title="Ad changes are stopped" tone="bad">The kill switch is on. Approve stays a preview.</Banner>}
@@ -57,8 +74,10 @@ export default function Today({ data, onSaved }) {
             const key = `${item.level}:${item.external_id}`;
             return (
               <label key={key} style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 12, alignItems: "start", padding: "8px 0", borderTop: `1px solid ${C.line}` }}>
-                <input type="checkbox" disabled={!item.action} checked={!!picked[key]} aria-label={`Select ${item.name}`}
-                       onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} />
+                {item.action ? (
+                  <input type="checkbox" checked={!!picked[key]} aria-label={`Select ${item.name}`}
+                         onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} />
+                ) : <span />}
                 <span>
                   <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.accent }}>{VERDICT[item.verdict] || item.verdict}</span>
                   <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink, marginLeft: 8 }}>{item.name}</span>
@@ -89,10 +108,9 @@ export default function Today({ data, onSaved }) {
       )}
       {data.digest && (
         <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>
-          Morning note {data.digest.day}: {data.digest.attendance?.attended != null
+          {data.digest.attendance?.attended != null
             ? `Edge webinar: ${data.digest.attendance.attended} attended.`
             : "Edge webinar attendance is not recorded yet."}
-          {" "}Spend {usd(pace.spend)}.
         </p>
       )}
     </div>
