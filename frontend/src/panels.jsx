@@ -4,6 +4,7 @@
    loan pipeline and the audit drawer already used. Moved unchanged; the two new exports (StatTile,
    Segmented) are the Portfolio strip's tile and the loan pipeline's toggle as components. */
 import { T } from "./theme.js";
+import { Icon } from "./Brand.jsx";
 
 /* Sentence case for labels that arrive Title Cased ("Combined Profit" -> "Combined profit"),
    leaving acronyms (GCI, NOI) alone. */
@@ -43,13 +44,28 @@ export function Eyebrow({ children, onDark }) {
   );
 }
 
-export function PanelLabel({ children, accent }) {
+/* A method note kept off the page: the info glyph, with the note as its tooltip and its accessible
+   name. Focusable, so a keyboard reaches it too -- except inside a button, where a second tab stop
+   is invalid and the button's own focus already reads the label. What's Working's caveats
+   introduced it. */
+export function Info({ text, size = 13, focusable = true }) {
+  if (!text) return null;
+  return (
+    <span title={text} aria-label={text} role="img" tabIndex={focusable ? 0 : undefined}
+      style={{ display: "inline-flex", cursor: "help", flexShrink: 0, borderRadius: 99 }}>
+      <Icon name="info" size={size} color={T.muted} />
+    </span>
+  );
+}
+
+export function PanelLabel({ children, accent, info }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
       <span style={{ width: 3, height: 14, borderRadius: 2, background: accent || T.evergreen }} />
       <span style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 600, color: T.slate }}>
         {children}
       </span>
+      <Info text={info} />
     </div>
   );
 }
@@ -113,7 +129,7 @@ export function SkeletonCard({ h = 96 }) {
    it drills. `value` is a node, so a caller can render a muted "Not mapped" in the same slot.
    `asIs` keeps a label the caller already wrote in sentence case -- `sentence` would lower-case
    the proper nouns in "ROI on full QuickBooks spend". */
-export function StatTile({ label, source, value, sub, onClick, title, asIs }) {
+export function StatTile({ label, source, value, sub, onClick, title, asIs, info }) {
   const Tag = onClick ? "button" : "div";
   return (
     <Tag onClick={onClick} title={title} className={onClick ? "cc-card" : undefined}
@@ -122,8 +138,10 @@ export function StatTile({ label, source, value, sub, onClick, title, asIs }) {
         background: T.white, border: `1px solid ${T.line}`,
         borderRadius: 14, padding: 20, cursor: onClick ? "pointer" : "default",
       }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      {/* A fixed-height header row: a tile with a source tag and one without keep their titles level. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, minHeight: 18 }}>
         <span style={{ fontFamily: "var(--font-text)", fontSize: 13, color: T.tertiary, fontWeight: 500 }}>{asIs ? label : sentence(label)}</span>
+        <Info text={info} focusable={!onClick} />
         <span style={{ marginLeft: "auto" }}><SourceTag of={source} /></span>
       </div>
       <div style={{ fontFamily: "var(--font-data)", fontSize: 32, fontWeight: 500, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>

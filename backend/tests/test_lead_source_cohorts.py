@@ -200,3 +200,33 @@ async def test_the_api_gates_and_404s(ws):
         assert (await c.get(url.format("nope"), headers=H)).status_code == 404
         assert (await c.get(url.format("realtor_com"), headers=M)).status_code == 403   # no brokerage tab
         assert (await c.get(url.format("realtor_com") + "?start=2026-05&end=2026-02", headers=H)).status_code == 400
+
+
+async def test_the_date_bar_picks_the_cohort_months_it_touches(ws):
+    """A cohort is a whole month: a range inside February shows every February lead, and the
+    program block still counts the whole program so the page can offer to widen the range."""
+    r = await _report(ws, period="c:2026-02-10:2026-02-12")
+    assert [x["cohort_key"] for x in r["cohort_rows"]] == ["2026-02"]
+    assert r["header"]["leads"] == 10
+    assert r["window"]["start"] == "2026-02-10" and r["window"]["label"] == "Feb 10 – Feb 12, 2026"
+    assert r["program"] == {"since": "2026-01-01", "until": "2026-11-10", "leads": 12}
+    # Month to date at the fixture's clock is November: no cohort, but the program still holds leads.
+    r = await _report(ws, period="mtd")
+    assert r["cohort_rows"] == [] and r["program"]["leads"] == 12
+
+
+async def test_the_api_takes_the_date_bar_period(ws):
+    from app.config import settings
+    async with SessionLocal() as s:
+        slug = (await s.get(Tenant, ws["tenant_id"])).slug
+    H = {"Authorization": f"Bearer {ws['owner']}", "X-Tenant-Host": f"{slug}.{settings.PLATFORM_DOMAIN}"}
+    base = "/api/v1/businesses/brokerage/lead-sources/realtor_com"
+    async with AsyncClient(transport=TRANSPORT, base_url="http://testserver") as c:
+        r = (await c.get(f"{base}/cohorts?period=c:2026-04-01:2026-04-30", headers=H)).json()
+        assert [x["cohort_key"] for x in r["cohort_rows"]] == ["2026-04"]
+        p = (await c.get(f"{base}/pipeline?period=c:2026-02-01:2026-02-28", headers=H)).json()
+        assert p["summary"]["leads"] == 10 and p["window"]["key"] == "c:2026-02-01:2026-02-28"
+        assert p["program"]["leads"] == 12
+        w = (await c.get(f"{base}/whats-working?period=c:2026-04-01:2026-04-30", headers=H)).json()
+        assert sum(a["metrics"]["n_leads"] for a in w["agents"]) == 1
+        assert (await c.get(f"{base}/pipeline?period=DROP%20TABLE", headers=H)).status_code == 422

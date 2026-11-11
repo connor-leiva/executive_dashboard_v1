@@ -14,6 +14,7 @@ import datetime as dt
 import statistics
 from collections import defaultdict
 
+from . import metrics as _metrics
 from .lead_source_report import load_universe, safe_pct
 
 STAGE_ORDER = ["leads_received", "contacted", "qualified", "appt_set", "met_with", "showing",
@@ -80,8 +81,15 @@ def _has_any(stage: str, tokens) -> bool:
 
 
 def window_bounds(key: str, today: dt.date) -> tuple[dt.date | None, dt.date | None]:
-    """The legacy presets, in the workspace's calendar. Last 4 months is the first of this month,
-    rolled back four months, through today -- not 120 days."""
+    """The leads a report reads, by the day they arrived, in the workspace's calendar.
+
+    `key` is either one of the legacy presets (the digest still reads `rolling_30`) or the app's
+    date-bar period -- `mtd`, `qtd`, `last_7`, `c:2026-02-01:2026-11-11` and the rest -- which
+    `metrics._period_range` reads exactly as every other page does, so the report and the bar can't
+    disagree about which days are in. Last 4 months is the first of this month, rolled back four
+    months, through today -- not 120 days."""
+    if key == "all_time":
+        return None, None
     if key == "rolling_30":
         return today - dt.timedelta(days=30), today
     if key == "rolling_90":
@@ -92,9 +100,7 @@ def window_bounds(key: str, today: dt.date) -> tuple[dt.date | None, dt.date | N
             m += 12
             y -= 1
         return dt.date(y, m, 1), today
-    if key == "ytd":
-        return dt.date(today.year, 1, 1), today
-    return None, None
+    return _metrics._period_range(_metrics.canonical_period(key), today)
 
 
 def in_window(people: list[dict], key: str, today: dt.date) -> list[dict]:
@@ -192,7 +198,9 @@ def bottleneck(vs: dict[str, float]) -> dict:
     gap = vs[worst]
     sev = ("crit" if gap < BOTTLENECK_CRIT_PP else "warn" if gap < BOTTLENECK_WARN_PP
            else "mild" if gap < BOTTLENECK_MILD_PP else "none")
-    return {"stage": worst, "label": f"{STAGE_LABELS[worst]} ({gap:+.0f}pp)", "severity": sev, "gap_pp": gap}
+    # "Contacted (2-way), 51 pts below" -- words, not "(-51pp)".
+    side = "below" if gap < 0 else "above"
+    return {"stage": worst, "label": f"{STAGE_LABELS[worst]}, {abs(gap):.0f} pts {side}", "severity": sev, "gap_pp": gap}
 
 
 def speed_info(people: list[dict]) -> dict:
@@ -364,9 +372,21 @@ def _agent_row(a: AgentStats) -> dict:
 
 
 def _window_meta(key: str, today: dt.date) -> dict:
+    legacy = dict(WINDOWS)
+    if key not in legacy:
+        key = _metrics.canonical_period(key)
     start, end = window_bounds(key, today)
-    return {"key": key, "label": dict(WINDOWS)[key], "start": start.isoformat() if start else None,
-            "end": end.isoformat() if end else None}
+    return {"key": key, "label": legacy.get(key) or _metrics.period_label(key),
+            "start": start.isoformat() if start else None, "end": end.isoformat() if end else None}
+
+
+def program_meta(people: list[dict], group, today: dt.date) -> dict:
+    """The whole program, whatever the date range: how many leads it holds, the day it starts, and
+    today in the workspace's calendar. The page tells "no leads at all" from "none in this range"
+    with it, and widens the range to `since`-`until` when asked."""
+    first = min((p["created_date"] for p in people if p.get("created_date")), default=None)
+    since = group.program_start or first
+    return {"since": since.isoformat() if since else None, "until": today.isoformat(), "leads": len(people)}
 
 
 async def team_pipeline(s, tenant_id, business, group, *, window: str = "all_time", now=None) -> dict:
@@ -387,6 +407,7 @@ async def team_pipeline(s, tenant_id, business, group, *, window: str = "all_tim
     return {
         "group": {"key": group.key, "display_name": group.display_name},
         "window": _window_meta(window, today), "windows": [{"key": k, "label": lbl} for k, lbl in WINDOWS],
+        "program": program_meta(uni["people"], group, today),
         "as_of": now.isoformat(timespec="seconds"),
         "team_funnel": funnel,
         "summary": {"agents": len(agents), "leads": funnel["stages"][0]["count"],
@@ -431,37 +452,32 @@ def matches_filter(p: dict, key: str, now: dt.datetime) -> bool:
     return False
 
 
-def _minutes(m: int | None) -> str:
-    if m is None:
-        return "No touches"
-    if m < 60:
-        return f"{m} min"
-    if m < 1440:
-        return f"{m / 60:.1f} hr".replace(".0 hr", " hr")
-    return f"{m / 1440:.1f} days".replace(".0 days", " days")
+def _ordinal(n: int) -> str:
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
 
 
-def _highlights(a: AgentStats, team_pickup: float) -> list[dict]:
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def _highlights(a: AgentStats, team_pickup: float, rank: int, rank_of: int) -> list[dict]:
+    """The agent page's four tiles. Speed to first contact has its own card below them, so the
+    tiles carry predicted close in its place rather than say speed twice."""
     delta = round(a.pickup - team_pickup, 1)
     mw = a.conv.get("met_with", 0.0)
     mw_bench = INDUSTRY_BENCHMARKS["met_with"]["median"]
     mw_delta = round(mw - mw_bench, 1)
-    speed_sev = "none"
-    if a.speed_median is not None and a.speed_median > 60:
-        speed_sev = "warn"
-    if a.speed_median is not None and a.speed_median > 1440:
-        speed_sev = "alert"
     return [
         {"key": "pickup_rate", "label": "Pickup rate", "value": f"{a.pickup:.0f}%",
          "context": f"{a.counts['contacted']} of {a.counts['leads_received']} leads contacted",
          "delta": f"{delta:+.0f} pts vs team" if delta else "Same as team",
          "direction": "pos" if delta >= 0 else "neg",
          "severity": "alert" if a.pickup < CRITICAL_PICKUP_RATE_PCT else "warn" if a.pickup < 50 else "none"},
-        {"key": "speed", "label": "Speed to first contact",
-         "value": _minutes(a.speed_median),
-         "context": f"median · {a.pct_u5}% under 5 min", "delta": "", "direction": "neu", "severity": speed_sev},
+        {"key": "predicted", "label": "Predicted close", "value": f"{a.predicted:.1f}%".replace(".0%", "%"),
+         "context": f"{_ordinal(rank)} of {_plural(rank_of, 'agent')}",
+         "delta": "" if a.closed else "a forecast, no close yet", "direction": "neu", "severity": "none"},
         {"key": "met_with", "label": "Appointment to met", "value": f"{mw:.0f}%",
-         "context": f"{a.counts['met_with']} met from {a.counts['appt_set']} appointments",
+         "context": f"{a.counts['met_with']} met from {_plural(a.counts['appt_set'], 'appointment')}",
          "delta": f"{mw_delta:+.0f} pts vs {mw_bench:.0f}% benchmark", "direction": "pos" if mw_delta >= 0 else "neg",
          "severity": "alert" if mw_delta < BOTTLENECK_CRIT_PP else "warn" if mw_delta < BOTTLENECK_WARN_PP else "none"},
         {"key": "stuck", "label": "Stuck", "value": f"{a.stuck}",
@@ -508,15 +524,17 @@ async def agent_pipeline(s, tenant_id, business, group, agent_key: str, *, windo
     sp = speed_info(a.leads)
     team_sp = speed_info(people)
     tr, team_tr = trend(a.leads, now), trend(people, now)
+    rank = next(i for i, x in enumerate(ordered, 1) if x.key == a.key)
     return {
         "group": {"key": group.key, "display_name": group.display_name},
         "window": _window_meta(window, today), "windows": [{"key": k, "label": lbl} for k, lbl in WINDOWS],
+        "program": program_meta(uni["people"], group, today),
         "as_of": now.isoformat(timespec="seconds"),
         "agent": {"key": a.key, "name": a.name, "tier": a.tier, "tier_label": TIER_LABELS[a.tier],
                   "tier_reason": a.tier_reason(), "lead_count": a.counts["leads_received"],
-                  "rank": next(i for i, x in enumerate(ordered, 1) if x.key == a.key), "rank_of": len(ordered),
+                  "rank": rank, "rank_of": len(ordered),
                   "predicted_cvr": a.predicted, "raw_cvr": a.raw_cvr},
-        "highlights": _highlights(a, funnel["team_pickup_rate_pct"]),
+        "highlights": _highlights(a, funnel["team_pickup_rate_pct"], rank, len(ordered)),
         "funnel": vertical,
         "stuck_leads_by_filter": filters, "default_stuck_filter": default,
         "speed_to_first_contact": {**sp, "team_median_min": team_sp["median_min"],

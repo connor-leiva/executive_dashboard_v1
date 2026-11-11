@@ -1,4 +1,4 @@
-import { T, relativeTime } from "./theme.js";
+import { T, compactUsd, relativeTime } from "./theme.js";
 import { useSkyslope } from "./useSkyslope.js";
 
 /* The transactions panel on a SkySlope brokerage's page (backend: services/skyslope_metrics.py).
@@ -14,14 +14,7 @@ const CHIP = {
   needs_definition: { dot: T.muted, text: T.muted, label: "Needs definition" },
 };
 
-function compact(n) {
-  if (n == null) return "—";
-  const a = Math.abs(n);
-  if (a >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (a >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `$${Math.round(n / 1e3)}K`;
-  return `$${Math.round(n)}`;
-}
+const compact = compactUsd;
 
 function shortDate(iso) {
   if (!iso) return "—";

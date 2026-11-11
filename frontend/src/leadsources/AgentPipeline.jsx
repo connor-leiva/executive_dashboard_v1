@@ -16,7 +16,9 @@ function VerticalFunnel({ stages, selected, onSelect }) {
   const top = stages[0].count || 0;
   return (
     <Card style={{ flex: "1 1 420px", minWidth: 300 }}>
-      <CardHead right={<Source name="Follow Up Boss · Sisu" />}><PanelLabel accent={T.meadow}>Funnel</PanelLabel></CardHead>
+      <CardHead right={<Source name="Follow Up Boss · Sisu" />}>
+        <PanelLabel accent={T.meadow} info="Select a stage to list the leads stuck there. The bar in the accent is the agent's biggest gap to benchmark.">Funnel</PanelLabel>
+      </CardHead>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {stages.map((st, i) => {
           const filterKey = i < stages.length - 1 ? `stuck_at_${st.stage_key}` : null;
@@ -30,8 +32,9 @@ function VerticalFunnel({ stages, selected, onSelect }) {
                 background: on ? T.parchment : "transparent", cursor: filterKey ? "pointer" : "default" }}>
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontFamily: FB, fontSize: 13, color: T.ink, fontWeight: on ? 600 : 500 }}>{st.stage_label}</span>
-                <span style={{ display: "block", fontFamily: FB, fontSize: 12, color: SEV[st.severity] || T.muted }}>
-                  {i === 0 ? "the baseline" : `${fmt.pct(st.conv_pct_from_prev)} · ${fmt.pp(st.vs_benchmark_pp)} vs ${st.benchmark_median_pct}%`}
+                <span style={{ display: "block", fontFamily: FB, fontSize: 12, color: SEV[st.severity] || T.muted }}
+                  title={i === 0 ? undefined : `Benchmark median ${st.benchmark_median_pct}%`}>
+                  {i === 0 ? "the baseline" : `${fmt.pct(st.conv_pct_from_prev)} · ${fmt.gap(st.vs_benchmark_pp)}`}
                 </span>
               </span>
               <span style={{ height: 16, background: T.parchment, borderRadius: 5, overflow: "hidden", display: "block" }}>
@@ -45,7 +48,6 @@ function VerticalFunnel({ stages, selected, onSelect }) {
           );
         })}
       </div>
-      <div style={{ ...small, marginTop: 12 }}>Select a stage to list the leads stuck there. The bar in the accent is the agent's biggest gap to benchmark.</div>
     </Card>
   );
 }
@@ -81,11 +83,13 @@ function SpeedCard({ speed }) {
   );
 }
 
+/* Leads per week by arrival. The caption names a colour only when a week on screen carries it. */
 function TrendCard({ trend }) {
   const max = Math.max(...trend.weekly_leads, 1);
+  const anyClose = trend.sparkline_points.some((x) => x > 0);
   return (
     <Card style={{ flex: "1 1 300px", minWidth: 280 }}>
-      <CardHead right={<Source name="Sisu" />}><PanelLabel accent={T.meadow}>Last 12 weeks</PanelLabel></CardHead>
+      <CardHead right={<Source name="Follow Up Boss · Sisu" />}><PanelLabel accent={T.meadow}>Last 12 weeks</PanelLabel></CardHead>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 72 }} role="img"
            aria-label={`Leads per week: ${trend.weekly_leads.join(", ")}`}>
         {trend.weekly_leads.map((n, i) => (
@@ -96,7 +100,7 @@ function TrendCard({ trend }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", ...small, marginTop: 6 }}><span>12 weeks ago</span><span>this week</span></div>
       <div style={{ fontFamily: FB, fontSize: 13, color: T.slate, marginTop: 12, lineHeight: 1.5 }}>
-        Leads per week by arrival; green weeks already have a close. Predicted close rate {fmt.pct(trend.predicted_pct)}.
+        {anyClose ? "Leads per week by arrival; the dark green weeks already have a close." : "Leads per week. No closes in these 12 weeks."}
       </div>
     </Card>
   );
@@ -125,12 +129,14 @@ const STUCK_CSV = [
 
 function StuckList({ filters, active, onChange, note, filename }) {
   const f = filters[active] || filters.all_active;
-  const options = Object.entries(filters).map(([k, v]) => [k, `${v.label} ${v.count}`]);
+  // Only the stages that hold someone, plus "all" and whatever is selected: a row of zeros is noise.
+  const options = Object.entries(filters).filter(([k, v]) => v.count > 0 || k === "all_active" || k === active)
+    .map(([k, v]) => [k, `${v.label} ${v.count}`]);
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
         <CardHead right={<ExportButton onClick={() => downloadCsv(filename, STUCK_CSV, f.leads)} disabled={!f.leads.length} />}>
-          <PanelLabel accent={T.daffodil}>Stuck leads</PanelLabel>
+          <PanelLabel accent={T.daffodil} info={note}>Stuck leads</PanelLabel>
         </CardHead>
         <Segmented options={options} value={active} onChange={onChange} tone={T.ink} label="Stuck at" />
       </div>
@@ -156,7 +162,7 @@ function StuckList({ filters, active, onChange, note, filename }) {
         {f.leads.length === 0 && <div style={{ ...small, padding: "16px 20px" }}>Nothing stuck here.</div>}
         {f.count > f.leads.length && <div style={{ ...small, padding: "8px 20px" }}>The oldest {f.leads.length} of {f.count}.</div>}
       </div>
-      <div style={{ ...small, padding: "12px 20px 16px" }}>{note}</div>
+      <div style={{ height: 8 }} />
     </Card>
   );
 }
@@ -174,7 +180,7 @@ export default function AgentPipeline({ data, onBack }) {
           <span style={{ fontFamily: FD, fontSize: 20, fontWeight: 600, color: T.ink }}>{a.name}</span>
           <Pill tone={TIER_TONE[a.tier]}>{a.tier_label}</Pill>
           <span style={{ fontFamily: FB, fontSize: 13, color: T.muted }}>
-            {a.lead_count} leads · {a.rank} of {a.rank_of} by predicted close · {a.tier_reason}
+            {a.lead_count} lead{a.lead_count === 1 ? "" : "s"}{a.tier_reason ? ` · ${a.tier_reason}` : ""}
           </span>
         </div>
       </div>

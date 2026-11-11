@@ -10,7 +10,7 @@ import { useScorecard } from "./useScorecard.js";
 import { Card } from "./Parts.jsx";
 import { C, FD, FB } from "./scorecardMath.js";
 
-export default function UlrgTabs({ overview, role, businessKey = "ulrg", businessName, sub: controlled, onSub }) {
+export default function UlrgTabs({ overview, role, businessKey = "ulrg", businessName, sub: controlled, onSub, period, onPeriod }) {
   // Controllable, so the overview's lead-to-close panel can open the Lead sources tab.
   const [own, setOwn] = useState("overview");
   const sub = controlled ?? own;
@@ -40,7 +40,7 @@ export default function UlrgTabs({ overview, role, businessKey = "ulrg", busines
       {sub === "overview" && overview}
       {sub === "scorecard" && <Scorecard role={role} />}
       {sub === "recruiting" && <Recruiting />}
-      {sub === "lead_sources" && <LeadSources businessKey={businessKey} businessName={businessName} />}
+      {sub === "lead_sources" && <LeadSources businessKey={businessKey} businessName={businessName} period={period} onPeriod={onPeriod} />}
       {team && (
         <Card style={{ textAlign: "center", padding: "40px 28px" }}>
           <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: C.ink }}>{team.name} Team Room</div>

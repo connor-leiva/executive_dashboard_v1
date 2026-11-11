@@ -117,7 +117,7 @@ function Journey({ j, hours }) {
         <span style={{ display: "block", fontFamily: FB, fontSize: 13, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {j.fub_url ? <a href={j.fub_url} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "none" }}>{j.name}</a> : j.name}
         </span>
-        <span style={{ display: "block", fontFamily: FB, fontSize: 12, color: T.muted }}>{j.agent} · {j.touch_count_24h} in first day</span>
+        <span style={{ display: "block", fontFamily: FB, fontSize: 12, color: T.muted }}>{j.agent} · {j.touch_count_24h} touch{j.touch_count_24h === 1 ? "" : "es"} in the first day</span>
       </span>
       <span style={{ position: "relative", height: 18, display: "block" }}>
         <span style={{ position: "absolute", left: 0, right: 0, top: 8, height: 2, background: T.line }} />
@@ -166,9 +166,8 @@ export default function WhatsWorking({ data }) {
   const byKey = useMemo(() => Object.fromEntries(agents.map((x) => [x.key, x])), [agents]);
   const A = byKey[a] || agents[0], B = byKey[b] || agents[1] || agents[0];
 
-  if (!agents.length) {
-    return <Note tone="plain">No leads from this source in the window, so there is no behavior to compare.</Note>;
-  }
+  // No agents means no leads in the range: LeadSources shows the one empty state for that.
+  if (!agents.length) return null;
   let left, right, leftName, rightName, journeyLeft, journeyRight, jl, jr;
   if (framing === "outcome") {
     left = data.outcome_metrics.closed; right = data.outcome_metrics.dead;

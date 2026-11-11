@@ -88,31 +88,56 @@ def clean_key(key) -> str:
     return k
 
 
+# Python's regex errors, in the words of someone who typed a source into a box. Matched on the
+# start of `re.error.msg`; anything else falls back to Python's own words, quoted.
+_PATTERN_ERRORS = [
+    ("missing ), unterminated subpattern", "it opens a bracket and never closes it"),
+    ("unbalanced parenthesis", "it closes a bracket it never opened"),
+    ("unterminated character set", "it opens a [ and never closes it"),
+    ("nothing to repeat", "a *, + or ? has nothing before it to repeat"),
+    ("multiple repeat", "two of *, + and ? sit side by side"),
+    ("bad escape (end of pattern)", "it ends in a lone backslash"),
+    ("bad escape", "a backslash comes before a letter that means nothing escaped"),
+    ("bad character range", "a range inside [ ] runs backwards"),
+]
+
+
+def _pattern_problem(e: re.error) -> str:
+    msg = getattr(e, "msg", str(e))
+    for start, words in _PATTERN_ERRORS:
+        if msg.startswith(start):
+            return words
+    return f"Python reads it as “{msg}”"
+
+
 def clean_variants(variants, match_mode: str) -> list[str]:
     """Trimmed, non-empty, each spelling once. Spellings that differ only in CASE are both kept:
     matching ignores case, but the FUB sync asks for each variant as `source=<variant>`, and the
     legacy dashboard listed "market vip via opcity bla" beside "Market VIP via Opcity BLA" on
-    purpose -- whether FUB's filter ignores case has not been confirmed on a live account."""
+    purpose -- whether FUB's filter ignores case has not been confirmed on a live account.
+
+    A refusal names the LINE: the settings page sends the box's lines as typed, blanks included,
+    so line N here is line N there."""
     if variants is None:
         return []
     if not isinstance(variants, list):
         raise InvalidGroup("Variants are a list of source strings.")
     out, seen = [], set()
-    for v in variants:
+    for line, v in enumerate(variants, start=1):
         s = str(v or "").strip()
         if not s or s in seen:
             continue
         if len(s) > MAX_VARIANT_LEN:
-            raise InvalidGroup(f"A variant is at most {MAX_VARIANT_LEN} characters: {s[:40]}…")
+            raise InvalidGroup(f"Line {line} is {len(s)} characters; a variant is at most {MAX_VARIANT_LEN}.")
         if match_mode == "regex":
             try:
                 re.compile(s)
             except re.error as e:
-                raise InvalidGroup(f"“{s}” is not a valid pattern ({e}).") from None
+                raise InvalidGroup(f"Line {line}, “{s}”, isn't a valid pattern: {_pattern_problem(e)}.") from None
         seen.add(s)
         out.append(s)
     if len(out) > MAX_VARIANTS:
-        raise InvalidGroup(f"A group holds at most {MAX_VARIANTS} variants.")
+        raise InvalidGroup(f"A group holds at most {MAX_VARIANTS} variants; this one has {len(out)}.")
     return out
 
 

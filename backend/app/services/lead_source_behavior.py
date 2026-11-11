@@ -15,7 +15,7 @@ import datetime as dt
 import statistics
 from collections import defaultdict
 
-from .lead_source_pipeline import (STAGE_ORDER, WINDOWS, _window_meta, classify_stage, in_window,
+from .lead_source_pipeline import (STAGE_ORDER, WINDOWS, _window_meta, classify_stage, in_window, program_meta,
                                    is_stuck)
 from .lead_source_report import load_universe, safe_pct
 
@@ -207,6 +207,7 @@ async def whats_working(s, tenant_id, business, group, *, window: str = "all_tim
     return {
         "group": {"key": group.key, "display_name": group.display_name},
         "window": _window_meta(window, today), "windows": [{"key": k, "label": lbl} for k, lbl in WINDOWS],
+        "program": program_meta(uni["people"], group, today),
         "as_of": now.isoformat(timespec="seconds"),
         "metric_definitions": [{"key": k, "label": lbl, "group": g, "direction": d, "caveat": c, "n_key": nk, "unit": u}
                                for k, lbl, g, d, c, nk, u in METRICS],
