@@ -25,6 +25,10 @@ export const C = {
   ink: T.ink,
   slate: T.slate,
   muted: T.muted,
+  // Labels, table heads and helper lines. `muted` measures about 3.5:1 on white, under the 4.5:1
+  // that 13px text needs, so this mixes it halfway toward slate (about 6.3:1). Derived rather
+  // than picked, so it still follows a workspace's palette. `muted` stays for disabled controls.
+  quiet: `color-mix(in srgb, ${T.slate} 50%, ${T.muted})`,
   onDark: T.onDark,
   onDarkMute: T.onDarkMute,
 
@@ -41,9 +45,12 @@ export const C = {
   warnInk: T.daffodilText,
   warnBg: T.daffodilBg,
   warnBar: T.daffodil,
+  // From the danger token, not `poppy`. Under Axcion `poppy` is the primary action colour, so a
+  // "behind" bar and the kill switch were painted in the brand's button colour beside a red
+  // figure. `poppyText` is the danger colour in every palette this app ships.
   badInk: T.poppyText,
-  badBg: alpha(T.poppy, 0.10),
-  badBar: T.poppy,
+  badBg: alpha(T.poppyText, 0.08),
+  badBar: T.poppyText,
 
   // The Meta / Axcion crossing in the funnel. Deliberately NOT a brand colour: the point of the
   // divide is that the rungs above it are somebody else's measurement.

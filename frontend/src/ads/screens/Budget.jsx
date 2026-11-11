@@ -1,8 +1,8 @@
 import { useState } from "react";
 
 import { API_BASE, patchJSON } from "../../api";
-import { C, FIG, FONT, HEAD, usd } from "../adsTokens.js";
-import { Btn, Card, Empty, Field, PageTitle, inputStyle, tone } from "../ui.jsx";
+import { C, usd } from "../adsTokens.js";
+import { Btn, Card, Empty, MoneyInput, PageTitle, Stat, tone } from "../ui.jsx";
 
 export default function Budget({ data, onSaved }) {
   const [draft, setDraft] = useState({});
@@ -52,59 +52,54 @@ export default function Budget({ data, onSaved }) {
   const t = tone(status, true);
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="ax-stack">
       <PageTitle title="Budget" />
-      <Card>
-        <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>All brands</div>
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 8 }}>
-          <Sum label="Spent" value={usd(spent)} />
-          <Sum label="Plan for these days" value={planned ? usd(planned) : "No plan"} />
-          <Sum label="Remaining" value={remaining == null ? "—" : remaining >= 0 ? usd(remaining) : `${usd(-remaining)} over`} />
-          <Sum label="Pace" value={pace == null ? "—" : `${Math.round(pace)}%`} color={t.ink} />
-        </div>
-      </Card>
+      <div className="ax-stats">
+        <Stat label="Spent" value={usd(spent)} />
+        <Stat label="Plan for these days" value={planned ? usd(planned) : "No plan"} />
+        <Stat label="Remaining" value={remaining == null ? "—" : remaining >= 0 ? usd(remaining) : `${usd(-remaining)} over`} />
+        <Stat label="Pace" value={pace == null ? "—" : `${Math.round(pace)}%`} color={t.ink} />
+      </div>
 
       {week?.days?.length > 0 && <WeekChart days={week.days} />}
 
-      {brands.length === 0 && <Empty>No brands in this window.</Empty>}
-      {brands.map((g) => {
-        const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
-        const left = g.plan_spend == null ? null : g.plan_spend - (g.spend || 0);
-        const rowTone = tone(g.pace == null ? "none" : g.pace < 90 ? "behind" : g.pace > 110 ? "ahead" : "on", true);
-        return (
-          <Card key={g.name}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontFamily: HEAD, fontSize: 16, color: C.ink }}>{g.name}</div>
-                <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 4 }}>
-                  {usd(g.spend)} spent
-                  {g.weekly_budget ? ` · plan ${usd(g.weekly_budget)} / week` : " · no weekly plan"}
-                  {left == null ? "" : left >= 0 ? ` · ${usd(left)} remaining` : ` · ${usd(-left)} over`}
-                  {g.pace != null ? <span style={{ color: rowTone.ink }}>{` · ${g.pace}% pace`}</span> : ""}
-                </div>
-              </div>
-              <Field label="Weekly plan">
-                <input aria-label={`Weekly plan for ${g.name}`} inputMode="decimal" value={shown}
-                       onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))}
-                       style={{ ...inputStyle, fontFamily: FIG }} />
-              </Field>
+      <Card title="Weekly plan by brand" flush
+            foot={<>
+              <Btn primary disabled={busy || brands.length === 0} onClick={save}>Save weekly plan</Btn>
+              {msg && <span className="ax-text">{msg}</span>}
+            </>}>
+        {brands.length === 0 && <div className="ax-empty"><Empty>No brands in this window.</Empty></div>}
+        <div style={{ padding: "0 var(--ax-pad)" }}>
+          {brands.length > 0 && (
+            <div className="ax-listhead ax-planrow">
+              <span className="ax-label">Brand</span>
+              <span className="ax-label">Weekly plan</span>
             </div>
-          </Card>
-        );
-      })}
-      <div>
-        <Btn primary disabled={busy || brands.length === 0} onClick={save}>Save weekly plan</Btn>
-      </div>
-      {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}
-    </div>
-  );
-}
-
-function Sum({ label, value, color }) {
-  return (
-    <div>
-      <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>{label}</div>
-      <div style={{ fontFamily: FIG, fontSize: 18, color: color || C.ink }}>{value}</div>
+          )}
+          <div className="ax-list">
+            {brands.map((g) => {
+              const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
+              const left = g.plan_spend == null ? null : g.plan_spend - (g.spend || 0);
+              const rowTone = tone(g.pace == null ? "none" : g.pace < 90 ? "behind" : g.pace > 110 ? "ahead" : "on", true);
+              return (
+                <div key={g.name} className="ax-planrow" style={{ padding: "12px 0" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{g.name}</div>
+                    <div className="ax-meta" style={{ color: C.slate }}>
+                      <span className="ax-num">{usd(g.spend)}</span> spent
+                      {g.weekly_budget ? ` · plan ${usd(g.weekly_budget)} / week` : " · no weekly plan"}
+                      {left == null ? "" : left >= 0 ? ` · ${usd(left)} remaining` : ` · ${usd(-left)} over`}
+                      {g.pace != null ? <span style={{ color: rowTone.ink }}>{` · ${g.pace}% pace`}</span> : ""}
+                    </div>
+                  </div>
+                  <MoneyInput label={`Weekly plan for ${g.name}`} value={shown}
+                              onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -112,9 +107,12 @@ function Sum({ label, value, color }) {
 function WeekChart({ days }) {
   const max = Math.max(1, ...days.map((d) => Math.max(d.spend || 0, d.plan || 0)));
   return (
-    <Card>
-      <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.ink }}>This week, Monday to Sunday</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, alignItems: "end", marginTop: 14, height: 120 }}>
+    <Card title="This week, Monday to Sunday"
+          meta={<span className="ax-key">
+            <span><i />Spend</span>
+            <span><i className="is-line" />Plan</span>
+          </span>}>
+      <div className="ax-week">
         {days.map((d) => {
           const h = Math.round(((d.spend || 0) / max) * 100);
           const plan = d.plan ? Math.round((d.plan / max) * 100) : 0;
@@ -122,21 +120,17 @@ function WeekChart({ days }) {
             ? `color-mix(in srgb, ${C.accent} 58%, ${C.parchment})`
             : C.accent;
           return (
-            <div key={d.date} style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%", justifyContent: "flex-end" }}>
-              <div style={{ position: "relative", width: "70%", height: "100%" }}>
-                {plan > 0 && (
-                  <div style={{ position: "absolute", left: 0, right: 0, bottom: `${plan}%`, borderTop: `2px solid ${C.slate}` }} />
-                )}
-                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: `${h}%`, background: bar, borderRadius: 4 }} />
+            <div key={d.date}>
+              <div className="ax-week__plot">
+                <div className="ax-week__col">
+                  {plan > 0 && <div className="ax-week__plan" style={{ bottom: `${plan}%` }} />}
+                  <div className="ax-week__spend" style={{ height: `${h}%`, background: bar }} />
+                </div>
               </div>
+              <div className={`ax-week__day${d.open || d.future ? " is-open" : ""}`}>{d.label}</div>
             </div>
           );
         })}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginTop: 6 }}>
-        {days.map((d) => (
-          <div key={d.date} style={{ textAlign: "center", fontFamily: FONT, fontSize: 11, color: d.open || d.future ? C.slate : C.muted }}>{d.label}</div>
-        ))}
       </div>
     </Card>
   );

@@ -1,8 +1,8 @@
 import { useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
-import { C, FONT, usd } from "../adsTokens.js";
-import { Btn, Card, Empty, ErrorNote, PageTitle, sentenceStatus } from "../ui.jsx";
+import { C, usd } from "../adsTokens.js";
+import { Btn, Card, Empty, ErrorNote, PageTitle, Segmented, sentenceStatus } from "../ui.jsx";
 
 const ACTION = {
   pause: "Paused",
@@ -91,49 +91,51 @@ export default function Activity({ log, accountId, canUndo, onSaved }) {
   }
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <PageTitle title="Activity">
-        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn primary disabled={busy || !canUndo} onClick={undo}>Undo last change</Btn>
-        </span>
-      </PageTitle>
-      {!canUndo && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{undoWhy}</p>}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {FILTERS.map(([id, label]) => (
-          <Btn key={id} primary={filter === id} onClick={() => setFilter(id)}>{label}</Btn>
-        ))}
+    <div className="ax-stack">
+      <PageTitle title="Activity" />
+      <div className="ax-spread">
+        <Segmented label="Show changes" value={filter} onChange={setFilter} options={FILTERS} />
+        <div className="ax-row" style={{ gap: 12 }}>
+          {!canUndo && <span className="ax-meta">{undoWhy}</span>}
+          <Btn disabled={busy || !canUndo} onClick={undo}>Undo last change</Btn>
+        </div>
       </div>
+      {msg && <p className="ax-text">{msg}</p>}
       {log.error && <ErrorNote onRetry={log.retry}>Couldn&apos;t load the change log.</ErrorNote>}
       {log.loading && <Empty>Loading the change log…</Empty>}
       {!log.loading && shown.length === 0 && <Empty>No changes in this filter.</Empty>}
       {shown.length > 0 && (
-        <Card style={{ padding: 0, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT, fontSize: 13 }}>
-            <thead>
-              <tr>
-                {["When", "Who", "What changed", "Before → after", "Why", "Result"].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: C.muted, fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((row) => (
-                <tr key={row.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                  <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{when(row.at)}</td>
-                  <td style={{ padding: "10px 12px" }}>{row.actor || "—"}</td>
-                  <td style={{ padding: "10px 12px" }}>{ACTION[row.action] || row.action} · {row.name || row.external_id}</td>
-                  <td style={{ padding: "10px 12px" }}>{change(row)}</td>
-                  <td style={{ padding: "10px 12px", color: C.slate }}>{row.reason || "—"}</td>
-                  <td style={{ padding: "10px 12px", color: row.meta_error ? C.badInk : C.ink }}>
-                    {row.meta_error || (row.dry_run ? "Preview" : row.status)}
-                  </td>
+        <Card flush>
+          <div className="ax-scroll">
+            <table className="ax-table" style={{ minWidth: 760 }}>
+              <thead>
+                <tr>
+                  {["When", "Who", "What changed", "Before → after", "Why", "Result"].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {shown.map((row) => (
+                  <tr key={row.id}>
+                    <td className="ax-num ax-nowrap">{when(row.at)}</td>
+                    <td className="ax-nowrap">{row.actor || "—"}</td>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{ACTION[row.action] || row.action}</span>
+                      <span style={{ color: C.slate }}> · {row.name || row.external_id}</span>
+                    </td>
+                    <td className="ax-num ax-nowrap">{change(row)}</td>
+                    <td className="ax-soft">{row.reason || "—"}</td>
+                    <td className="ax-nowrap" style={row.meta_error ? { color: C.badInk } : undefined}>
+                      {row.meta_error || (row.dry_run ? "Preview" : sentenceStatus(row.status))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
-      {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}
     </div>
   );
 }

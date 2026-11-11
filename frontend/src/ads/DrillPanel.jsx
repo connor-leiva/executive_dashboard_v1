@@ -11,7 +11,8 @@
  */
 import { useEffect, useRef } from "react";
 
-import { C, FIG, FONT, HEAD } from "./adsTokens.js";
+import { C } from "./adsTokens.js";
+import { Glyph } from "./ui.jsx";
 
 const HEADINGS = {
   name: "Name", email: "Email", campaign: "Campaign", match: "Matched by",
@@ -29,12 +30,10 @@ const MONEY = new Set(["value", "upfront", "cash"]);
 function Cell({ col, row }) {
   const v = row[col];
   if (col === "url") {
-    return v ? <a href={v} target="_blank" rel="noreferrer"
-                  style={{ color: C.accent }}>GHL ↗</a> : "—";
+    return v ? <a href={v} target="_blank" rel="noreferrer" className="ax-link">Open in GHL</a> : "—";
   }
   if (MONEY.has(col)) {
-    return <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums",
-                          color: col === "value" ? C.ink : C.slate }}>
+    return <span className="ax-num" style={{ color: col === "value" ? C.ink : C.slate }}>
       {v && v !== "—" ? `$${v}` : "—"}
     </span>;
   }
@@ -42,13 +41,12 @@ function Cell({ col, row }) {
     // A price-sheet figure and a number somebody typed into a GHL opportunity are not the same
     // kind of fact, so the weaker provenances are flagged rather than blending in.
     const weak = v === "GHL amount" || v === "not priced";
-    return <span style={{ fontSize: 12, color: weak ? C.warnInk : C.muted,
-                          background: weak ? C.warnBg : "transparent",
-                          borderRadius: 6, padding: weak ? "1px 6px" : 0 }}>{v || "—"}</span>;
+    return weak
+      ? <span className="ax-tag" style={{ marginLeft: 0 }}>{v}</span>
+      : <span className="ax-meta">{v || "—"}</span>;
   }
   if (col === "first_seen" || col === "reached") {
-    return <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums",
-                          color: v === "undated" ? C.muted : C.ink }}>{v || "—"}</span>;
+    return <span className="ax-num" style={{ color: v === "undated" ? C.quiet : C.ink }}>{v || "—"}</span>;
   }
   return v === null || v === undefined || v === "" ? "—" : String(v);
 }
@@ -68,67 +66,43 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
   const cols = drill?.columns || [];
 
   return (
-    <div ref={ref} tabIndex={-1} role="region"
+    <div ref={ref} tabIndex={-1} role="region" className="ax-card ax-stack"
          aria-label={`Who is behind ${drill?.title || label || "this number"}`}
-         style={{ background: C.surface, border: `1px solid ${C.accent}`, borderRadius: 14,
-                  padding: 16, marginTop: 12, outline: "none" }}>
-      <style>{`
-        .adr-wrap { overflow-x: auto; }
-        .adr-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .adr-tbl th { text-align: left; font-family: ${FONT}; font-size: 12px;
-                      font-weight: 600;
-                      color: ${C.muted}; padding: 6px 10px 6px 0; border-bottom: 1px solid ${C.line}; }
-        .adr-tbl td { font-family: ${FONT}; color: ${C.ink}; padding: 7px 10px 7px 0;
-                      border-bottom: 1px solid ${C.line}; vertical-align: top; }
-        .adr-tbl tr:last-child td { border-bottom: none; }
-      `}</style>
-
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: HEAD, fontSize: 14, fontWeight: 600, color: C.ink }}>
-          {drill?.title || label}
-        </span>
-        <span style={{ flex: 1, fontFamily: FONT, fontSize: 12, color: C.slate }}>
-          {drill?.subtitle}
-        </span>
-        <button type="button" onClick={onClose}
-                style={{ fontFamily: FONT, fontSize: 12, color: C.slate, background: "none",
-                         border: `1px solid ${C.line}`, borderRadius: 8, padding: "4px 10px",
-                         cursor: "pointer" }}>
-          Close
+         style={{ outline: "none", gap: 12 }}>
+      <div className="ax-drawer__head">
+        <div style={{ minWidth: 0 }}>
+          <h3 className="ax-card__title">{drill?.title || label}</h3>
+          {drill?.subtitle && <p className="ax-meta" style={{ marginTop: 2 }}>{drill.subtitle}</p>}
+        </div>
+        <button type="button" className="ax-btn ax-btn--icon" onClick={onClose}
+                aria-label="Close" title="Close">
+          <Glyph name="close" />
         </button>
       </div>
 
-      {loading && (
-        <div style={{ fontFamily: FONT, fontSize: 13, color: C.muted, marginTop: 12 }}>
-          Loading…
-        </div>
-      )}
+      {loading && <p className="ax-text" style={{ color: C.quiet }}>Loading…</p>}
       {error && (
-        <div style={{ fontFamily: FONT, fontSize: 13, color: C.badInk, marginTop: 12 }}>
+        <p className="ax-text" style={{ color: C.badInk }}>
           Couldn&rsquo;t open this one. {String(error.message || error)}
-        </div>
+        </p>
       )}
 
       {/* The note distinguishes "nobody reached this" from "we do not record this". They look
           identical as a zero and mean completely different things. */}
       {!loading && !error && drill?.note && (
-        <div style={{ fontFamily: FONT, fontSize: 13, color: C.warnInk, background: C.warnBg,
-                      border: `1px solid ${C.warnBar}`, borderRadius: 10, padding: "10px 12px",
-                      marginTop: 12, lineHeight: 1.5 }}>
-          {drill.note}
-        </div>
+        <div className="ax-note"><div className="ax-note__body">{drill.note}</div></div>
       )}
 
       {!loading && !error && !!drill?.rows?.length && (
-        <div className="adr-wrap" style={{ marginTop: 12, maxHeight: 380, overflowY: "auto" }}>
-          <table className="adr-tbl">
+        <div className="ax-scroll" style={{ maxHeight: 380, overflowY: "auto" }}>
+          <table className="ax-table ax-table--plain">
             <thead>
-              <tr>{cols.map((c) => <th key={c}>{HEADINGS[c] || c}</th>)}</tr>
+              <tr>{cols.map((c) => <th key={c} className={MONEY.has(c) ? "num" : undefined}>{HEADINGS[c] || c}</th>)}</tr>
             </thead>
             <tbody>
               {drill.rows.map((r, i) => (
                 <tr key={`${r.email || r.name}-${i}`}>
-                  {cols.map((c) => <td key={c}><Cell col={c} row={r} /></td>)}
+                  {cols.map((c) => <td key={c} className={MONEY.has(c) ? "num" : undefined}><Cell col={c} row={r} /></td>)}
                 </tr>
               ))}
             </tbody>

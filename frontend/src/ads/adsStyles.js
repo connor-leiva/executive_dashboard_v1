@@ -1,4 +1,9 @@
-/* The approved mockup's stylesheet, ported verbatim and SCOPED.
+/* NOT MOUNTED. AdsView mounts screenStyles.js. This sheet styled the single-page layout that
+ * Today, Performance, Budget, Activity and Settings replaced, and only the components nothing
+ * imports any more (Funnel, CreativeWall, AdsChrome) use its classes. Its bare table, th, td and
+ * a rules were restyling the new screens, which is why it stopped being mounted.
+ *
+ * The approved mockup's stylesheet, ported verbatim and SCOPED.
  *
  * SPEC-ads-module.md Part 13: where the mockup and the spec disagree, the spec wins on data
  * and behaviour and the MOCKUP WINS ON LAYOUT. So this is a mechanical port rather than a
