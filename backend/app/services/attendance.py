@@ -155,6 +155,8 @@ async def sync_range(s: AsyncSession, tenant_id, start: dt.date, end: dt.date) -
     topics: dict[str, str] = {}
     try:
         hosts = await zoom.users()
+        print(f"[zoom_attendance] hosts={len(hosts)} window={start.isoformat()}..{end.isoformat()}",
+              flush=True)
         for host in hosts:
             host_id = host.get("id")
             host_email = host.get("email")
@@ -237,7 +239,9 @@ async def run_for_tenant(s: AsyncSession, tenant_id, *, backfill: bool = False) 
     if backfill or state.backfilled_at is None:
         start, end = backfill_bounds(today, (tenant.config or {}).get("fiscal_quarters") if tenant else None)
         result = await sync_range(s, tenant_id, start, end)
-        if result.get("ok"):
+        # An empty first pull is not a finished backfill. The next boot tries the
+        # long window again instead of only the last three days.
+        if result.get("ok") and result.get("sessions", 0) > 0:
             state.backfilled_at = dt.datetime.now(dt.timezone.utc)
         return result
     return await sync_range(s, tenant_id, today - dt.timedelta(days=3), today)
