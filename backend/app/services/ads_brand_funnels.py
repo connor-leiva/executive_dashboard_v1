@@ -167,13 +167,22 @@ async def build_brand_funnels(s: AsyncSession, tenant_id, business_id,
     regs = await _kind(s, tenant_id, business_id, "edge_registration", "ghl") if business_id else []
     reg_people, reg_dated, reg_undated, reg_exists = _window_people(
         regs, start, end, lambda r: "Webinar registration")
-    attended_rows = [r for r in regs if str(r.status or "").strip().lower() in _ATTENDED
-                     or (r.meta or {}).get("attended")]
-    if attended_rows:
-        att_people, att_dated, att_undated, att_exists = _window_people(
-            attended_rows, start, end, lambda r: r.status or "Attended")
+    from .attendance import edge_attendees
+    zoom_people, zoom_synced = await edge_attendees(s, tenant_id, start, end)
+    if zoom_synced:
+        att_people = [{
+            "name": p.get("name"), "email": p.get("email"),
+            "reached": p.get("reached") or "", "detail": "Edge Webinar",
+        } for p in zoom_people]
+        att_dated, att_undated, att_exists = len(att_people), 0, True
     else:
-        att_people, att_dated, att_undated, att_exists = [], 0, 0, False
+        attended_rows = [r for r in regs if str(r.status or "").strip().lower() in _ATTENDED
+                         or (r.meta or {}).get("attended")]
+        if attended_rows:
+            att_people, att_dated, att_undated, att_exists = _window_people(
+                attended_rows, start, end, lambda r: r.status or "Attended")
+        else:
+            att_people, att_dated, att_undated, att_exists = [], 0, 0, False
 
     subs = await _kind(s, tenant_id, business_id, "edge_subscription", "stripe_legacy") if business_id else []
     purchases = []

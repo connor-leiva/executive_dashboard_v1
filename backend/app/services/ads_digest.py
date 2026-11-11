@@ -117,6 +117,10 @@ async def compose(s: AsyncSession, account: AdAccount, day: dt.date) -> dict:
         "autopilot": actions,
         "fatigue": await _fatigue(s, account, day),
         "seats": seats,
+        "attendance": next(
+            ({"attended": r.get("n"), "missing": r.get("missing"),
+              "note": r.get("note")} for r in funnels["edge"]["rungs"] if r["key"] == "attended"),
+            None),
     }
 
 
@@ -143,6 +147,13 @@ def render_text(body: dict) -> str:
     lines.append("Fatigue")
     flags = body.get("fatigue") or []
     lines.append("  " + (", ".join(flags) if flags else "None."))
+    lines.append("")
+    lines.append("Attendance")
+    att = body.get("attendance") or {}
+    if att.get("missing") or att.get("attended") is None:
+        lines.append("  Edge webinar attendance is not recorded yet.")
+    else:
+        lines.append(f"  Edge webinar: {att['attended']} attended")
     lines.append("")
     lines.append("Seats")
     for seat in body.get("seats") or []:

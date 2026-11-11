@@ -51,6 +51,8 @@ def catalog() -> list[dict]:
         {"job": "ads_funnel_tick", "what": "Attributes registrations to ads", "every_minutes": DAY, "enabled": True},
         {"job": "ads_autopilot_tick", "what": "Applies ad Kill and Scale where autopilot is on", "every_minutes": DAY, "enabled": True},
         {"job": "ads_digest_tick", "what": "Writes the morning ads digest and emails it", "every_minutes": DAY, "enabled": True},
+        {"job": "zoom_attendance_tick", "what": "Syncs Zoom session attendance",
+         "every_minutes": DAY, "enabled": bool(settings.ZOOM_ACCOUNT_ID and settings.ZOOM_CLIENT_ID and settings.ZOOM_CLIENT_SECRET)},
         {"job": "marketing_delivery_tick", "what": "Delivers marketing requests", "every_minutes": 1, "enabled": True},
         {"job": "lead_source_digest_tick", "what": "Sends the weekly lead-source coaching digests", "every_minutes": 5, "enabled": True},
         {"job": "recall_tick", "what": "Books call-recording bots", "every_minutes": settings.RECALL_TICK_MINUTES, "enabled": recall},

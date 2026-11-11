@@ -327,7 +327,7 @@ _DRILL_KEYS = frozenset({
     "sb_cost_per_qualified_lead", "sb_cash_collected_rate", "sb_edge_paid_added",
     "sb_renewals_confirmed", "sb_spring_break_tickets", "sb_net_cash",
     "sb_active_members", "sb_decisions_open", "sb_failed_payments_open",
-    "sb_renewal_dates_current",
+    "sb_renewal_dates_current", "sb_forum_members_at_red", "sb_edge_live_attendance",
 })
 
 
@@ -371,6 +371,15 @@ async def springb_drill(s, tenant_id, business_id, key: str, week_start: dt.date
         return await _decisions_drill(s, tenant_id, business_id, week_end, limit)
     if key == "sb_failed_payments_open":
         return await _failed_drill(s, tenant_id, business_id, week_end, limit)
+    if key == "sb_forum_members_at_red":
+        from .attendance import forum_red_members
+        rows = await forum_red_members(s, tenant_id, business_id)
+        return {"records": rows[:limit],
+                "summary": f"{len(rows)} Forum member{'s' if len(rows) != 1 else ''} at red.",
+                "source_label": "Zoom"}
+    if key == "sb_edge_live_attendance":
+        return {"records": [], "summary": "The percent is paid Edge members who sat in an Edge webinar in the last 30 days.",
+                "source_label": "Zoom"}
     if key == "sb_renewal_dates_current":
         return await _renewal_dates_drill(s, tenant_id, business_id, week_start, week_end, limit)
     return None
@@ -1659,6 +1668,38 @@ async def sb_renewal_dates_current(s, tenant_id, business_id, week_start: dt.dat
         return UNAVAILABLE
     ok = sum(1 for m in members if _pdate(((m.meta or {}).get("membership") or {}).get("renewal_date")))
     return round(ok / len(members) * 100, 1)
+
+
+@resolver("sb_forum_members_at_red")
+async def sb_forum_members_at_red(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                  group=None):
+    """Active Forum members who missed the three newest Forum sessions in a row.
+
+    A snapshot of the current roster, so only the open week is written. Blank until Zoom has synced."""
+    from .attendance import forum_red_members
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    rows = await forum_red_members(s, tenant_id, business_id)
+    if not rows and not await _zoom_synced(s, tenant_id):
+        return UNAVAILABLE
+    return float(len(rows))
+
+
+@resolver("sb_edge_live_attendance")
+async def sb_edge_live_attendance(s, tenant_id, business_id, week_start: dt.date, week_end: dt.date,
+                                  group=None):
+    """Paid Edge members at an Edge webinar in the 30 days ending this week, as a percent."""
+    from .attendance import edge_live_rate
+    if not _week_holds_today(week_start, week_end):
+        return UNAVAILABLE
+    return await edge_live_rate(s, tenant_id, business_id, week_end)
+
+
+async def _zoom_synced(s, tenant_id) -> bool:
+    from ..models import AttendanceSync
+    row = (await s.execute(select(AttendanceSync).where(
+        AttendanceSync.tenant_id == tenant_id))).scalar_one_or_none()
+    return bool(row and row.last_synced_at)
 
 
 def _recent_weeks(today: dt.date, n: int = LOOKBACK_WEEKS) -> list[tuple[dt.date, dt.date]]:

@@ -11,7 +11,7 @@ from .models import Base
 from .startup_checks import enforce_config
 from .tenancy import resolve_tenant, set_tenant
 from .throttle import enforce
-from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console, payables, onboarding, forum_events, books_cleanup, lead_sources
+from .routers import recall as recall_router, ghl_recruiting_webhook, auth, dashboard, businesses, integrations, users, assistant, books, binder, launches, ai_employees, ulrg, share, totp, platform, ads, intranet, console, payables, onboarding, forum_events, books_cleanup, attendance, lead_sources
 
 log = logging.getLogger("app")
 
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     # the only router that takes its tenant from the path rather than the host.
     app.include_router(platform.router, prefix="/api/v1")
     app.include_router(ads.router, prefix="/api/v1")
+    app.include_router(attendance.router, prefix="/api/v1")
     app.include_router(share.router, prefix="/api/v1")   # /api/v1/share/{token}/scorecard (no auth)
     app.include_router(console.router, prefix="/api")
     app.include_router(share.page_router)                 # /share/{token} — embeddable page + CSP

@@ -93,6 +93,7 @@ export const sampleAdsOverview = {
     kept: 4,
     autopilot: [],
     fatigue: ["Forum-Dallas-1080x1080-v3"],
+    attendance: { attended: 18, missing: false },
     seats: [
       { name: "Forum VIP", spend: 25660, seats: 1, cost_per_seat: 25660 },
       { name: "Edge webinar", spend: 6110, seats: 4, cost_per_seat: 1528 },
