@@ -59,7 +59,7 @@ export const sampleAdsOverview = {
   connected: true,
   account: { id: "sample", name: "Spring B · Meta", external_id: "act_587749862890426",
              currency: "USD", timezone_name: "America/Denver" },
-  range: { start: "2026-08-01", end: "2026-08-30", label: "Last 30 days", days: 30 },
+  range: { start: "2026-10-12", end: "2026-11-11", label: "Last 30 days", days: 30 },
   scope: { kind: "account", id: null, name: "Spring B · Meta" },
   campaigns_available: [
     { id: "g1", name: "KB - The Shift - August2026", spend: 99_200 },
@@ -247,6 +247,17 @@ export const sampleAdsOverview = {
                     archetype: "program", funnel_available: false, status: "active",
                     last_synced_at: "2026-08-30T14:20:00Z", last_error: null,
                     campaigns: 5, ads: 34, first_day: "2026-05-01", last_day: "2026-08-30" }],
+};
+
+export const sampleAdsWrites = {
+  writes: [
+    { id: "w1", action: "pause", level: "ad", name: "Forum-Dallas-1080x1080-v3",
+      reason: "Spent $6,420, no seats / no enrollments", status: "preview", dry_run: true,
+      actor: "Connor", source: "user", at: "2026-11-11T14:10:00Z", meta_error: null },
+    { id: "w2", action: "set_daily_budget", level: "campaign", name: "The Edge Webinar",
+      reason: "CTR and cost are in the good band", status: "applied", dry_run: false,
+      actor: "Autopilot", source: "autopilot", at: "2026-11-10T13:00:00Z", meta_error: null },
+  ],
 };
 
 export const sampleAdsCreatives = {
