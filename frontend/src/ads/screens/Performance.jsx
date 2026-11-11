@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 
+import { API_BASE, postJSON } from "../../api";
 import { C, FIG, FONT, num, pct, usd } from "../adsTokens.js";
-import { Btn, Card, Drawer, Empty, PageTitle } from "../ui.jsx";
+import { Btn, Card, Drawer, Empty, PageTitle, inputStyle } from "../ui.jsx";
 
 const COLS = {
   campaigns: [
@@ -153,14 +154,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 
       {open && (
         <Drawer title={open.name} onClose={() => setOpen(null)}>
-          <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate }}>{open.group || open.headline || "Ad"}</p>
-          <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontFamily: FONT, fontSize: 13 }}>
-            <div><dt style={{ color: C.muted }}>Spend</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(open.spend)}</dd></div>
-            <div><dt style={{ color: C.muted }}>CTR</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{pct(open.ctr)}</dd></div>
-            <div><dt style={{ color: C.muted }}>Daily budget</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(open.daily_budget)}</dd></div>
-            <div><dt style={{ color: C.muted }}>Frequency</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{open.frequency == null ? "—" : Number(open.frequency).toFixed(2)}</dd></div>
-          </dl>
-          {open.status && <p style={{ fontFamily: FONT, fontSize: 13 }}>Status {open.status}</p>}
+          <RowActions row={open} level={mode === "ads" ? "ad" : "campaign"} data={data} />
         </Drawer>
       )}
     </div>
@@ -170,3 +164,66 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 const linkBtn = {
   background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer",
 };
+
+function RowActions({ row, level, data }) {
+  const writes = data.writes || {};
+  const [budget, setBudget] = useState(row.daily_budget ?? "");
+  const [note, setNote] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const paused = String(row.status || "").toUpperCase() === "PAUSED";
+
+  async function send(action, params) {
+    setBusy(true);
+    setNote(null);
+    try {
+      if (!API_BASE) {
+        setNote(writes.can_write
+          ? "Approved in this preview."
+          : "Preview only. Reconnect Meta to enable changes.");
+        return;
+      }
+      const out = await postJSON("/ads/writes/apply", {
+        account: data.account?.id,
+        action,
+        level,
+        external_id: row.external_id,
+        reason: action.replaceAll("_", " "),
+        params: params || {},
+        dry_run: !writes.can_write,
+      });
+      const r = (out.results || [])[0] || {};
+      setNote(r.meta_error || out.message || (r.dry_run ? "Preview. Nothing was sent to Meta." : "Applied."));
+    } catch (e) {
+      setNote(e.message || "Meta did not accept that change.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{row.group || row.headline || "Ad"}</p>
+      <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontFamily: FONT, fontSize: 13, margin: 0 }}>
+        <div><dt style={{ color: C.muted }}>Spend</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.spend)}</dd></div>
+        <div><dt style={{ color: C.muted }}>CTR</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{pct(row.ctr)}</dd></div>
+        <div><dt style={{ color: C.muted }}>Daily budget</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.daily_budget)}</dd></div>
+        <div><dt style={{ color: C.muted }}>Frequency</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{row.frequency == null ? "—" : Number(row.frequency).toFixed(2)}</dd></div>
+      </dl>
+      {row.status && <p style={{ fontFamily: FONT, fontSize: 13, margin: 0 }}>Status {row.status}</p>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Btn disabled={busy} onClick={() => send(paused ? "activate" : "pause")}>{paused ? "Turn on" : "Pause"}</Btn>
+        <Btn disabled={busy} onClick={() => send("duplicate")}>Duplicate</Btn>
+      </div>
+      {level === "campaign" && (
+        <label style={{ display: "grid", gap: 6, fontFamily: FONT, fontSize: 13, color: C.slate }}>
+          Daily budget
+          <span style={{ display: "flex", gap: 8 }}>
+            <input aria-label="Daily budget" value={budget} onChange={(e) => setBudget(e.target.value)} style={{ ...inputStyle, width: 120 }} />
+            <Btn disabled={busy || budget === "" || budget == null} onClick={() => send("set_daily_budget", { daily_budget: Number(budget) })}>Save budget</Btn>
+          </span>
+        </label>
+      )}
+      {note && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{note}</p>}
+    </div>
+  );
+}
