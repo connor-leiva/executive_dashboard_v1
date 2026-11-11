@@ -2,8 +2,10 @@
 
 Every route is scoped to one BUSINESS of the signed-in tenant, by key, the way the rest of
 `/businesses/{key}/...` is. Reading needs the business's tab (owners and admins pass); changing a
-group, its spend rules or its digest needs owner or admin. Nothing here calls Follow Up Boss, Sisu
-or QuickBooks: the reports read what the syncs stored (docs/specs/ulrg-reporting-dashboard-port.md).
+group, its spend rules or its digest needs owner or admin. The reports call nothing outside: they
+read what the syncs stored (docs/specs/ulrg-reporting-dashboard-port.md). The one route that asks
+Follow Up Boss anything is Settings' "Check Follow Up Boss" for a group's source strings, an admin's
+explicit action of a dozen one-row requests.
 """
 from __future__ import annotations
 
@@ -17,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import assert_tab, current_user, require_role
-from ..models import Business, LeadSourceCostShare, LeadSourceGroup, LeadSourceSpendRule, User
+from ..models import (Business, Integration, LeadSourceCostShare, LeadSourceGroup, LeadSourceSpendRule,
+                      User)
 from ..services import lead_source_spend as spend
 from ..services import lead_sources as ls
 from ..services.audit import audit
@@ -289,6 +292,101 @@ async def put_spend(key: str, gkey: str, body: SpendIn,
 MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
 
 
+# ── Follow Up Boss source strings (Settings) ─────────────────────────────────────────────────
+
+async def _fub_for(s, tenant_id, b: Business) -> tuple[Integration | None, str | None]:
+    """This business's Follow Up Boss integration, or None and the name of the business the
+    tenant's FUB is connected to instead -- the lead-source ingestion only reads people for the
+    groups on the business FUB is attached to."""
+    rows = (await s.execute(select(Integration).where(
+        Integration.tenant_id == tenant_id, Integration.provider == "fub"))).scalars().all()
+    mine = next((i for i in rows if i.business_id == b.id), None)
+    if mine is not None or not rows:
+        return mine, None
+    other = next((i.business_id for i in rows if i.business_id), None)
+    name = (await s.get(Business, other)).name if other else None
+    return None, name
+
+
+async def _fub_sources_view(s, user: User, b: Business, g: LeadSourceGroup) -> dict:
+    from ..services import fub_sync
+    from ..services import lead_source_discovery as disc
+    integ, elsewhere = await _fub_for(s, user.tenant_id, b)
+    state = fub_sync.state_of(integ) if integ else {}
+    synced = await disc.synced_counts(s, user.tenant_id, b.id, g)
+    out = disc.view(g, (state.get("lead_source_discovery") or {}).get(g.key), synced)
+    run = (state.get("last_run") or {}).get("lead_sources") or {}
+    walks = ((state.get("lead_sources") or {}).get(g.key) or {}).get("variants") or {}
+    out["fub"] = {
+        "state": ("connected" if integ is not None and integ.access_token_enc else
+                  "no_key" if integ is not None else "elsewhere" if elsewhere else "missing"),
+        "elsewhere": elsewhere,
+        "last_run_at": (state.get("last_run") or {}).get("at"),
+        "last_run": {k: run.get(k) for k in ("groups", "variants", "pages", "people_fetched",
+                                             "people_upserted", "skipped_source", "errors", "note")},
+        "updated_after": state.get("lead_sources_updated_after"),
+        "variants": {v: {"backfilled": bool(w.get("complete_at")), "walking": bool(w.get("walking")),
+                         "complete_at": w.get("complete_at"), "mark": w.get("mark")}
+                     for v, w in walks.items()},
+    }
+    out["program_start"] = g.program_start.isoformat() if g.program_start else None
+    out["can_edit"] = user.role in ADMIN_ROLES
+    return out
+
+
+@router.get("/businesses/{key}/lead-sources/{gkey}/fub-sources")
+async def get_fub_sources(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                          s: AsyncSession = Depends(get_session)):
+    """The FUB source strings near this group, what FUB and this business hold of each, whether the
+    group matches it today, and how the ingestion of the group's variants stands."""
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    return await _fub_sources_view(s, user, b, g)
+
+
+@router.post("/businesses/{key}/lead-sources/{gkey}/fub-sources/check")
+async def check_fub_sources(key: str, gkey: str, user: User = Depends(require_role(*ADMIN_ROLES)),
+                            s: AsyncSession = Depends(get_session)):
+    """Ask Follow Up Boss now which source strings it holds near this group's
+    (services/lead_source_discovery): one-row probes, about a dozen requests."""
+    import httpx
+
+    from ..integrations import fub
+    from ..services import fub_sync
+    from ..services import lead_source_discovery as disc
+    from ..services.sync import _fub_creds, _workspace_tz
+    b = await business_for(s, user, key)
+    g = await group_for(s, user, b, gkey, active_only=False)
+    integ, elsewhere = await _fub_for(s, user.tenant_id, b)
+    if integ is None:
+        raise HTTPException(400, f"Follow Up Boss is connected to {elsewhere}, not {b.name}." if elsewhere
+                            else f"Connect Follow Up Boss to {b.name} under Integrations first.")
+    if not any(str(v).strip() for v in (g.variants or [])):
+        raise HTTPException(400, "Add at least one source variant first.")
+    if fub_sync.lock_for(integ.id).locked():
+        raise HTTPException(409, "A Follow Up Boss sync is running. Try again in a minute.")
+    try:
+        creds = _fub_creds(integ)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    since = fub_sync._program_start(g, await _workspace_tz(s, user.tenant_id))
+    synced = await disc.synced_counts(s, user.tenant_id, b.id, g)
+    try:
+        async with fub.client(creds) as c:
+            found = await disc.discover(c, g, since, synced)
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        raise HTTPException(502, "Follow Up Boss rejected the saved API key." if code in (401, 403)
+                            else f"Follow Up Boss answered HTTP {code}. Try again shortly.") from e
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Follow Up Boss didn't answer. Try again shortly.") from e
+    state = fub_sync.state_of(integ)
+    state["lead_source_discovery"] = {**(state.get("lead_source_discovery") or {}), g.key: found}
+    fub_sync._save(integ, state)
+    await s.commit()
+    return await _fub_sources_view(s, user, b, g)
+
+
 @router.get("/businesses/{key}/lead-sources/{gkey}/cohorts")
 async def cohorts(key: str, gkey: str, start: str | None = Query(None, pattern=MONTH),
                   end: str | None = Query(None, pattern=MONTH),
@@ -329,7 +427,8 @@ async def pipeline(key: str, gkey: str, window: str = Query("all_time", pattern=
 async def agent_pipeline(key: str, gkey: str, agent_key: str,
                          window: str = Query("all_time", pattern=WINDOW),
                          user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
-    """One agent's pipeline. `agent_key` is the Axcion agent id, or `unassigned`."""
+    """One agent's pipeline. `agent_key` is the Axcion agent id, `fub-…` for an agent FUB names that
+    Axcion does not hold (lead_source_report.agent_key), or `unassigned`."""
     from ..services.lead_source_pipeline import agent_pipeline as build
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)

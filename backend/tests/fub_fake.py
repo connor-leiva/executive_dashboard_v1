@@ -1,8 +1,9 @@
 """Just enough of Follow Up Boss to run the real sync against, over httpx.
 
-Cursor paging (`_metadata.next`, as FUB does it), the filters the sync uses, a 429 on request, and
-a switch to refuse `dueStart` -- the one parameter whose format FUB does not document, so the
-sync's fallback has something to fall back from.
+Cursor paging (`_metadata.next`, and `_metadata.nextLink` -- the whole next URL -- as FUB sends
+both), the filters the sync uses, a 429 on request, and a switch to refuse `dueStart` -- the one
+parameter whose format FUB does not document, so the sync's fallback has something to fall back
+from. `updatedAfter` can likewise be ignored or refused, for the lead-source walk's check of it.
 """
 from __future__ import annotations
 
@@ -34,13 +35,16 @@ class FakeFub:
         self.refuse_due_start = False
         self.refuse_key = False
         self.refuse_sort = False        # 400 on any `sort`
+        self.ignore_updated_after = False   # accept `updatedAfter` and filter nothing by it
+        self.refuse_updated_after = False   # 400 on `updatedAfter`
+        self.next_link = True               # send `_metadata.nextLink` beside `next`
         self.ignore_sort_order = False  # accept `-created` but answer oldest first
         self.identity = {"account": {"id": 777, "domain": "acme"},
                          "user": {"id": 1, "name": "Owner", "email": "owner@acme.test"}}
         self.smart_lists: list[dict] = []     # {"id": 35, "name": "01. Recently Active"}
         # Activity, read per person (`personId`) the way the lead-source walk reads it.
         self.activity: dict[str, list[dict]] = {"calls": [], "textMessages": [], "emEvents": [],
-                                                "appointments": []}
+                                                "appointments": [], "deals": []}
 
     # ── routing ──────────────────────────────────────────────────────────────────────────
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -63,7 +67,10 @@ class FakeFub:
         if path == "/people":
             if self.refuse_sort and "sort" in params:
                 return httpx.Response(400, json={"errorMessage": "Invalid sort"})
-            return self._page("people", self._people(params), params)
+            if self.refuse_updated_after and "updatedAfter" in params:
+                return httpx.Response(400, json={"errorMessage": "Invalid updatedAfter"})
+            return self._page("people", self._people(params), params,
+                              request.url if self.next_link else None)
         if path == "/smartLists":
             return self._page("smartlists", self.smart_lists, params)
         if path.lstrip("/") in self.activity:
@@ -95,6 +102,17 @@ class FakeFub:
         if "lastActivityAfter" in params:
             after = _param_ts(params["lastActivityAfter"])
             rows = [p for p in rows if _ts(p.get("lastActivity")) and _ts(p["lastActivity"]) > after]
+        if "source" in params:                         # the exact string, any case
+            rows = [p for p in rows if str(p.get("source") or "").lower() == params["source"].lower()]
+        if "createdAfter" in params:
+            after = _param_ts(params["createdAfter"])
+            rows = [p for p in rows if _ts(p.get("created")) and _ts(p["created"]) > after]
+        if "updatedAfter" in params and not self.ignore_updated_after:
+            after = _param_ts(params["updatedAfter"])
+            rows = [p for p in rows if _ts(p.get("updated")) and _ts(p["updated"]) > after]
+        if "q" in params:                              # FUB's search reads more than the source
+            q = params["q"].lower()
+            rows = [p for p in rows if q in " ".join(str(p.get(k) or "") for k in ("name", "source")).lower()]
         if params.get("sort") == "-created":
             rows = sorted(rows, key=lambda p: _ts(p.get("created")) or dt.datetime.min.replace(
                 tzinfo=dt.timezone.utc), reverse=not self.ignore_sort_order)
@@ -115,13 +133,15 @@ class FakeFub:
         return rows
 
     @staticmethod
-    def _page(key: str, rows: list, params: dict) -> httpx.Response:
+    def _page(key: str, rows: list, params: dict, url: httpx.URL | None = None) -> httpx.Response:
         start = int(params.get("next") or 0)
         limit = int(params.get("limit") or 10)
         chunk = rows[start:start + limit]
         nxt = str(start + limit) if start + limit < len(rows) else None
-        return httpx.Response(200, json={key: chunk, "_metadata": {
-            "collection": key, "offset": start, "limit": limit, "total": len(rows), "next": nxt}})
+        meta = {"collection": key, "offset": start, "limit": limit, "total": len(rows), "next": nxt}
+        if url is not None and nxt is not None:
+            meta["nextLink"] = str(url.copy_set_param("next", nxt))
+        return httpx.Response(200, json={key: chunk, "_metadata": meta})
 
 
 def user(i, email=None, status="Active", role="Agent", is_owner=False):
@@ -130,11 +150,16 @@ def user(i, email=None, status="Active", role="Agent", is_owner=False):
 
 
 def person(i, *, assigned=1, created="2026-09-10T15:00:00Z", stage="Lead", contacted=False,
-           last_activity=None, name=None, source="Zillow", emails=None):
+           last_activity=None, name=None, source="Zillow", emails=None, updated=None,
+           assigned_to=None, price=None):
     """`emails` is FUB's own shape: a LIST of {value, isPrimary}, where order is NOT priority."""
     row = {"id": i, "name": name if name is not None else f"Person {i}", "stage": stage,
            "source": source, "contacted": contacted, "assignedUserId": assigned,
-           "created": created, "updated": created, "lastActivity": last_activity or created}
+           "created": created, "updated": updated or created, "lastActivity": last_activity or created}
+    if assigned_to is not None:
+        row["assignedTo"] = assigned_to
+    if price is not None:
+        row["price"] = price
     if emails is not None:
         row["emails"] = emails
     return row
@@ -172,3 +197,12 @@ def em_event(i, *, person_id, occurred, kind="sent"):
 
 def appointment(i, *, person_id, start, outcome=None):
     return {"id": i, "personId": person_id, "start": start, "outcome": outcome}
+
+
+def deal(i, *, person_id, stage="Offer Written", status="Active", close=None):
+    """FUB's deals payload names the stage `stageName`; the person is listed under `people`."""
+    row = {"id": i, "personId": person_id, "people": [{"id": person_id}], "stageName": stage,
+           "status": status}
+    if close:
+        row["actualCloseDate"] = close
+    return row

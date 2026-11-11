@@ -49,7 +49,9 @@ def test_it_matches_the_models_and_round_trips(tmp_path):
         insp = sa.inspect(conn)
         t = CrmActivity.__table__
         got = {c["name"]: (bool(c["nullable"]), c["default"] is not None) for c in insp.get_columns(t.name)}
-        want = {c.name: (c.nullable, c.server_default is not None) for c in t.columns}
+        # The model as of this revision: the deal columns are 0109's (test_migration_0109).
+        later = {"deal_stage", "deal_status"}
+        want = {c.name: (c.nullable, c.server_default is not None) for c in t.columns if c.name not in later}
         assert got == want
         assert {"ix_crm_activity_person", "ix_crm_activity_tenant_id"} <= {i["name"] for i in insp.get_indexes(t.name)}
         assert txn_added <= {c["name"] for c in insp.get_columns("transaction")}

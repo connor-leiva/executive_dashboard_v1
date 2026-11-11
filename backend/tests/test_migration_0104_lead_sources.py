@@ -112,7 +112,13 @@ def test_the_seed_writes_utah_lifes_rows_once_and_nobody_elses(tmp_path):
 def test_the_revision_id_fits_the_house_margin_and_one_file():
     mod = _module()
     assert len(mod.revision) <= 30 and re.fullmatch(r"0104_[a-z0-9_]+", mod.revision)
-    assert len(sorted(VERSIONS.glob("0104*"))) == 1
+    # One file declares this revision. Not "one 0104 file": the ads work landed its own
+    # 0104_sb_title_case beside this one, which is two files and no conflict -- the merge
+    # revision joins the branches, and the single-head test guards the graph.
+    declared = re.compile(r'^revision(?::\s*str)?\s*=\s*"([^"]+)"', re.M)
+    owners = [f.name for f in VERSIONS.glob("*.py")
+              if mod.revision in declared.findall(f.read_text(encoding="utf-8"))]
+    assert owners == [MIGRATION.name]
     code = MIGRATION.read_text(encoding="utf-8").split('"""', 2)[2]
     for bad in ("sa.Enum", "postgresql.ENUM", "JSONB", "PG_UUID"):
         assert bad not in code, bad
