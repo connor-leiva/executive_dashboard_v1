@@ -215,6 +215,10 @@ function Morning({ digest }) {
         {(digest.fatigue || []).length
           ? `Fatigue: ${digest.fatigue.join(", ")}.`
           : "No fatigue flags."}
+        {" "}
+        {digest.attendance && digest.attendance.attended != null
+          ? `Edge webinar: ${digest.attendance.attended} attended.`
+          : "Edge webinar attendance is not recorded yet."}
       </p>
       <p style={{ fontFamily: FONT, fontSize: 13, color: C.ink, margin: "6px 0 0" }}>
         {(digest.seats || []).map((s) => (

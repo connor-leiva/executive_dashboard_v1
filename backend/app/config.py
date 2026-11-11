@@ -318,6 +318,12 @@ class Settings(BaseSettings):
     # is the sole source of ULRG operational metrics.
     SEED_SAMPLE_OPS: bool = True
 
+    # Zoom Server-to-Server OAuth for session attendance. The app is "Axcion Attendance Sync".
+    # Empty in dev; production sets these on the API service.
+    ZOOM_ACCOUNT_ID: str = ""
+    ZOOM_CLIENT_ID: str = ""
+    ZOOM_CLIENT_SECRET: str = ""
+
     # ── Meta Ads (SPEC-ads-module.md Part 6.7). Reporting only - the System User token lives
     # Fernet-encrypted on the Integration row, never here and never in a browser.
     #

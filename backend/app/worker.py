@@ -448,6 +448,27 @@ async def ads_autopilot_tick():
             print(f"[ads_autopilot] {tid}: {type(e).__name__}: {e}", flush=True)
 
 
+async def zoom_attendance_tick():
+    """Past Zoom meetings and webinars. The first run covers the sprint plus 13 weeks.
+
+    The Zoom app is one business's account, so this only writes the Spring workspace.
+    """
+    from .models import Tenant
+    from .services.attendance import run_for_tenant
+    async with SessionLocal() as s:
+        tenant_ids = (await s.execute(select(Tenant.id).where(
+            Tenant.slug == (settings.DEV_TENANT_SLUG or "springb")))).scalars().all()
+    for tid in tenant_ids:
+        try:
+            async with SessionLocal() as s:
+                result = await run_for_tenant(s, tid)
+                await s.commit()
+                print(f"[zoom_attendance] tenant {tid}: {result.get('sessions', 0)} sessions, "
+                      f"{result.get('participants', 0)} participants", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[zoom_attendance] {tid}: {type(e).__name__}: {e}", flush=True)
+
+
 async def ads_digest_tick():
     """The morning note, after autopilot has had its pass. Emails when Resend is configured."""
     from .models import AdAccount
@@ -656,6 +677,11 @@ def build_scheduler() -> AsyncIOScheduler:
     # brand is switched on, and it still cannot write without ads_management.
     sched.add_job(beat(ads_autopilot_tick), "cron", hour=6, minute=0, timezone=_tz)
     sched.add_job(beat(ads_digest_tick), "cron", hour=6, minute=20, timezone=_tz)
+    if settings.ZOOM_ACCOUNT_ID and settings.ZOOM_CLIENT_ID and settings.ZOOM_CLIENT_SECRET:
+        # First boot after the credentials land runs the sprint backfill. Later boots
+        # only refresh the last few days, because backfilled_at is set.
+        sched.add_job(beat(zoom_attendance_tick), "cron", hour=5, minute=15, timezone=_tz,
+                      next_run_time=dt.datetime.now(dt.timezone.utc))
     # Every minute, because this is the path a person is waiting on: an agent files a request and
     # somebody in marketing should see it while they still remember filing it. It is also cheap --
     # one indexed query that usually returns nothing.

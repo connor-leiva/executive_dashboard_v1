@@ -3345,6 +3345,59 @@ class AdDigest(Base):
     )
 
 
+class AttendanceSync(Base):
+    """One row per workspace. Rules are the session-type map; null means the code defaults."""
+    __tablename__ = "attendance_sync"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), unique=True, index=True)
+    rules: Mapped[list | None] = mapped_column(JSONType, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_stats: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    backfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AttendanceSession(Base):
+    """One past Zoom meeting or webinar. The type is resolved from the topic, not stored."""
+    __tablename__ = "attendance_session"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    zoom_id: Mapped[str] = mapped_column(String(64))
+    zoom_uuid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16))  # meeting | webinar
+    topic: Mapped[str] = mapped_column(String(400))
+    host_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="report")  # report | past
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "kind", "zoom_id", name="uq_attendance_session"),
+    )
+
+
+class AttendancePerson(Base):
+    """One person at one session, after rejoins are folded together."""
+    __tablename__ = "attendance_person"
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("attendance_session.id", ondelete="CASCADE"), index=True)
+    person_key: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contact_external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    match_method: Mapped[str] = mapped_column(String(16), default="none")  # email | name | none
+    __table_args__ = (
+        UniqueConstraint("session_id", "person_key", name="uq_attendance_person"),
+    )
+
+
 class AdInsightDaily(Base):
     """One day of delivery for one object at one level.
 

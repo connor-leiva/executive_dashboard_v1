@@ -21,6 +21,7 @@ import EdgeView from "./EdgeView.jsx";
 import Books from "./books/Books.jsx";
 import Cleanup from "./cleanup/Cleanup.jsx";
 import AdsView from "./ads/AdsView.jsx";
+import AttendanceView from "./attendance/AttendanceView.jsx";
 import Binder from "./Binder.jsx";
 import StepUpGate from "./StepUpGate.jsx";
 import PeriodNav, { periodKey, fromPeriodKey } from "./PeriodNav.jsx";
@@ -1107,7 +1108,7 @@ const NAV = [
   { k: "onboarding", label: "Onboarding", dot: T.petalDeep },
 ];
 // nav key → permission tab (the Portfolio nav item is keyed "overview")
-const navTab = (k) => (k === "overview" ? "portfolio" : k);
+const navTab = (k) => (k === "overview" ? "portfolio" : k === "attendance" ? "edge" : k);
 
 export default function CommandCenter() {
   // The period is owned as a granularity + an anchor date, which is what lets the ‹ › stepper
@@ -1166,10 +1167,18 @@ export default function CommandCenter() {
   const extraNav = Object.values((data && data.areas) || {})
     .filter((a) => a && !KNOWN_TABS.has(a.key) && (!myTabs || myTabs.includes(a.key)))
     .map((a) => ({ k: a.key, label: a.name, dot: a.accent || T.mist }));
-  const fwIdx = baseNav.findIndex((n) => n.k === "flywheel");
-  const navItems = extraNav.length === 0 ? baseNav
-    : fwIdx >= 0 ? [...baseNav.slice(0, fwIdx), ...extraNav, ...baseNav.slice(fwIdx)]
-    : [...baseNav, ...extraNav];
+  const withAttendance = baseNav.some((n) => n.k === "edge") && !baseNav.some((n) => n.k === "attendance")
+    ? (() => {
+        const i = baseNav.findIndex((n) => n.k === "edge");
+        const next = baseNav.slice();
+        next.splice(i + 1, 0, { k: "attendance", label: "Session Attendance", dot: T.edge });
+        return next;
+      })()
+    : baseNav;
+  const fwIdx = withAttendance.findIndex((n) => n.k === "flywheel");
+  const navItems = extraNav.length === 0 ? withAttendance
+    : fwIdx >= 0 ? [...withAttendance.slice(0, fwIdx), ...extraNav, ...withAttendance.slice(fwIdx)]
+    : [...withAttendance, ...extraNav];
   useEffect(() => {
     if (!myTabs || !myTabs.length) return;
     if (!myTabs.includes(navTab(view))) {
@@ -1240,6 +1249,7 @@ export default function CommandCenter() {
   // A one-off, present only where the server says a cleanup file is loaded (it is in /me nav, never in NAV).
   else if (activeView === "cleanup") content = <Cleanup role={user?.role} />;
   else if (activeView === "ads") content = <AdsView />;
+  else if (activeView === "attendance") content = <AttendanceView />;
   else if (activeView === "binder") content = (
     // Binder holds entity/compliance records — gated by a second factor, not just tab access.
     <StepUpGate scope="binder" usingSample={usingSample} title="Binder is locked"
