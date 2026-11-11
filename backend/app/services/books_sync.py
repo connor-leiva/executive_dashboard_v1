@@ -35,6 +35,14 @@ _QBO_TXN_ENTITIES = (
 _LATE_TXN_ENTITIES = ("SalesReceipt", "Payment")
 _late_pulled: set = set()
 
+# The same hole, for lines. A realm first backfilled before book_txn_line existed (0096) holds
+# its older Purchases, Bills and Journal Entries as headers with no lines, and before 0104 with no
+# vendor id either. CDC only re-sends a transaction somebody edits, so an unchanged monthly charge
+# stays a bare header for good -- and the lead-source spend rules, which match a LINE's account and
+# the header's vendor id, have nothing to read. These are the types whose lines carry the expense
+# account; `_hydrate_missing_lines` re-pulls them while any of their headers has no line.
+_HYDRATE_TXN_ENTITIES = ("Purchase", "Bill", "JournalEntry")
+
 # Suspense / holding accounts mean "nobody categorized this yet" -> came_categorized False.
 _SUSPENSE = {"uncategorized expense", "uncategorized income", "uncategorized asset",
              "ask my accountant", "uncategorized"}
@@ -358,6 +366,7 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
             data = await qbo.cdc(integ.realm_id, token, ",".join(_QBO_TXN_ENTITIES), since.isoformat())
             by_entity = _cdc_split(data, _QBO_TXN_ENTITIES)
         await _pull_late_types(by_entity, integ, token)
+    missing = 0 if have == 0 else await _hydrate_missing_lines(s, tenant_id, integ, token, by_entity)
 
     pairs = _txn_pairs(tenant_id, integ, by_entity)
     rows = [r for r, _lines in pairs]
@@ -365,11 +374,63 @@ async def sync_qbo_txns(s: AsyncSession, tenant_id, integ: Integration, since=No
     for i in range(0, len(rows), 500):
         await s.execute(txn_upsert(rows[i:i + 500]))
     lines = await _write_txn_lines(s, tenant_id, integ, pairs)
+    if missing:
+        await _record_hydrate(s, tenant_id, integ, now, missing)
     integ.last_synced_at = now
     await s.commit()
-    print(f"[qbo_txns] realm={integ.realm_id} mode={'backfill' if have == 0 else 'cdc'} "
-          f"rows={len(rows)} lines={lines}", flush=True)
+    mode = "backfill" if have == 0 else "hydrate" if missing else "cdc"
+    extra = f" missing_line_headers={missing}" if missing else ""
+    print(f"[qbo_txns] realm={integ.realm_id} mode={mode}{extra} rows={len(rows)} lines={lines}", flush=True)
     return len(rows)
+
+
+async def _headers_missing_lines(s: AsyncSession, tenant_id, integ: Integration, start: dt.date) -> int:
+    """How many of this realm's Purchase / Bill / Journal Entry headers since `start` have no line
+    at all. The SQL is the source of truth for whether a hydrate is owed: a realm that is already
+    whole answers 0 here after a restart, and stays on CDC."""
+    has_line = select(BookTxnLine.id).where(BookTxnLine.book_txn_id == BookTxn.id).exists()
+    return (await s.execute(select(func.count(BookTxn.id)).where(
+        BookTxn.tenant_id == tenant_id, BookTxn.realm_id == integ.realm_id,
+        BookTxn.qbo_type.in_(_HYDRATE_TXN_ENTITIES), BookTxn.txn_date >= start, ~has_line))).scalar_one()
+
+
+async def _hydrate_missing_lines(s: AsyncSession, tenant_id, integ: Integration, token: str,
+                                 by_entity: dict) -> int:
+    """Re-pull Purchases, Bills and Journal Entries from the backfill start when stored headers
+    have no lines, and merge them into this pass the way `_pull_late_types` does. The ordinary
+    upsert then refreshes `vendor_qbo_id` and `purchase_credit` (both source columns) and
+    `_write_txn_lines` writes every one of their lines. Returns how many headers were missing
+    lines (0: nothing was pulled).
+
+    One thing the SQL cannot settle alone: a transaction deleted in QuickBooks keeps its header
+    here (CDC's tombstones are dropped, and rows are never deleted), so it can never gain a line.
+    After a hydrate, `integration.config["ledger_hydrate"]` records how many headers were still
+    bare. A later pass re-pulls only if the gap is BIGGER than that, or the backfill start moved;
+    otherwise a company with one deleted charge would re-read every purchase on every cycle.
+    """
+    start = _backfill_start(integ)
+    missing = await _headers_missing_lines(s, tenant_id, integ, start)
+    if not missing:
+        return 0
+    done = (integ.config or {}).get("ledger_hydrate") or {}
+    if done.get("from") == start.isoformat() and missing <= int(done.get("left_without_lines") or 0):
+        return 0                       # the same bare headers QuickBooks no longer returns
+    for ent in _HYDRATE_TXN_ENTITIES:
+        rows = await qbo.query_all(
+            integ.realm_id, token, ent, f"WHERE TxnDate >= '{start.isoformat()}'")
+        have = by_entity.get(ent) or []
+        seen = {str(o.get("Id")) for o in have}
+        by_entity[ent] = have + [o for o in rows if str(o.get("Id")) not in seen]
+    return missing
+
+
+async def _record_hydrate(s: AsyncSession, tenant_id, integ: Integration, now, missing: int) -> None:
+    """Note what the hydrate left behind, after its lines are written (same transaction)."""
+    start = _backfill_start(integ)
+    left = await _headers_missing_lines(s, tenant_id, integ, start)
+    integ.config = {**(integ.config or {}), "ledger_hydrate": {
+        "at": now.isoformat(timespec="seconds"), "from": start.isoformat(),
+        "missing_before": missing, "left_without_lines": left}}
 
 
 async def _pull_late_types(by_entity: dict, integ: Integration, token: str) -> None:
