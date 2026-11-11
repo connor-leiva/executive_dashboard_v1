@@ -2,19 +2,18 @@ import { useState } from "react";
 
 import { API_BASE, patchJSON } from "../../api";
 import { C, FIG, FONT, HEAD, usd } from "../adsTokens.js";
-import { Btn, Card, Empty, Field, PageTitle, inputStyle, weeklyPace, tone } from "../ui.jsx";
+import { Btn, Card, Empty, Field, PageTitle, inputStyle, tone } from "../ui.jsx";
 
 export default function Budget({ data, onSaved }) {
   const [draft, setDraft] = useState({});
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
-  const pace = weeklyPace(data);
-  const t = tone(pace.status, pace.open);
-  const groups = (data.groups || []).filter((g) => g.name !== "Other" || g.weekly_budget);
+  const brands = (data.groups || []).filter((g) => g.name !== "Other");
+  const week = data.week;
 
   async function save() {
     const next = { ...(data.weekly_budgets || {}) };
-    for (const g of groups) {
+    for (const g of brands) {
       const typed = draft[g.name] != null ? draft[g.name] : g.weekly_budget;
       if (typed === "" || typed == null) {
         delete next[g.name];
@@ -44,21 +43,34 @@ export default function Budget({ data, onSaved }) {
     }
   }
 
+  const all = data.groups || [];
+  const spent = all.reduce((a, g) => a + (Number(g.spend) || 0), 0);
+  const planned = brands.reduce((a, g) => a + (Number(g.plan_spend) || 0), 0);
+  const remaining = planned ? planned - spent : null;
+  const pace = planned ? (spent / planned) * 100 : null;
+  const status = pace == null ? "none" : pace < 90 ? "behind" : pace > 110 ? "ahead" : "on";
+  const t = tone(status, true);
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <PageTitle title="Budget" />
       <Card>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: FONT, fontSize: 13, color: C.slate }}>All brands</span>
-          <span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: t.ink }}>
-            {pace.status === "none" ? "No plan" : `${Math.round(pace.pace)}% of the plan for these days`}
-            {pace.open ? " · week still open" : ""}
-          </span>
+        <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>All brands</div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 8 }}>
+          <Sum label="Spent" value={usd(spent)} />
+          <Sum label="Plan for these days" value={planned ? usd(planned) : "No plan"} />
+          <Sum label="Remaining" value={remaining == null ? "—" : remaining >= 0 ? usd(remaining) : `${usd(-remaining)} over`} />
+          <Sum label="Pace" value={pace == null ? "—" : `${Math.round(pace)}%`} color={t.ink} />
         </div>
       </Card>
-      {groups.length === 0 && <Empty>No campaigns in this window.</Empty>}
-      {groups.map((g) => {
+
+      {week?.days?.length > 0 && <WeekChart days={week.days} />}
+
+      {brands.length === 0 && <Empty>No brands in this window.</Empty>}
+      {brands.map((g) => {
         const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
+        const left = g.plan_spend == null ? null : g.plan_spend - (g.spend || 0);
+        const rowTone = tone(g.pace == null ? "none" : g.pace < 90 ? "behind" : g.pace > 110 ? "ahead" : "on", true);
         return (
           <Card key={g.name}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -67,7 +79,8 @@ export default function Budget({ data, onSaved }) {
                 <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 4 }}>
                   {usd(g.spend)} spent
                   {g.weekly_budget ? ` · plan ${usd(g.weekly_budget)} / week` : " · no weekly plan"}
-                  {g.pace != null ? <span style={{ color: t.ink }}>{` · ${g.pace}% of the plan`}</span> : null}
+                  {left == null ? "" : left >= 0 ? ` · ${usd(left)} remaining` : ` · ${usd(-left)} over`}
+                  {g.pace != null ? <span style={{ color: rowTone.ink }}>{` · ${g.pace}% pace`}</span> : ""}
                 </div>
               </div>
               <Field label="Weekly plan">
@@ -80,9 +93,51 @@ export default function Budget({ data, onSaved }) {
         );
       })}
       <div>
-        <Btn primary disabled={busy || groups.length === 0} onClick={save}>Save weekly plan</Btn>
+        <Btn primary disabled={busy || brands.length === 0} onClick={save}>Save weekly plan</Btn>
       </div>
       {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}
     </div>
+  );
+}
+
+function Sum({ label, value, color }) {
+  return (
+    <div>
+      <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>{label}</div>
+      <div style={{ fontFamily: FIG, fontSize: 18, color: color || C.ink }}>{value}</div>
+    </div>
+  );
+}
+
+function WeekChart({ days }) {
+  const max = Math.max(1, ...days.map((d) => Math.max(d.spend || 0, d.plan || 0)));
+  return (
+    <Card>
+      <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.ink }}>This week, Monday to Sunday</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, alignItems: "end", marginTop: 14, height: 120 }}>
+        {days.map((d) => {
+          const h = Math.round(((d.spend || 0) / max) * 100);
+          const plan = d.plan ? Math.round((d.plan / max) * 100) : 0;
+          const bar = d.future || d.open
+            ? `color-mix(in srgb, ${C.accent} 58%, ${C.parchment})`
+            : C.accent;
+          return (
+            <div key={d.date} style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%", justifyContent: "flex-end" }}>
+              <div style={{ position: "relative", width: "70%", height: "100%" }}>
+                {plan > 0 && (
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: `${plan}%`, borderTop: `2px solid ${C.slate}` }} />
+                )}
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: `${h}%`, background: bar, borderRadius: 4 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginTop: 6 }}>
+        {days.map((d) => (
+          <div key={d.date} style={{ textAlign: "center", fontFamily: FONT, fontSize: 11, color: d.open || d.future ? C.slate : C.muted }}>{d.label}</div>
+        ))}
+      </div>
+    </Card>
   );
 }

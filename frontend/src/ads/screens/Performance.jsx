@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
 import { C, FIG, FONT, num, pct, usd } from "../adsTokens.js";
-import { Btn, Card, Drawer, Empty, PageTitle, inputStyle } from "../ui.jsx";
+import { Btn, Card, Drawer, Empty, PageTitle, inputStyle, sentenceStatus } from "../ui.jsx";
 
 const COLS = {
   campaigns: [
@@ -115,6 +115,11 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
               <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{usd(justin?.cost_per)}</div>
             </div>
           </div>
+          {spring && justin && !spring.missing && !justin.missing && Number(justin.n) > Number(spring.n) && (
+            <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: "10px 0 0" }}>
+              Guest seats can outnumber Spring&apos;s leads. A seat is a confirmed guest; a lead is someone Spring brought in during this window.
+            </p>
+          )}
         </Card>
       )}
 
@@ -145,7 +150,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
             )}
             {tableRows.map((row) => (
               <tr key={row.external_id || row.id} onClick={() => setOpen(row)}
-                  style={{ borderTop: `1px solid ${C.line}`, cursor: "pointer" }}>
+                  style={{ borderTop: `1px solid ${C.line}`, cursor: "pointer", background: open && (open.external_id || open.id) === (row.external_id || row.id) ? C.accentBg : "transparent" }}>
                 {COLS[mode].map((col) => (
                   <td key={col.key} style={{ padding: "10px 12px", textAlign: col.num ? "right" : "left", fontFamily: col.num ? FIG : FONT, color: C.ink }}>
                     {cell(row, col.key)}
@@ -160,7 +165,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 
       {open && (
         <Drawer title={open.name} onClose={() => setOpen(null)}>
-          <RowActions row={open} level={mode === "ads" ? "ad" : "campaign"} data={data} />
+          <RowDetail row={open} creatives={creatives} level={mode === "ads" ? "ad" : "campaign"} data={data} />
         </Drawer>
       )}
     </div>
@@ -170,6 +175,20 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 const linkBtn = {
   background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer",
 };
+
+function blankWhy(label, value, row) {
+  if (value != null && value !== "") return null;
+  if (String(row.status || "").toUpperCase() === "PAUSED") return `${label} is blank because this is paused.`;
+  if (label === "Frequency") return "Frequency was not fetched for this row.";
+  if (label === "Daily budget") return "No daily budget is stored for this campaign.";
+  return `${label} is not on this row.`;
+}
+
+function RowDetail({ row, creatives, level, data }) {
+  const extra = (creatives?.ads || []).find((a) => a.external_id && a.external_id === row.external_id) || {};
+  const view = { ...extra, ...row, thumbnail_url: row.thumbnail_url || extra.thumbnail_url, people: row.people || extra.people || [] };
+  return <RowActions row={view} level={level} data={data} />;
+}
 
 function RowActions({ row, level, data }) {
   const writes = data.writes || {};
@@ -208,14 +227,29 @@ function RowActions({ row, level, data }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {row.thumbnail_url && (
+        <img src={row.thumbnail_url} alt="" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8 }} />
+      )}
       <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{row.group || row.headline || "Ad"}</p>
       <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontFamily: FONT, fontSize: 13, margin: 0 }}>
         <div><dt style={{ color: C.muted }}>Spend</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.spend)}</dd></div>
+        <div><dt style={{ color: C.muted }}>Leads</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{num(row.leads)}</dd></div>
+        <div><dt style={{ color: C.muted }}>Seats</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{row.seats == null ? "—" : num(row.seats)}</dd></div>
         <div><dt style={{ color: C.muted }}>CTR</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{pct(row.ctr)}</dd></div>
         <div><dt style={{ color: C.muted }}>Daily budget</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.daily_budget)}</dd></div>
         <div><dt style={{ color: C.muted }}>Frequency</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{row.frequency == null ? "—" : Number(row.frequency).toFixed(2)}</dd></div>
       </dl>
-      {row.status && <p style={{ fontFamily: FONT, fontSize: 13, margin: 0 }}>Status {row.status}</p>}
+      {blankWhy("Daily budget", row.daily_budget, row) && <p style={{ fontFamily: FONT, fontSize: 12, color: C.muted, margin: 0 }}>{blankWhy("Daily budget", row.daily_budget, row)}</p>}
+      {blankWhy("Frequency", row.frequency, row) && <p style={{ fontFamily: FONT, fontSize: 12, color: C.muted, margin: 0 }}>{blankWhy("Frequency", row.frequency, row)}</p>}
+      {row.status && <p style={{ fontFamily: FONT, fontSize: 13, margin: 0 }}>Status {sentenceStatus(row.status)}</p>}
+      {(row.people || []).length > 0 && (
+        <div>
+          <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>People</div>
+          {row.people.map((p) => (
+            <div key={p.email || p.name} style={{ fontFamily: FONT, fontSize: 13, color: C.ink }}>{p.name}</div>
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Btn disabled={busy} onClick={() => send(paused ? "activate" : "pause")}>{paused ? "Turn on" : "Pause"}</Btn>
         <Btn disabled={busy} onClick={() => send("duplicate")}>Duplicate</Btn>

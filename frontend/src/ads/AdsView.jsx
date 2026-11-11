@@ -1,6 +1,6 @@
 /* Ads is five screens, not one long page. The data hooks stay: a number only
    renders when it belongs to the account and period currently on screen. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { API_BASE, getJSON } from "../api";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
@@ -16,14 +16,9 @@ import { sampleAdsDrill } from "./sampleAds.js";
 import { Btn, Card, Empty, ErrorNote, SCREENS } from "./ui.jsx";
 import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview, useAdsWrites } from "./useAds.js";
 
-const PERIODS = [
-  { k: "7d", label: "7d" }, { k: "30d", label: "30d" }, { k: "60d", label: "60d" },
-  { k: "90d", label: "90d" }, { k: "mtd", label: "MTD" },
-];
-
-export default function AdsView() {
+export default function AdsView({ periodKey }) {
   const [screen, setScreen] = useState("today");
-  const [period, setPeriod] = useState("30d");
+  const [period, setPeriod] = useState(periodKey || "mtd");
   const [basis, setBasis] = useState("cohort");
   const [account, setAccount] = useState(null);
   const [campaign, setCampaign] = useState(null);
@@ -34,6 +29,10 @@ export default function AdsView() {
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 48 });
   const writes = useAdsWrites(data?.account?.id);
+
+  useEffect(() => {
+    if (periodKey) setPeriod(periodKey);
+  }, [periodKey]);
 
   async function openDrill(ladder, key, label) {
     const stage = `${ladder?.title || "funnel"}:${key}`;
@@ -96,12 +95,19 @@ export default function AdsView() {
             <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>{data.account?.name} · {data.range?.label}</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {PERIODS.map((p) => (
-            <Btn key={p.k} primary={period === p.k} onClick={() => setPeriod(p.k)}>{p.label}</Btn>
-          ))}
-          <Btn primary={basis === "cohort"} onClick={() => setBasis("cohort")}>Cohort</Btn>
-          <Btn primary={basis === "period"} onClick={() => setBasis("period")}>Period</Btn>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {screen !== "settings" && (
+            <div role="radiogroup" aria-label="How this window is counted" style={{ display: "flex", border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+              {[["cohort", "Cohort"], ["period", "Period"]].map(([k, label]) => (
+                <button key={k} type="button" role="radio" aria-checked={basis === k} onClick={() => setBasis(k)}
+                        style={{
+                          fontFamily: FONT, fontSize: 13, fontWeight: 600, padding: "7px 12px", cursor: "pointer",
+                          border: "none", background: basis === k ? C.evergreen : "transparent",
+                          color: basis === k ? C.onDark : C.slate,
+                        }}>{label}</button>
+              ))}
+            </div>
+          )}
           {acctList.length > 1 && (
             <select value={account || ""} aria-label="Ad account"
                     onChange={(e) => { setAccount(e.target.value || null); setCampaign(null); }}
@@ -118,7 +124,7 @@ export default function AdsView() {
         ))}
       </nav>
 
-      {screen === "today" && <Today data={data} onSaved={retry} />}
+      {screen === "today" && <Today data={data} onSaved={retry} onBudget={() => setScreen("budget")} />}
       {screen === "performance" && (
         <Performance data={data} creatives={creatives.data} brand={brand}
                      setBrand={setBrand} onDrill={openDrill} />

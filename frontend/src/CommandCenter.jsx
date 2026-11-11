@@ -1248,7 +1248,7 @@ export default function CommandCenter() {
   else if (activeView === "books") content = <Books period={periodKeyStr} role={user?.role} />;
   // A one-off, present only where the server says a cleanup file is loaded (it is in /me nav, never in NAV).
   else if (activeView === "cleanup") content = <Cleanup role={user?.role} />;
-  else if (activeView === "ads") content = <AdsView />;
+  else if (activeView === "ads") content = <AdsView periodKey={periodKeyStr} />;
   else if (activeView === "attendance") content = <AttendanceView />;
   else if (activeView === "binder") content = (
     // Binder holds entity/compliance records — gated by a second factor, not just tab access.
@@ -1437,7 +1437,9 @@ export default function CommandCenter() {
           {/* Attribution sits in the SHELL, not in each view, so it is present on every tab by
               construction — including tabs nobody has written yet. A footer added per page is a
               footer that is missing from the next one. */}
-          <div style={{ padding: "0 32px 32px", maxWidth: 1440, boxSizing: "border-box" }}><PoweredByAxcion align="flex-start" /></div>
+          {activeView !== "ads" && (
+            <div style={{ padding: "0 32px 32px", maxWidth: 1440, boxSizing: "border-box" }}><PoweredByAxcion align="flex-start" /></div>
+          )}
         </main>
       </div>
 

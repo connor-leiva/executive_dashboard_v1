@@ -236,8 +236,8 @@ async def build_overview(s: AsyncSession, tenant_id, acct: AdAccount, period, st
         "campaigns_available": _pickable(all_rows, camps),
         "totals": totals, "bands": bands,
         "campaigns": campaigns,
-        "groups": [_group_payload(g, rs, budgets, window_days)
-                   for g, rs in sorted(groups.items(), key=lambda kv: -sum(r["spend"] for r in kv[1]))],
+        "groups": _all_groups(groups, rules, budgets, window_days),
+        "week": await _this_week(s, tenant_id, acct, rules, budgets, camps),
         "weekly_budgets": budgets,
         "unmatched_count": unmatched,
         "archetype": archetype,
@@ -294,6 +294,67 @@ def _pickable(all_rows: list, camps: dict) -> list[dict]:
         d = per.setdefault(str(c.id), {"id": str(c.id), "name": c.name, "spend": 0.0})
         d["spend"] += float(r.spend or 0)
     return sorted(per.values(), key=lambda c: -c["spend"])
+
+
+def _all_groups(groups: dict, rules, budgets: dict, window_days: int) -> list[dict]:
+    """Every brand the rules name, plus any group that actually spent.
+
+    A brand with a plan and no delivery still belongs on Budget. Other stays
+    only when something fell through, so an empty fallback is not a blank row.
+    """
+    names: list[str] = []
+    for rule in (rules if rules is not None else R.DEFAULT_GROUP_RULES):
+        label = (rule or {}).get("label")
+        if label and label not in names:
+            names.append(label)
+    for name in budgets or {}:
+        if name and name not in names:
+            names.append(name)
+    for name in groups:
+        if name not in names:
+            names.append(name)
+    out = []
+    for name in names:
+        rows = groups.get(name) or []
+        if name == R.FALLBACK_GROUP and not rows:
+            continue
+        out.append(_group_payload(name, rows, budgets, window_days))
+    out.sort(key=lambda g: -(g["spend"] or 0))
+    return out
+
+
+async def _this_week(s, tenant_id, acct, rules, budgets, camps) -> dict:
+    """Monday through Sunday of the current week, in the ad account's timezone."""
+    today = A.account_today(acct.timezone_name)
+    monday = today - dt.timedelta(days=today.weekday())
+    days = [monday + dt.timedelta(days=i) for i in range(7)]
+    labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    rows = list((await s.execute(select(AdInsightDaily).where(
+        AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
+        AdInsightDaily.level == "campaign",
+        AdInsightDaily.occurred_on >= monday, AdInsightDaily.occurred_on <= days[-1],
+    ))).scalars())
+    by_day = {d: 0.0 for d in days}
+    by_brand: dict[str, float] = {}
+    for r in rows:
+        camp = camps.get(r.campaign_id)
+        by_day[r.occurred_on] = by_day.get(r.occurred_on, 0.0) + float(r.spend or 0)
+        if r.occurred_on <= today and camp is not None:
+            group = R.classify_campaign(camp.name, rules)
+            by_brand[group] = by_brand.get(group, 0.0) + float(r.spend or 0)
+    plan_values = [float(v) for v in (budgets or {}).values() if v not in (None, "")]
+    daily_plan = (sum(plan_values) / 7.0) if plan_values else None
+    return {
+        "has_plan": bool(plan_values),
+        "days": [{
+            "date": d.isoformat(), "label": labels[i], "spend": by_day.get(d, 0.0),
+            "plan": daily_plan, "open": d == today, "future": d > today,
+        } for i, d in enumerate(days)],
+        "brands": [{
+            "name": name, "spend": by_brand.get(name, 0.0),
+            "plan": None if (budgets or {}).get(name) in (None, "") else float(budgets[name]),
+        } for name in sorted(set(list(by_brand) + list(budgets or {}))) if name != R.FALLBACK_GROUP],
+    }
 
 
 def _group_payload(name: str, rows: list[dict], budgets: dict, window_days: int) -> dict:
@@ -441,7 +502,8 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
                                   "thumbnail_url": a.thumbnail_url, "spend": 0.0,
                                   "impressions": 0, "link_clicks": 0, "leads": 0,
                                   "frequency": None, "_freqs": [],
-                                  "url_tags": a.url_tags})
+                                  "url_tags": a.url_tags, "status": a.status,
+                                  "adset": a.adset_name})
         d["spend"] += float(r.spend or 0)
         d["impressions"] += r.impressions or 0
         d["link_clicks"] += r.inline_link_clicks or 0
@@ -468,7 +530,15 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
         flag = next((v for k, v in scan.items() if str(k) == d["id"]), None)
         ad = next((a for a in ad_rows.values() if str(a.id) == d["id"]), None)
         seats = None if seat_counts is None else seat_counts.get(getattr(ad, "external_id", None), 0)
-        out.append({**d,
+        people = []
+        ext = getattr(ad, "external_id", None)
+        for seat in seat_rows:
+            if str((seat.meta or {}).get("utm_content") or "") != ext:
+                continue
+            people.append({"name": seat.name, "email": seat.email})
+            if len(people) >= 8:
+                break
+        out.append({**d, "people": people,
                     "external_id": getattr(ad, "external_id", None),
                     "frequency": (flag or {}).get("frequency", freq),
                     "ctr_prior": (flag or {}).get("ctr_prior"),
@@ -837,6 +907,8 @@ async def list_writes(account: str | None = Query(None),
         "meta_error": r.meta_error,
         "actor": r.actor_label,
         "source": r.source,
+        "before": r.before,
+        "after": r.after,
         "at": r.created_at.isoformat() if r.created_at else None,
     } for r in rows]}
 
