@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 
 import { API_BASE, getJSON } from "../api";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
-import { adsCss } from "./adsStyles.js";
-import { C, FONT, HEAD } from "./adsTokens.js";
+import { C } from "./adsTokens.js";
 import DrillPanel from "./DrillPanel.jsx";
 import Activity from "./screens/Activity.jsx";
 import Budget from "./screens/Budget.jsx";
@@ -13,7 +12,8 @@ import Performance from "./screens/Performance.jsx";
 import SettingsScreen from "./screens/Settings.jsx";
 import Today from "./screens/Today.jsx";
 import { sampleAdsDrill } from "./sampleAds.js";
-import { Btn, Card, Empty, ErrorNote, SCREENS } from "./ui.jsx";
+import { screenCss } from "./screenStyles.js";
+import { Card, Empty, ErrorNote, SCREENS, Segmented } from "./ui.jsx";
 import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview, useAdsWrites } from "./useAds.js";
 
 export default function AdsView({ periodKey }) {
@@ -65,62 +65,57 @@ export default function AdsView({ periodKey }) {
   }
 
   if (error) {
-    return <div style={{ padding: 20 }}><ErrorNote onRetry={retry}>Couldn&apos;t load ad performance.</ErrorNote></div>;
+    return <Frame><ErrorNote onRetry={retry}>Couldn&apos;t load ad performance.</ErrorNote></Frame>;
   }
   if (loading || !data) {
-    return <div style={{ padding: 20 }}><Empty>Loading…</Empty></div>;
+    return <Frame><Empty>Loading…</Empty></Frame>;
   }
   if (!data.connected) {
     return (
-      <Card>
-        <h2 style={{ fontFamily: HEAD, fontSize: 18, margin: 0, color: C.ink }}>Connect a Meta ad account</h2>
-        <p style={{ fontFamily: FONT, fontSize: 14, color: C.slate, maxWidth: 560, lineHeight: 1.6 }}>{data.reason}</p>
-        <p style={{ fontFamily: FONT, fontSize: 13, color: C.muted, maxWidth: 560, lineHeight: 1.6 }}>
-          You&apos;ll need a System User token with ads_read and ads_management. Until the token includes ads_management, Approve only previews a change.
-        </p>
-      </Card>
+      <Frame>
+        <Card title="Connect a Meta ad account">
+          <div className="ax-stack" style={{ gap: 8 }}>
+            <p className="ax-text">{data.reason}</p>
+            <p className="ax-text">
+              You&apos;ll need a System User token with ads_read and ads_management. Until the token includes ads_management, Approve only previews a change.
+            </p>
+          </div>
+        </Card>
+      </Frame>
     );
   }
 
   const acctList = Array.isArray(accounts.data) ? accounts.data : [];
 
   return (
-    <div className="adsx" style={{ padding: "8px 4px 32px", display: "grid", gap: 16 }}>
-      <style>{adsCss()}</style>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <ProductIcon name={iconFor("ads")} size={22} tone={C.accent} />
+    <Frame>
+      <div className="ax-top">
+        <div className="ax-brand">
+          <ProductIcon name={iconFor("ads")} size={24} tone={C.accent} />
           <div>
-            <div style={{ fontFamily: HEAD, fontSize: 18, fontWeight: 600, color: C.ink }}>Ads</div>
-            <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>{data.account?.name} · {data.range?.label}</div>
+            <h1 className="ax-h1">Ads</h1>
+            <div className="ax-meta">{data.account?.name} · {data.range?.label}</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="ax-row">
           {screen !== "settings" && (
-            <div role="radiogroup" aria-label="How this window is counted" style={{ display: "flex", border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-              {[["cohort", "Cohort"], ["period", "Period"]].map(([k, label]) => (
-                <button key={k} type="button" role="radio" aria-checked={basis === k} onClick={() => setBasis(k)}
-                        style={{
-                          fontFamily: FONT, fontSize: 13, fontWeight: 600, padding: "7px 12px", cursor: "pointer",
-                          border: "none", background: basis === k ? C.evergreen : "transparent",
-                          color: basis === k ? C.onDark : C.slate,
-                        }}>{label}</button>
-              ))}
-            </div>
+            <Segmented label="How this window is counted" value={basis} onChange={setBasis}
+                       options={[["cohort", "Cohort"], ["period", "Period"]]} />
           )}
           {acctList.length > 1 && (
-            <select value={account || ""} aria-label="Ad account"
+            <select className="ax-input" value={account || ""} aria-label="Ad account"
                     onChange={(e) => { setAccount(e.target.value || null); setCampaign(null); }}
-                    style={{ fontFamily: FONT, fontSize: 13, borderRadius: 8, border: `1px solid ${C.line}`, padding: "6px 8px" }}>
+                    style={{ width: "auto" }}>
               {acctList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           )}
         </div>
       </div>
 
-      <nav aria-label="Ads screens" style={{ display: "flex", gap: 6, flexWrap: "wrap", borderBottom: `1px solid ${C.line}`, paddingBottom: 8 }}>
+      <nav aria-label="Ads screens" className="ax-tabs">
         {SCREENS.map((s) => (
-          <Btn key={s.id} primary={screen === s.id} onClick={() => setScreen(s.id)}>{s.label}</Btn>
+          <button key={s.id} type="button" className="ax-tab" onClick={() => setScreen(s.id)}
+                  aria-current={screen === s.id ? "page" : undefined}>{s.label}</button>
         ))}
       </nav>
 
@@ -140,6 +135,17 @@ export default function AdsView({ periodKey }) {
         <DrillPanel drill={drill.data} loading={drill.loading} error={drill.error} label={drill.label}
                     onClose={() => setDrill({ stage: null, label: null, data: null, loading: false, error: null })} />
       )}
+    </Frame>
+  );
+}
+
+/* Every state the tab can be in sits inside the same scope and stylesheet, the loading line and
+   the connect card included, so none of them renders in the browser's default type. */
+function Frame({ children }) {
+  return (
+    <div className="adsx">
+      <style>{screenCss()}</style>
+      {children}
     </div>
   );
 }

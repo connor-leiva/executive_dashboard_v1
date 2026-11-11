@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
-import { C, FIG, FONT, num, pct, usd } from "../adsTokens.js";
-import { Btn, Card, Drawer, Empty, PageTitle, inputStyle, sentenceStatus } from "../ui.jsx";
+import { C, num, pct, usd } from "../adsTokens.js";
+import {
+  Btn, Card, Drawer, Empty, Glyph, MoneyInput, PageTitle, Segmented, Stat, rowKeys, sentenceStatus,
+} from "../ui.jsx";
 
 const COLS = {
   campaigns: [
@@ -74,93 +76,92 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
     setSort(col.key);
   }
 
+  const brandOptions = [["", "All brands"], ...(data.groups || []).map((g) => [g.name, g.name])];
+  const openKey = open && (open.external_id || open.id);
+
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="ax-stack">
       <PageTitle title="Performance" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-        {[
-          ["Spend", usd(cards.spend), null],
-          ["Link CTR", pct(cards.ctr), null],
-          ["CPC", usd(cards.cpc, 2), null],
-          ["Meta cost / lead", usd(cards.cpl, 2), cards.leads == null ? null : `${num(cards.leads)} Meta lead actions`],
-        ].map(([label, value, note]) => (
-          <Card key={label} style={{ padding: 12 }}>
-            <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</div>
-            <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink, marginTop: 4 }}>{value}</div>
-            {note && <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate, marginTop: 4 }}>{note}</div>}
-          </Card>
-        ))}
+      <div className="ax-stats">
+        <Stat label="Spend" value={usd(cards.spend)} />
+        <Stat label="Link CTR" value={pct(cards.ctr)} />
+        <Stat label="CPC" value={usd(cards.cpc, 2)} />
+        <Stat label="Meta cost / lead" value={usd(cards.cpl, 2)}
+              note={cards.leads == null ? null : `${num(cards.leads)} Meta lead actions`} />
       </div>
 
       {forum && (
-        <Card>
-          <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>Forum VIP</div>
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 8 }}>
-            <button type="button" onClick={() => spring && !spring.missing && onDrill?.(forum, "qualified", spring.label)}
-                    style={linkBtn}>
-              <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Spring · leads in</div>
-              <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{spring?.missing ? "Not recorded" : num(spring?.n)}</div>
-            </button>
-            <button type="button" onClick={() => justin && !justin.missing && onDrill?.(forum, "seat", justin.label)}
-                    style={linkBtn}>
-              <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Justin · guest seats</div>
-              <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{justin?.missing ? "Not recorded" : num(justin?.n)}</div>
-            </button>
-            <div>
-              <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Cost / Spring lead</div>
-              <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{usd(spring?.cost_per)}</div>
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT, fontSize: 12, color: C.slate }}>Cost per seat</div>
-              <div style={{ fontFamily: FIG, fontSize: 22, color: C.ink }}>{usd(justin?.cost_per)}</div>
-            </div>
+        <section className="ax-section" aria-labelledby="ax-forum-vip">
+          <h3 id="ax-forum-vip" className="ax-card__title">Forum VIP</h3>
+          <div className="ax-stats">
+            <Stat label="Spring · leads in" value={spring?.missing ? "Not recorded" : num(spring?.n)}
+                  hint="See who these leads are"
+                  onClick={spring && !spring.missing ? () => onDrill?.(forum, "qualified", spring.label) : undefined} />
+            <Stat label="Justin · guest seats" value={justin?.missing ? "Not recorded" : num(justin?.n)}
+                  hint="See who holds these seats"
+                  onClick={justin && !justin.missing ? () => onDrill?.(forum, "seat", justin.label) : undefined} />
+            <Stat label="Cost / Spring lead" value={usd(spring?.cost_per)} />
+            <Stat label="Cost / seat" value={usd(justin?.cost_per)} />
           </div>
           {spring && justin && !spring.missing && !justin.missing && Number(justin.n) > Number(spring.n) && (
-            <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: "10px 0 0" }}>
+            <p className="ax-meta">
               Guest seats can outnumber Spring&apos;s leads. A seat is a confirmed guest; a lead is someone Spring brought in during this window.
             </p>
           )}
-        </Card>
+        </section>
       )}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <Btn primary={mode === "campaigns"} onClick={() => setMode("campaigns")}>Campaigns</Btn>
-        <Btn primary={mode === "ads"} onClick={() => setMode("ads")}>Ads</Btn>
-        <input aria-label="Filter by name" value={q} placeholder="Filter" onChange={(e) => setQ(e.target.value)}
-               style={{ fontFamily: FONT, fontSize: 13, padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.line}`, color: C.ink, background: C.surface }} />
-        <Btn primary={!brand} onClick={() => setBrand(null)}>All brands</Btn>
-        {(data.groups || []).map((g) => (
-          <Btn key={g.name} primary={brand === g.name} onClick={() => setBrand(g.name)}>{g.name}</Btn>
-        ))}
+      <div className="ax-row" style={{ gap: 12 }}>
+        <Segmented label="Show" value={mode} onChange={setMode}
+                   options={[["campaigns", "Campaigns"], ["ads", "Ads"]]} />
+        <input className="ax-input ax-search" aria-label="Filter by name" value={q}
+               placeholder="Filter by name" onChange={(e) => setQ(e.target.value)} />
+        <Segmented label="Brand" value={brand || ""} onChange={(k) => setBrand(k || null)}
+                   options={brandOptions} />
       </div>
 
-      <Card style={{ padding: 0, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT, fontSize: 13 }}>
-          <thead>
-            <tr>
-              {COLS[mode].map((col) => (
-                <th key={col.key} style={{ textAlign: col.num ? "right" : "left", padding: "10px 12px", color: C.muted, fontWeight: 600, cursor: "pointer" }}
-                    onClick={() => head(col)}>{col.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tableRows.length === 0 && (
-              <tr><td colSpan={COLS[mode].length} style={{ padding: 16 }}><Empty>Nothing matches this filter.</Empty></td></tr>
-            )}
-            {tableRows.map((row) => (
-              <tr key={row.external_id || row.id} onClick={() => setOpen(row)}
-                  style={{ borderTop: `1px solid ${C.line}`, cursor: "pointer", background: open && (open.external_id || open.id) === (row.external_id || row.id) ? C.accentBg : "transparent" }}>
-                {COLS[mode].map((col) => (
-                  <td key={col.key} style={{ padding: "10px 12px", textAlign: col.num ? "right" : "left", fontFamily: col.num ? FIG : FONT, color: C.ink }}>
-                    {cell(row, col.key)}
-                    {col.key === "name" && row.fatigue ? <span style={{ marginLeft: 8, color: C.warnInk, fontFamily: FONT, fontSize: 12 }}>Fatigue</span> : null}
-                  </td>
-                ))}
+      <Card flush>
+        <div className="ax-scroll">
+          <table className="ax-table" style={{ minWidth: 640 }}>
+            <thead>
+              <tr>
+                {COLS[mode].map((col) => {
+                  const on = sort === col.key;
+                  return (
+                    <th key={col.key} className={col.num ? "num" : undefined}
+                        aria-sort={on ? (dir === -1 ? "descending" : "ascending") : undefined}>
+                      <button type="button" className="ax-sort" data-on={on ? "" : undefined}
+                              onClick={() => head(col)}>
+                        {col.label}
+                        <Glyph name={on && dir === 1 ? "up" : "down"} size={12} />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tableRows.length === 0 && (
+                <tr><td colSpan={COLS[mode].length}><Empty>Nothing matches this filter.</Empty></td></tr>
+              )}
+              {tableRows.map((row) => {
+                const on = openKey === (row.external_id || row.id);
+                return (
+                  <tr key={row.external_id || row.id} className={`is-link${on ? " is-on" : ""}`}
+                      tabIndex={0} onClick={() => setOpen(row)} onKeyDown={rowKeys(() => setOpen(row))}>
+                    {COLS[mode].map((col) => (
+                      <td key={col.key}
+                          className={col.num ? "num" : col.key === "name" ? "ax-strong" : "ax-soft"}>
+                        {cell(row, col.key)}
+                        {col.key === "name" && row.fatigue ? <span className="ax-tag">Fatigue</span> : null}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {open && (
@@ -171,10 +172,6 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
     </div>
   );
 }
-
-const linkBtn = {
-  background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer",
-};
 
 function blankWhy(label, value, row) {
   if (value != null && value !== "") return null;
@@ -225,45 +222,44 @@ function RowActions({ row, level, data }) {
     }
   }
 
+  const blanks = [blankWhy("Daily budget", row.daily_budget, row), blankWhy("Frequency", row.frequency, row)].filter(Boolean);
+
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      {row.thumbnail_url && (
-        <img src={row.thumbnail_url} alt="" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8 }} />
-      )}
-      <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{row.group || row.headline || "Ad"}</p>
-      <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontFamily: FONT, fontSize: 13, margin: 0 }}>
-        <div><dt style={{ color: C.muted }}>Spend</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.spend)}</dd></div>
-        <div><dt style={{ color: C.muted }}>Leads</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{num(row.leads)}</dd></div>
-        <div><dt style={{ color: C.muted }}>Seats</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{row.seats == null ? "—" : num(row.seats)}</dd></div>
-        <div><dt style={{ color: C.muted }}>CTR</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{pct(row.ctr)}</dd></div>
-        <div><dt style={{ color: C.muted }}>Daily budget</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(row.daily_budget)}</dd></div>
-        <div><dt style={{ color: C.muted }}>Frequency</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{row.frequency == null ? "—" : Number(row.frequency).toFixed(2)}</dd></div>
+    <div className="ax-stack">
+      {row.thumbnail_url && <img className="ax-thumb" src={row.thumbnail_url} alt="" />}
+      <p className="ax-meta">{row.group || row.headline || "Ad"}</p>
+      <dl className="ax-dl">
+        <div><dt>Spend</dt><dd>{usd(row.spend)}</dd></div>
+        <div><dt>Leads</dt><dd>{num(row.leads)}</dd></div>
+        <div><dt>Seats</dt><dd>{row.seats == null ? "—" : num(row.seats)}</dd></div>
+        <div><dt>CTR</dt><dd>{pct(row.ctr)}</dd></div>
+        <div><dt>Daily budget</dt><dd>{usd(row.daily_budget)}</dd></div>
+        <div><dt>Frequency</dt><dd>{row.frequency == null ? "—" : Number(row.frequency).toFixed(2)}</dd></div>
+        {row.status && <div><dt>Status</dt><dd style={{ fontFamily: "var(--font-text)" }}>{sentenceStatus(row.status)}</dd></div>}
       </dl>
-      {blankWhy("Daily budget", row.daily_budget, row) && <p style={{ fontFamily: FONT, fontSize: 12, color: C.muted, margin: 0 }}>{blankWhy("Daily budget", row.daily_budget, row)}</p>}
-      {blankWhy("Frequency", row.frequency, row) && <p style={{ fontFamily: FONT, fontSize: 12, color: C.muted, margin: 0 }}>{blankWhy("Frequency", row.frequency, row)}</p>}
-      {row.status && <p style={{ fontFamily: FONT, fontSize: 13, margin: 0 }}>Status {sentenceStatus(row.status)}</p>}
+      {blanks.map((line) => <p key={line} className="ax-meta">{line}</p>)}
       {(row.people || []).length > 0 && (
         <div>
-          <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>People</div>
+          <div className="ax-label">People</div>
           {row.people.map((p) => (
-            <div key={p.email || p.name} style={{ fontFamily: FONT, fontSize: 13, color: C.ink }}>{p.name}</div>
+            <div key={p.email || p.name} className="ax-text" style={{ color: C.ink }}>{p.name}</div>
           ))}
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="ax-row">
         <Btn disabled={busy} onClick={() => send(paused ? "activate" : "pause")}>{paused ? "Turn on" : "Pause"}</Btn>
         <Btn disabled={busy} onClick={() => send("duplicate")}>Duplicate</Btn>
       </div>
       {level === "campaign" && (
-        <label style={{ display: "grid", gap: 6, fontFamily: FONT, fontSize: 13, color: C.slate }}>
-          Daily budget
-          <span style={{ display: "flex", gap: 8 }}>
-            <input aria-label="Daily budget" value={budget} onChange={(e) => setBudget(e.target.value)} style={{ ...inputStyle, width: 120 }} />
+        <div style={{ display: "grid", gap: 6 }}>
+          <span className="ax-label">Daily budget</span>
+          <span className="ax-row">
+            <MoneyInput label="Daily budget" value={budget} onChange={(e) => setBudget(e.target.value)} />
             <Btn disabled={busy || budget === "" || budget == null} onClick={() => send("set_daily_budget", { daily_budget: Number(budget) })}>Save budget</Btn>
           </span>
-        </label>
+        </div>
       )}
-      {note && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{note}</p>}
+      {note && <p className="ax-text">{note}</p>}
     </div>
   );
 }

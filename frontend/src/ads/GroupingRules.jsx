@@ -19,30 +19,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_BASE, getJSON, patchJSON, postJSON } from "../api";
-import { C, FIG, FONT, HEAD, usd } from "./adsTokens.js";
+import { C, usd } from "./adsTokens.js";
 import { sampleAdsGrouping } from "./sampleAds.js";
+import { Glyph } from "./ui.jsx";
 
 const BLANK = { match: "prefix", value: "", label: "", split: false };
 
-function Btn({ onClick, children, tone, disabled, title }) {
-  const accent = tone === "primary";
+/* The module's own button, so Save here is the same filled button as Save everywhere else in
+   the tab rather than a second, teal one. `glyph` makes it a square icon button. */
+function Btn({ onClick, children, tone, disabled, title, glyph }) {
+  const cls = `ax-btn${tone === "primary" ? " ax-btn--primary" : ""}${glyph ? " ax-btn--icon" : ""}`;
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={title}
-            style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, borderRadius: 8,
-                     padding: "6px 11px", cursor: disabled ? "not-allowed" : "pointer",
-                     opacity: disabled ? 0.5 : 1,
-                     color: accent ? C.onDark : C.ink,
-                     background: accent ? C.accent : C.surface,
-                     border: `1px solid ${accent ? C.accent : C.line}` }}>
-      {children}
+    <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}
+            aria-label={glyph ? title : undefined}>
+      {glyph ? <Glyph name={glyph} /> : children}
     </button>
   );
 }
-
-const inputStyle = {
-  fontFamily: FONT, fontSize: 13, color: C.ink, background: C.surface,
-  border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px", minWidth: 0, width: "100%",
-};
 
 function RuleRow({ rule, index, count, onChange, onRemove, onMove }) {
   const set = (patch) => onChange({ ...rule, ...patch });
@@ -55,18 +48,18 @@ function RuleRow({ rule, index, count, onChange, onRemove, onMove }) {
          style={{ padding: "8px 0",
                   borderTop: index === 0 ? "none" : `1px solid ${C.line}` }}>
       <select value={rule.match} onChange={(e) => set({ match: e.target.value })}
-              aria-label={`Rule ${index + 1} match type`} style={inputStyle}>
+              aria-label={`Rule ${index + 1} match type`} className="ax-input">
         <option value="prefix">starts with</option>
         <option value="contains">contains</option>
       </select>
 
       <input value={rule.value || ""} onChange={(e) => set({ value: e.target.value })}
              placeholder="KB - " aria-label={`Rule ${index + 1} text to match`}
-             style={{ ...inputStyle, fontFamily: FIG }} />
+             className="ax-input ax-num" />
 
       <input value={rule.label || ""} onChange={(e) => set({ label: e.target.value })}
              placeholder="Group name" aria-label={`Rule ${index + 1} group name`}
-             style={inputStyle} />
+             className="ax-input" />
 
       {/* Only meaningful for a prefix. `split` puts the token AFTER the prefix into the label,
           so one rule yields "KB · The Shift" and "KB · Upgrade" instead of collapsing every KB
@@ -74,20 +67,20 @@ function RuleRow({ rule, index, count, onChange, onRemove, onMove }) {
       <label title={rule.match === "prefix"
         ? "Add the next word to the group name, so one rule can produce several groups"
         : "Only applies to a starts-with rule"}
-             style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: FONT,
-                      fontSize: 12, color: rule.match === "prefix" ? C.slate : C.muted,
-                      whiteSpace: "nowrap" }}>
+             className="ax-meta"
+             style={{ display: "flex", alignItems: "center", gap: 6,
+                      color: rule.match === "prefix" ? C.slate : C.muted, whiteSpace: "nowrap" }}>
         <input type="checkbox" checked={!!rule.split} disabled={rule.match !== "prefix"}
                onChange={(e) => set({ split: e.target.checked })} />
         split
       </label>
 
       <span style={{ display: "flex", gap: 4 }}>
-        <Btn onClick={() => onMove(index, -1)} disabled={index === 0}
-             title="Earlier — the first matching rule wins">↑</Btn>
-        <Btn onClick={() => onMove(index, 1)} disabled={index === count - 1}
-             title="Later">↓</Btn>
-        <Btn onClick={() => onRemove(index)} title="Remove this rule">✕</Btn>
+        <Btn onClick={() => onMove(index, -1)} disabled={index === 0} glyph="up"
+             title="Move up: the first matching rule wins" />
+        <Btn onClick={() => onMove(index, 1)} disabled={index === count - 1} glyph="down"
+             title="Move down" />
+        <Btn onClick={() => onRemove(index)} glyph="close" title="Remove this rule" />
       </span>
     </div>
   );
@@ -215,8 +208,6 @@ export default function GroupingRules({ account, onSaved }) {
            content-box, so each field overflowed its own grid cell - 132px of input in a 113px
            column at 375px. There is no global border-box reset in this app to fall back on. */
         .ads-rule select, .ads-rule input { box-sizing: border-box; max-width: 100%; }
-        .ads-rule select:focus-visible, .ads-rule input:focus-visible {
-          outline: 2px solid ${C.accent}; outline-offset: 1px; }
         @media (max-width: 720px) {
           /* Two columns, and the match/value pair keeps the top row: a rule is unreadable
              without the text it matches on. */
@@ -226,32 +217,27 @@ export default function GroupingRules({ account, onSaved }) {
         }
       `}</style>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-                    marginTop: 12 }}>
+      <div className="ax-row" style={{ gap: 12 }}>
         <Btn onClick={() => setOpen((o) => !o)}>
           {open ? "Close grouping rules" : "Edit grouping rules"}
         </Btn>
-        <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted }}>
+        <span className="ax-meta">
           {usingDefaults ? "Using the built-in rules." : "Using this workspace's own rules."}
           {unmatched > 0 && ` ${unmatched} campaign${unmatched === 1 ? "" : "s"} in Other.`}
         </span>
       </div>
 
       {open && (
-        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
-                      padding: 16, marginTop: 10 }}>
+        <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16, marginTop: 16 }}>
           {!canEdit && (
-            <p style={{ fontFamily: FONT, fontSize: 12, color: C.muted, margin: "0 0 12px" }}>
+            <p className="ax-meta" style={{ margin: "0 0 12px" }}>
               You can see how campaigns are grouped. Changing the rules moves revenue between
               business lines, so it needs an owner or admin.
             </p>
           )}
 
-          <div style={{ fontFamily: HEAD, fontSize: 13, fontWeight: 600, color: C.ink }}>
-            Rules
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: 12, color: C.slate, margin: "4px 0 8px",
-                      lineHeight: 1.5 }}>
+          <h4 className="ax-label" style={{ margin: 0, color: C.ink, fontWeight: 600 }}>Rules</h4>
+          <p className="ax-meta" style={{ margin: "4px 0 8px" }}>
             Checked top to bottom; the first one that matches wins. Anything matching nothing
             falls to Other, which is counted rather than hidden.
           </p>
@@ -263,7 +249,7 @@ export default function GroupingRules({ account, onSaved }) {
                      onMove={move} />
           ))}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          <div className="ax-row" style={{ marginTop: 12 }}>
             <Btn onClick={() => setRules((rs) => [...rs, { ...BLANK }])}>Add a rule</Btn>
             {canEdit && API_BASE && (
               <>
@@ -278,30 +264,28 @@ export default function GroupingRules({ account, onSaved }) {
           </div>
 
           {problems.length > 0 && (
-            <ul style={{ fontFamily: FONT, fontSize: 12, color: C.badInk, margin: "10px 0 0",
-                         paddingLeft: 18, lineHeight: 1.5 }}>
+            <ul className="ax-meta" style={{ color: C.badInk, margin: "10px 0 0", paddingLeft: 18 }}>
               {problems.map((p) => <li key={p}>{p}</li>)}
             </ul>
           )}
           {error && (
-            <div style={{ fontFamily: FONT, fontSize: 12, color: C.badInk, marginTop: 10 }}>
+            <div className="ax-meta" style={{ color: C.badInk, marginTop: 10 }}>
               {error}
             </div>
           )}
 
-          <div style={{ fontFamily: HEAD, fontSize: 13, fontWeight: 600, color: C.ink,
-                        marginTop: 18 }}>
+          <h4 className="ax-label" style={{ margin: "24px 0 0", color: C.ink, fontWeight: 600 }}>
             What this would do
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: 12, color: C.slate, margin: "4px 0 10px" }}>
+          </h4>
+          <p className="ax-meta" style={{ margin: "4px 0 12px" }}>
             Live, and not saved until you press Save.
           </p>
 
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
             {ordered.map(([g, v]) => (
               <span key={g}
-                    style={{ fontFamily: FONT, fontSize: 12, borderRadius: 999,
-                             padding: "3px 10px",
+                    className="ax-meta"
+                    style={{ borderRadius: 999, padding: "2px 10px",
                              color: g === "Other" ? C.warnInk : C.slate,
                              background: g === "Other" ? C.warnBg : C.surface2,
                              border: `1px solid ${g === "Other" ? C.warnBar : C.line}` }}>
@@ -316,15 +300,14 @@ export default function GroupingRules({ account, onSaved }) {
                    style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 90px",
                             gap: 10, alignItems: "baseline", padding: "6px 0",
                             borderTop: `1px solid ${C.line}` }}>
-                <span title={c.name}
-                      style={{ fontFamily: FONT, fontSize: 12, color: C.ink, overflow: "hidden",
+                <span title={c.name} className="ax-meta"
+                      style={{ color: C.ink, overflow: "hidden",
                                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                <span style={{ fontFamily: FONT, fontSize: 12,
-                               color: c.group === "Other" ? C.warnInk : C.slate,
+                <span className="ax-meta"
+                      style={{ color: c.group === "Other" ? C.warnInk : C.slate,
                                overflow: "hidden", textOverflow: "ellipsis",
                                whiteSpace: "nowrap" }}>{c.group}</span>
-                <span style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 12,
-                               color: C.muted, textAlign: "right" }}>{usd(c.spend)}</span>
+                <span className="ax-meta ax-num" style={{ color: C.slate, textAlign: "right" }}>{usd(c.spend)}</span>
               </div>
             ))}
           </div>

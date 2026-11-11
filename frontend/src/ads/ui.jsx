@@ -1,8 +1,10 @@
 /* Ads screen primitives. One accent, one type scale, scoped to this module.
-   Colours come from adsTokens so a rebrand still has a single place to move. */
-import { useEffect } from "react";
+   Colours come from adsTokens so a rebrand still has a single place to move. The look lives in
+   screenStyles.js as classes, because hover, press, focus and reduced motion cannot be written
+   as inline styles. */
+import { useEffect, useRef } from "react";
 
-import { C, FIG, FONT, HEAD } from "./adsTokens.js";
+import { C } from "./adsTokens.js";
 
 export const SCREENS = [
   { id: "today", label: "Today" },
@@ -38,64 +40,108 @@ export function tone(status, open) {
   };
 }
 
-export function PageTitle({ kicker, title, lede, children }) {
+/* Interface glyphs, drawn the way brand/productIcons.jsx draws a module mark: a 32 artboard,
+   2.6 stroke, butt caps. One set for the whole tab, so a chevron, a sort arrow and a close mark
+   read as one family with the Ads mark beside the title. They take the text colour. */
+const GLYPHS = {
+  chevron: "M9 13 L16 20 L23 13",
+  arrow: "M7 16 H24 M17 9 L24 16 L17 23",
+  close: "M9 9 L23 23 M23 9 L9 23",
+  up: "M16 25 V8 M9 15 L16 8 L23 15",
+  down: "M16 7 V24 M9 17 L16 24 L23 17",
+};
+
+export function Glyph({ name, size = 16 }) {
   return (
-    <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
-      <div>
-        {kicker && <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>{kicker}</div>}
-        <h2 style={{ fontFamily: HEAD, fontSize: 22, fontWeight: 600, color: C.ink, margin: "4px 0 0" }}>{title}</h2>
-        {lede && <p style={{ fontFamily: FONT, fontSize: 14, color: C.slate, margin: "6px 0 0", maxWidth: 640, lineHeight: 1.5 }}>{lede}</p>}
-      </div>
-      {children}
-    </header>
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" stroke="currentColor"
+         strokeWidth={2.6} strokeLinecap="butt" strokeLinejoin="miter" aria-hidden="true"
+         focusable="false" style={{ flex: "none" }}>
+      <path d={GLYPHS[name] || GLYPHS.arrow} />
+    </svg>
   );
 }
 
-export function Card({ children, style }) {
+/* Every screen names itself for a screen reader. The tab bar right above already shows the
+   name, so printing it again as a heading only pushed the screen's content down. */
+export function PageTitle({ title }) {
+  return <h2 className="ax-sr">{title}</h2>;
+}
+
+export function Card({ title, meta, foot, flush, id, children, style }) {
   return (
-    <section style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, ...style }}>
+    <section id={id} className={`ax-card${flush ? " ax-card--flush" : ""}`} style={style}>
+      {(title || meta) && (
+        <div className="ax-card__head">
+          {title && <h3 className="ax-card__title">{title}</h3>}
+          {meta && <span className="ax-meta">{meta}</span>}
+        </div>
+      )}
       {children}
+      {foot && <div className="ax-card__foot">{foot}</div>}
     </section>
   );
 }
 
-export function Btn({ children, onClick, disabled, primary, title }) {
+/* A headline figure. With onClick it is a button that lifts and shows where it goes; without,
+   it is a card that stays still. */
+export function Stat({ label, value, note, color, onClick, hint }) {
+  const body = (
+    <>
+      <span className="ax-label">{label}</span>
+      <span className="ax-fig" style={color ? { color } : undefined}>{value}</span>
+      {note && <span className="ax-stat__note">{note}</span>}
+    </>
+  );
+  if (!onClick) return <div className="ax-card ax-stat">{body}</div>;
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={title}
-            style={{
-              fontFamily: FONT, fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "7px 12px",
-              cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1,
-              border: `1px solid ${primary ? C.evergreen : C.line}`,
-              background: primary ? C.evergreen : C.surface,
-              color: primary ? C.onDark : C.ink,
-            }}>
+    <button type="button" className="ax-card ax-stat ax-lift" onClick={onClick} title={hint}>
+      {body}
+      <span className="ax-stat__go"><Glyph name="arrow" /></span>
+    </button>
+  );
+}
+
+export function Btn({ children, onClick, disabled, primary, title, label, icon }) {
+  const cls = `ax-btn${primary ? " ax-btn--primary" : ""}${icon ? " ax-btn--icon" : ""}`;
+  return (
+    <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}
+            aria-label={label}>
       {children}
     </button>
   );
 }
 
-export function Banner({ title, children, tone: kind }) {
-  const bad = kind === "bad";
+/* Two to six choices, one of them on. The shell's period switch, so a filter here looks like a
+   filter there and never like the primary action. */
+export function Segmented({ label, options, value, onChange }) {
   return (
-    <div style={{
-      background: bad ? C.badBg : C.goodBg, border: `1px solid ${bad ? C.badBar : C.goodBar}`,
-      borderRadius: 12, padding: "12px 14px",
-    }}>
-      <div style={{ fontFamily: HEAD, fontSize: 15, fontWeight: 600, color: C.ink }}>{title}</div>
-      {children && <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 6, lineHeight: 1.5 }}>{children}</div>}
+    <div className="ax-seg" role="radiogroup" aria-label={label}>
+      {options.map(([key, text]) => (
+        <button key={key} type="button" role="radio" aria-checked={value === key}
+                onClick={() => onChange(key)}>{text}</button>
+      ))}
+    </div>
+  );
+}
+
+export function Banner({ title, children, tone: kind }) {
+  return (
+    <div className="ax-note" data-tone={kind === "bad" ? "bad" : "warn"} role="status">
+      <div className="ax-note__title">{title}</div>
+      {children && <div className="ax-note__body">{children}</div>}
     </div>
   );
 }
 
 export function Empty({ children }) {
-  return <p style={{ fontFamily: FONT, fontSize: 14, color: C.muted, margin: 0 }}>{children}</p>;
+  return <p className="ax-text" style={{ color: C.quiet }}>{children}</p>;
 }
 
 export function ErrorNote({ children, onRetry }) {
   return (
-    <p style={{ fontFamily: FONT, fontSize: 13, color: C.badInk, margin: 0 }}>
+    <p className="ax-text" style={{ color: C.badInk }}>
       {children}{" "}
-      {onRetry && <button type="button" onClick={onRetry} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", font: "inherit", padding: 0 }}>Try again</button>}
+      {onRetry && <button type="button" className="ax-link" onClick={onRetry}>Try again</button>}
     </p>
   );
 }
@@ -105,15 +151,10 @@ export function PaceBar({ pace }) {
   const width = pace.pace == null ? 0 : Math.max(4, Math.min(100, pace.pace > 100 ? 100 : pace.pace));
   const label = pace.status === "behind" ? "Behind" : pace.status === "ahead" ? "Ahead" : pace.status === "on" ? "On pace" : "No weekly plan";
   return (
-    <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-        <div style={{ fontFamily: HEAD, fontSize: 16, fontWeight: 600, color: C.ink }}>Weekly Pace</div>
-        <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: t.ink }}>{label}{pace.open ? " · this week is still open" : ""}</div>
-      </div>
-      <div style={{ marginTop: 12, height: 10, borderRadius: 999, background: C.surface2, overflow: "hidden" }}>
-        <div style={{ width: `${width}%`, height: "100%", background: t.bar, borderRadius: 999 }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: FIG, fontSize: 13, color: C.slate }}>
+    <Card title="Weekly Pace"
+          meta={<span style={{ color: t.ink, fontWeight: 600 }}>{label}{pace.open ? " · this week is still open" : ""}</span>}>
+      <div className="ax-bar"><i style={{ width: `${width}%`, background: t.bar }} /></div>
+      <div className="ax-spread ax-num ax-meta" style={{ marginTop: 8, color: C.slate }}>
         <span>{pace.plan ? `$${Math.round(pace.spend).toLocaleString()} spent` : "Set a weekly plan on Budget"}</span>
         <span>{pace.expected ? `$${Math.round(pace.expected).toLocaleString()} of the plan for these ${pace.days} days` : ""}</span>
       </div>
@@ -121,7 +162,10 @@ export function PaceBar({ pace }) {
   );
 }
 
+/* The side panel. It takes the focus when it opens and hands it back when it closes, so a
+   keyboard user lands in it and returns to the row they came from. */
 export function Drawer({ title, onClose, children }) {
+  const closeRef = useRef(null);
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape") onClose?.();
@@ -129,28 +173,55 @@ export function Drawer({ title, onClose, children }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  useEffect(() => {
+    const from = document.activeElement;
+    closeRef.current?.focus({ preventScroll: true });
+    return () => { if (from && from.isConnected) from.focus?.({ preventScroll: true }); };
+  }, []);
   return (
-    <aside style={{
-      position: "fixed", top: 0, right: 0, bottom: 0, width: "min(420px, 100%)",
-      background: C.surface, borderLeft: `1px solid ${C.line}`, zIndex: 40,
-      padding: 20, overflow: "auto", boxShadow: "0 0 40px rgba(0,0,0,.08)",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <h3 style={{ fontFamily: HEAD, fontSize: 18, margin: 0, color: C.ink }}>{title}</h3>
-        <Btn onClick={onClose}>Close</Btn>
+    <aside className="ax-drawer" role="dialog" aria-labelledby="ax-drawer-title">
+      <div className="ax-drawer__head">
+        <h2 id="ax-drawer-title" className="ax-drawer__title">{title}</h2>
+        <button ref={closeRef} type="button" className="ax-btn ax-btn--icon" onClick={onClose}
+                aria-label="Close" title="Close">
+          <Glyph name="close" />
+        </button>
       </div>
-      <div style={{ marginTop: 16 }}>{children}</div>
+      {children}
     </aside>
   );
 }
 
 export function Field({ label, children }) {
   return (
-    <label style={{ display: "grid", gap: 4, fontFamily: FONT, fontSize: 13, color: C.ink }}>
-      <span style={{ fontWeight: 600, color: C.slate }}>{label}</span>
+    <label style={{ display: "grid", gap: 6 }}>
+      <span className="ax-label">{label}</span>
       {children}
     </label>
   );
+}
+
+/* A dollar amount typed by hand. The $ is drawn beside the field, never typed into it, so the
+   value saved is still the bare number it always was. */
+export function MoneyInput({ value, onChange, label }) {
+  return (
+    <span className="ax-money">
+      <span aria-hidden="true">$</span>
+      <input className="ax-input" inputMode="decimal" aria-label={label} value={value}
+             onChange={onChange} />
+    </span>
+  );
+}
+
+/* Keyboard access for a clickable table row: Enter or Space does what a click does. */
+export function rowKeys(open) {
+  return (e) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open();
+    }
+  };
 }
 
 export function sentenceStatus(status) {
@@ -184,8 +255,3 @@ export function foldRows(rows) {
   }
   return groups;
 }
-
-export const inputStyle = {
-  fontFamily: FIG, fontSize: 14, padding: "7px 8px", borderRadius: 8,
-  border: `1px solid ${C.line}`, color: C.ink, background: C.surface, width: 120,
-};

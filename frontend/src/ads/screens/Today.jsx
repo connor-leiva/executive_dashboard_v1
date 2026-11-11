@@ -1,28 +1,23 @@
 import { useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
-import { C, FIG, FONT, num, usd } from "../adsTokens.js";
-import { Banner, Btn, Card, Drawer, Empty, foldRows, sentenceStatus, tone, weeklyPace } from "../ui.jsx";
+import { C, num, usd } from "../adsTokens.js";
+import {
+  Banner, Btn, Card, Drawer, Empty, Glyph, PageTitle, Stat, foldRows, sentenceStatus, tone, weeklyPace,
+} from "../ui.jsx";
 
 const VERDICT = { kill: "Turn off", keep: "Keep", scale: "Scale" };
-
-function Stat({ label, value, valueColor }) {
-  return (
-    <Card style={{ padding: 14 }}>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</div>
-      <div style={{ fontFamily: FIG, fontSize: 26, color: valueColor || C.ink, marginTop: 6 }}>{value}</div>
-    </Card>
-  );
-}
 
 function keepLine(rows) {
   const below = rows.filter((r) => r.metric === "delivery").length;
   const inside = rows.length - below;
   const bits = [];
   if (inside) bits.push("numbers are inside the bands");
-  if (below) bits.push("below the $25 / 1,000-impression minimum");
+  if (below) bits.push("below the minimum of $25 spent and 1,000 impressions");
   return bits.join(", or ") || "nothing to change";
 }
+
+const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function Today({ data, onSaved, onBudget }) {
   const writes = data.writes || {};
@@ -77,70 +72,84 @@ export default function Today({ data, onSaved, onBudget }) {
       : null;
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+    <div className="ax-stack">
+      <PageTitle title="Today" />
+      <div className="ax-stats">
         <Stat label="Spent" value={usd(pace.spend)} />
         <Stat label="Spring leads" value={spring?.missing ? "Not recorded" : num(spring?.n)} />
         <Stat label="Cost / Spring lead" value={usd(spring?.cost_per)} />
-        <Stat label="Pace" value={paceWord} valueColor={paceTone.ink} />
+        <Stat label="Pace" value={paceWord} color={paceTone.ink} />
       </div>
 
       <WeekPace data={data} onBudget={onBudget} />
 
       {!writes.can_write && (
-        <Banner title="Reconnect Meta to enable changes" tone="bad">
+        <Banner title="Reconnect Meta to enable changes">
           Approve previews the change until the token includes ads_management.
         </Banner>
       )}
-      {writes.killed && <Banner title="Ad changes are stopped" tone="bad">The kill switch is on. Approve stays a preview.</Banner>}
+      {writes.killed && <Banner title="Ad changes are stopped">The kill switch is on. Approve stays a preview.</Banner>}
 
-      <div style={{
-        position: "sticky", top: 0, zIndex: 5, background: C.bg,
-        display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 0",
-      }}>
+      <div className="ax-actionbar">
         <Btn primary disabled={busy || !!blocked} title={blocked || "Approve sends this change to Meta."}
              onClick={() => apply(selected, false)}>Approve selected</Btn>
         <Btn disabled={busy || !selected.length} onClick={() => apply(selected, true)}>Preview</Btn>
         <Btn disabled={!selected.length} onClick={() => setPicked({})}>Skip</Btn>
-        <span style={{ fontFamily: FONT, fontSize: 13, color: blocked ? C.slate : C.muted }}>
+        <span className="ax-meta" style={blocked ? { color: C.slate } : undefined}>
           {blocked || "Approve sends this change to Meta."}
         </span>
       </div>
 
-      <Card>
-        {folded.length === 0 && <Empty>Nothing to turn off or scale in this window.</Empty>}
-        {folded.map((bucket) => (
-          <DecisionGroup key={bucket.key} bucket={bucket} picked={picked} setPicked={setPicked}
-                         openKey={openKey} setOpenKey={setOpenKey} keeps={keeps} />
-        ))}
-        {keeps.length > 0 && (
-          <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12, marginTop: 8 }}>
-            <button type="button" onClick={() => setShowKeeps((v) => !v)}
-                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: FONT, fontSize: 14, color: C.ink }}>
-              {keeps.length} {keeps.length === 1 ? "ad" : "ads"} to keep: {keepLine(keeps)}. {showKeeps ? "Hide the list." : "Show the list."}
-            </button>
-            {showKeeps && keeps.map((item) => (
-              <RowBody key={`${item.level}:${item.external_id}`} item={item} keeps={decisions}
+      <Card flush>
+        <div className="ax-list-rows">
+          {folded.length === 0 && <div className="ax-empty"><Empty>Nothing to turn off or scale in this window.</Empty></div>}
+          {folded.map((bucket) => (
+            <DecisionGroup key={bucket.key} bucket={bucket} picked={picked} setPicked={setPicked}
+                           openKey={openKey} setOpenKey={setOpenKey} keeps={keeps} />
+          ))}
+          {keeps.length > 0 && (
+            <div className="ax-dec">
+              <button type="button" className="ax-dec__head" aria-expanded={showKeeps}
+                      onClick={() => setShowKeeps((v) => !v)}>
+                <Glyph name="chevron" />
+                <span className="ax-verdict" data-v="keep">Keep</span>
+                <span>
+                  <span className="ax-dec__name">
+                    {keeps.length} {keeps.length === 1 ? "ad" : "ads"} to keep
+                  </span>
+                  <span className="ax-dec__line" style={{ display: "block" }}>{capital(keepLine(keeps))}.</span>
+                </span>
+                <span className="ax-dec__more">{showKeeps ? "Hide list" : "Show list"}</span>
+              </button>
+            </div>
+          )}
+          {showKeeps && keeps.map((item) => (
+            <div key={`${item.level}:${item.external_id}`}
+                 className={`ax-dec ax-dec--nested${openKey === `${item.level}:${item.external_id}` ? " is-on" : ""}`}>
+              <span />
+              <RowBody item={item} keeps={decisions}
                        selected={openKey === `${item.level}:${item.external_id}`}
                        onOpen={() => setOpenKey(`${item.level}:${item.external_id}`)} />
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </Card>
 
-      {error && <p style={{ fontFamily: FONT, fontSize: 13, color: C.badInk, margin: 0 }}>{error}</p>}
+      {error && <p className="ax-text" style={{ color: C.badInk }}>{error}</p>}
       {result && (
         <Card>
-          {result.message && <p style={{ fontFamily: FONT, fontSize: 13, color: C.ink, marginTop: 0 }}>{result.message}</p>}
-          {(result.results || []).map((r, i) => (
-            <p key={i} style={{ fontFamily: FONT, fontSize: 13, color: r.meta_error ? C.badInk : C.slate, margin: "4px 0" }}>
-              {r.name || r.external_id}: {r.dry_run ? "Preview" : "Applied"}. {r.validation_note || ""} {r.meta_error || ""}
-            </p>
-          ))}
+          <div className="ax-stack" style={{ gap: 4 }}>
+            {result.message && <p className="ax-text" style={{ color: C.ink, fontWeight: 600 }}>{result.message}</p>}
+            {(result.results || []).map((r, i) => (
+              <p key={i} className="ax-text" style={{ color: r.meta_error ? C.badInk : C.slate }}>
+                {r.name || r.external_id}: {r.dry_run ? "Preview" : "Applied"}. {r.validation_note || ""} {r.meta_error || ""}
+              </p>
+            ))}
+          </div>
         </Card>
       )}
       {data.digest && (
-        <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>
+        <p className="ax-meta">
           {data.digest.attendance?.attended != null
             ? `Edge webinar: ${data.digest.attendance.attended} attended.`
             : "Edge webinar attendance is not recorded yet."}
@@ -149,24 +158,29 @@ export default function Today({ data, onSaved, onBudget }) {
 
       {open && (
         <Drawer title={open.name} onClose={() => setOpenKey(null)}>
-          <p style={{ fontFamily: FONT, fontSize: 14, color: C.ink, marginTop: 0 }}>{open.reason}</p>
-          <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate }}>
-            {[open.campaign, open.adset].filter(Boolean).join(" · ") || open.group}
-          </p>
-          <dl style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontFamily: FONT, fontSize: 13 }}>
-            <div><dt style={{ color: C.muted }}>Spend</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{usd(open.spend)}</dd></div>
-            <div><dt style={{ color: C.muted }}>Leads</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{num(open.leads)}</dd></div>
-            <div><dt style={{ color: C.muted }}>Seats</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{open.seats == null ? "—" : num(open.seats)}</dd></div>
-            <div><dt style={{ color: C.muted }}>Status</dt><dd style={{ fontFamily: FIG, margin: 0 }}>{sentenceStatus(open.status) || "—"}</dd></div>
+          <div className="ax-stack" style={{ gap: 4 }}>
+            <span className="ax-verdict" data-v={open.verdict}>{VERDICT[open.verdict] || open.verdict}</span>
+            <p className="ax-text" style={{ color: C.ink }}>{open.reason}</p>
+            <p className="ax-meta">
+              {[open.campaign, open.adset].filter(Boolean).join(" · ") || open.group}
+            </p>
+          </div>
+          <dl className="ax-dl">
+            <div><dt>Spend</dt><dd>{usd(open.spend)}</dd></div>
+            <div><dt>Leads</dt><dd>{num(open.leads)}</dd></div>
+            <div><dt>Seats</dt><dd>{open.seats == null ? "—" : num(open.seats)}</dd></div>
+            <div><dt>Status</dt><dd style={{ fontFamily: "var(--font-text)" }}>{sentenceStatus(open.status) || "—"}</dd></div>
           </dl>
           {sameNameKept.length > 0 && (
-            <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate }}>
+            <p className="ax-text">
               Another row uses this same name as Keep
               {sameNameKept.map((k) => ` at ${usd(k.spend)} (${k.metric === "delivery" ? "below the minimum" : "inside the bands"})`).join("; ")}.
               This one is {VERDICT[open.verdict]} at {usd(open.spend)}.
             </p>
           )}
-          <Btn disabled={busy || !open.action} onClick={() => apply([open], true)}>Preview</Btn>
+          <div className="ax-row">
+            <Btn disabled={busy || !open.action} onClick={() => apply([open], true)}>Preview</Btn>
+          </div>
         </Drawer>
       )}
     </div>
@@ -178,30 +192,29 @@ function WeekPace({ data, onBudget }) {
   const brands = (week?.brands || []).filter((b) => b.plan);
   if (!week?.has_plan && brands.length === 0) {
     return (
-      <Card>
-        <p style={{ fontFamily: FONT, fontSize: 14, color: C.ink, margin: 0 }}>No weekly plan yet.</p>
-        <div style={{ marginTop: 10 }}>
-          <Btn primary onClick={onBudget}>Set this week&apos;s plan</Btn>
+      <Card title="Weekly pace">
+        <div className="ax-spread">
+          <p className="ax-text">No weekly plan yet.</p>
+          <Btn onClick={onBudget}>Set this week&apos;s plan</Btn>
         </div>
       </Card>
     );
   }
   return (
-    <Card>
-      <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 10 }}>Weekly pace</div>
-      <div style={{ display: "grid", gap: 10 }}>
+    <Card title="Weekly pace">
+      <div className="ax-pace">
         {brands.map((b) => {
           const pct = b.plan ? (b.spend / b.plan) * 100 : 0;
           const status = pct < 90 ? "behind" : pct > 110 ? "ahead" : "on";
           const t = tone(status, true);
           return (
             <div key={b.name}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT, fontSize: 13, color: C.ink }}>
+              <div className="ax-pace__head">
                 <span>{b.name}</span>
-                <span style={{ color: t.ink }}>{usd(b.spend)} of {usd(b.plan)} · {Math.round(pct)}%</span>
+                <span className="ax-num" style={{ color: t.ink }}>{usd(b.spend)} of {usd(b.plan)} · {Math.round(pct)}%</span>
               </div>
-              <div style={{ marginTop: 4, height: 8, borderRadius: 999, background: C.surface2 }}>
-                <div style={{ width: `${Math.max(4, Math.min(100, pct))}%`, height: "100%", borderRadius: 999, background: t.bar }} />
+              <div className="ax-bar">
+                <i style={{ width: `${Math.max(4, Math.min(100, pct))}%`, background: t.bar }} />
               </div>
             </div>
           );
@@ -222,19 +235,24 @@ function DecisionGroup({ bucket, picked, setPicked, openKey, setOpenKey, keeps }
     );
   }
   return (
-    <div style={{ borderTop: `1px solid ${C.line}` }}>
-      <button type="button" onClick={() => setOpen((v) => !v)}
-              style={{ background: "none", border: "none", padding: "10px 0", cursor: "pointer", textAlign: "left", width: "100%" }}>
-        <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.accent }}>{VERDICT[head.verdict]}</span>
-        <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink, marginLeft: 8 }}>{head.name.replace(/\s*[-–—]?\s*ResultsH\d+/i, "")}</span>
-        <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted, marginLeft: 8 }}>{bucket.rows.length} variants</span>
-      </button>
+    <>
+      <div className="ax-dec">
+        <button type="button" className="ax-dec__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <Glyph name="chevron" />
+          <span className="ax-verdict" data-v={head.verdict}>{VERDICT[head.verdict]}</span>
+          <span className="ax-dec__name">
+            {head.name.replace(/\s*[-–—]?\s*ResultsH\d+/i, "")}
+            <span className="ax-dec__group">{bucket.rows.length} variants</span>
+          </span>
+          <span className="ax-dec__more">{open ? "Hide" : "Show"}</span>
+        </button>
+      </div>
       {open && bucket.rows.map((item) => (
         <DecisionRow key={`${item.level}:${item.external_id}`} item={item} picked={picked} setPicked={setPicked}
                      keeps={keeps} selected={openKey === `${item.level}:${item.external_id}`}
                      onOpen={() => setOpenKey(`${item.level}:${item.external_id}`)} nested />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -242,13 +260,12 @@ function DecisionRow({ item, picked, setPicked, keeps, selected, onOpen, nested 
   const key = `${item.level}:${item.external_id}`;
   const twin = keeps.find((k) => k.name === item.name);
   return (
-    <div style={{
-      display: "grid", gridTemplateColumns: "auto 1fr", gap: 12, alignItems: "start",
-      padding: "8px 8px", borderTop: `1px solid ${C.line}`, background: selected ? C.accentBg : "transparent",
-    }}>
-      <input type="checkbox" checked={!!picked[key]} aria-label={`Select ${item.name}`} disabled={!item.action}
-             onClick={(e) => e.stopPropagation()}
-             onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} />
+    <div className={`ax-dec${nested ? " ax-dec--nested" : ""}${selected ? " is-on" : ""}`}>
+      <label className="ax-check">
+        <input type="checkbox" checked={!!picked[key]} aria-label={`Select ${item.name}`} disabled={!item.action}
+               onClick={(e) => e.stopPropagation()}
+               onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} />
+      </label>
       <RowBody item={item} keeps={twin ? [twin] : []} selected={selected} onOpen={onOpen} nested={nested} />
     </div>
   );
@@ -257,19 +274,19 @@ function DecisionRow({ item, picked, setPicked, keeps, selected, onOpen, nested 
 function RowBody({ item, keeps, onOpen, nested }) {
   const twin = (keeps || []).find((k) => k.name === item.name && k.verdict === "keep");
   return (
-    <button type="button" onClick={onOpen} style={{
-      background: "none", border: "none", padding: nested ? 0 : "8px 0", textAlign: "left", cursor: "pointer", width: "100%",
-    }}>
-      {!nested && (
-        <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.accent }}>{VERDICT[item.verdict] || item.verdict}</span>
-      )}
-      <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink, marginLeft: nested ? 0 : 8 }}>{item.name}</span>
-      <span style={{ fontFamily: FONT, fontSize: 12, color: C.muted, marginLeft: 8 }}>{item.group}</span>
-      <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 4 }}>
-        {[item.campaign, item.adset].filter(Boolean).join(" · ") || "Campaign not on this row"}
-        {twin ? ` · ${VERDICT[item.verdict]} at ${usd(item.spend)}; a Keep row with this name is ${usd(twin.spend)}` : ""}
-      </div>
-      <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 2 }}>{item.reason}</div>
+    <button type="button" className="ax-dec__open" onClick={onOpen}>
+      <span className="ax-verdict" data-v={item.verdict}>
+        {nested ? "" : (VERDICT[item.verdict] || item.verdict)}
+      </span>
+      <span>
+        <span className="ax-dec__name">{item.name}</span>
+        <span className="ax-dec__group">{item.group}</span>
+        <span className="ax-dec__line" style={{ display: "block" }}>
+          {[item.campaign, item.adset].filter(Boolean).join(" · ") || "Campaign not on this row"}
+          {twin ? ` · ${VERDICT[item.verdict]} at ${usd(item.spend)}; a Keep row with this name is ${usd(twin.spend)}` : ""}
+        </span>
+        <span className="ax-dec__line" style={{ display: "block" }}>{item.reason}</span>
+      </span>
     </button>
   );
 }
