@@ -1,6 +1,6 @@
 /* Ads is five screens, not one long page. The data hooks stay: a number only
    renders when it belongs to the account and period currently on screen. */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { API_BASE, getJSON } from "../api";
 import { ProductIcon, iconFor } from "../brand/productIcons.jsx";
@@ -28,19 +28,12 @@ export default function AdsView() {
   const [account, setAccount] = useState(null);
   const [campaign, setCampaign] = useState(null);
   const [brand, setBrand] = useState(null);
-  const [brandTouched, setBrandTouched] = useState(false);
   const [drill, setDrill] = useState({ stage: null, label: null, data: null, loading: false, error: null });
 
   const accounts = useAdsAccounts();
   const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 48 });
   const writes = useAdsWrites(data?.account?.id);
-
-  useEffect(() => {
-    if (brandTouched || !data?.groups?.length) return;
-    const first = data.groups.find((g) => g.name !== "Other") || data.groups[0];
-    setBrand(first.name);
-  }, [data, brandTouched]);
 
   async function openDrill(ladder, key, label) {
     const stage = `${ladder?.title || "funnel"}:${key}`;
@@ -128,7 +121,7 @@ export default function AdsView() {
       {screen === "today" && <Today data={data} onSaved={retry} />}
       {screen === "performance" && (
         <Performance data={data} creatives={creatives.data} brand={brand}
-                     setBrand={(name) => { setBrand(name); setBrandTouched(true); }} onDrill={openDrill} />
+                     setBrand={setBrand} onDrill={openDrill} />
       )}
       {screen === "budget" && <Budget data={data} onSaved={retry} />}
       {screen === "activity" && (

@@ -72,16 +72,13 @@ export default function SettingsScreen({ data, account, onSaved }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <PageTitle title="Settings" lede="Connections, how campaigns are grouped, and the guardrails around autopilot." />
+      <PageTitle title="Settings" />
 
       <Card>
         <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.muted }}>Connections</div>
-        <p style={{ fontFamily: FONT, fontSize: 14, color: C.ink, margin: "8px 0 0" }}>
-          Meta · {data.account?.name} · {data.account?.external_id}
-        </p>
-        <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: "4px 0 0" }}>
-          Scope {writes.scope || "not checked"}. GoHighLevel supplies the leads. Zoom attendance is on Session Attendance.
-        </p>
+        <Connection name="Meta" detail={`${data.account?.name || "Ad account"} · ${data.account?.external_id || ""} · ${writes.scope || "not checked"}`} />
+        <Connection name="GoHighLevel" detail="Supplies Spring's leads." />
+        <Connection name="Zoom" detail="Attendance is on Session Attendance." />
         {!writes.can_write && (
           <Banner title="Reconnect Meta to enable changes" tone="bad">
             Paste a System User token with ads_read and ads_management in Settings, then check access here.
@@ -136,6 +133,15 @@ export default function SettingsScreen({ data, account, onSaved }) {
         <GroupingRules account={account} onSaved={onSaved} />
       </Card>
       {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}
+    </div>
+  );
+}
+
+function Connection({ name, detail }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderTop: `1px solid ${C.line}`, marginTop: 8 }}>
+      <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink }}>{name}</span>
+      <span style={{ fontFamily: FONT, fontSize: 13, color: C.slate, textAlign: "right" }}>{detail}</span>
     </div>
   );
 }

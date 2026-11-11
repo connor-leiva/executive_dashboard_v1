@@ -12,17 +12,20 @@ export default function Budget({ data, onSaved }) {
   const t = tone(pace.status, pace.open);
   const groups = (data.groups || []).filter((g) => g.name !== "Other" || g.weekly_budget);
 
-  async function save(name) {
-    const typed = draft[name];
+  async function save() {
     const next = { ...(data.weekly_budgets || {}) };
-    if (typed === "" || typed == null) delete next[name];
-    else {
+    for (const g of groups) {
+      const typed = draft[g.name] != null ? draft[g.name] : g.weekly_budget;
+      if (typed === "" || typed == null) {
+        delete next[g.name];
+        continue;
+      }
       const n = Number(typed);
       if (!Number.isFinite(n) || n < 0) {
-        setMsg("Enter a weekly dollar amount.");
+        setMsg(`Enter a weekly dollar amount for ${g.name}.`);
         return;
       }
-      next[name] = n;
+      next[g.name] = n;
     }
     if (!API_BASE) {
       setMsg("This preview has no API, so the plan stays on screen only.");
@@ -31,8 +34,8 @@ export default function Budget({ data, onSaved }) {
     setBusy(true);
     try {
       await patchJSON(`/ads/accounts/${data.account.id}`, { weekly_budgets: next });
-      setDraft((d) => { const c = { ...d }; delete c[name]; return c; });
-      setMsg(`Saved the weekly plan for ${name}.`);
+      setDraft({});
+      setMsg("Saved the weekly plan.");
       onSaved?.();
     } catch (e) {
       setMsg(e.message || "Could not save the weekly plan.");
@@ -43,7 +46,7 @@ export default function Budget({ data, onSaved }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <PageTitle title="Budget" lede="The weekly plan against what this window actually spent. The open week is shown softer, not grey." />
+      <PageTitle title="Budget" />
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span style={{ fontFamily: FONT, fontSize: 13, color: C.slate }}>All brands</span>
@@ -64,21 +67,21 @@ export default function Budget({ data, onSaved }) {
                 <div style={{ fontFamily: FONT, fontSize: 13, color: C.slate, marginTop: 4 }}>
                   {usd(g.spend)} spent
                   {g.weekly_budget ? ` · plan ${usd(g.weekly_budget)} / week` : " · no weekly plan"}
-                  {g.pace != null ? ` · ${g.pace}% of the plan for these days` : ""}
+                  {g.pace != null ? <span style={{ color: t.ink }}>{` · ${g.pace}% of the plan`}</span> : null}
                 </div>
               </div>
               <Field label="Weekly plan">
-                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input aria-label={`Weekly plan for ${g.name}`} inputMode="decimal" value={shown}
-                         onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))}
-                         style={{ ...inputStyle, fontFamily: FIG }} />
-                  <Btn primary disabled={busy} onClick={() => save(g.name)}>Save</Btn>
-                </span>
+                <input aria-label={`Weekly plan for ${g.name}`} inputMode="decimal" value={shown}
+                       onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))}
+                       style={{ ...inputStyle, fontFamily: FIG }} />
               </Field>
             </div>
           </Card>
         );
       })}
+      <div>
+        <Btn primary disabled={busy || groups.length === 0} onClick={save}>Save weekly plan</Btn>
+      </div>
       {msg && <p style={{ fontFamily: FONT, fontSize: 13, color: C.slate, margin: 0 }}>{msg}</p>}
     </div>
   );
