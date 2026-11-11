@@ -153,6 +153,16 @@ export const alpha = (value, a) => {
 
 export const usd = (n) => "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
 export const signed = (n) => (n < 0 ? `(${usd(n)})` : usd(n));
+// A figure too wide for its tile, the way the loan pipeline and the transactions panel write it:
+// $6.5M, $412K, $950.
+export function compactUsd(n) {
+  if (n == null) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `$${Math.round(n / 1e3)}K`;
+  return `$${Math.round(n)}`;
+}
 
 // "4 minutes ago" from an ISO timestamp; null-safe.
 export function relativeTime(iso) {

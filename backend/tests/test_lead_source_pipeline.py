@@ -70,3 +70,30 @@ def test_windows_are_the_legacy_presets_in_the_workspace_calendar():
     assert lp.window_bounds("rolling_30", today) == (dt.date(2026, 1, 15), today)
     assert lp.window_bounds("ytd", today) == (dt.date(2026, 1, 1), today)
     assert lp.window_bounds("all_time", today) == (None, None)
+
+
+def test_the_date_bar_period_reads_like_every_other_page():
+    """The report follows the app's date bar: its periods resolve through metrics._period_range,
+    and a custom range is its own two days. Anything unrecognised is the bar's default, month to date."""
+    today = dt.date(2026, 11, 11)
+    assert lp.window_bounds("mtd", today) == (dt.date(2026, 11, 1), today)
+    assert lp.window_bounds("last_month", today) == (dt.date(2026, 10, 1), dt.date(2026, 10, 31))
+    assert lp.window_bounds("last_7", today) == (dt.date(2026, 11, 5), today)
+    assert lp.window_bounds("c:2026-02-01:2026-11-11", today) == (dt.date(2026, 2, 1), today)
+    assert lp.window_bounds("bogus", today) == (dt.date(2026, 11, 1), today)
+    meta = lp._window_meta("c:2026-02-01:2026-11-11", today)
+    assert meta["key"] == "c:2026-02-01:2026-11-11" and meta["label"] == "Feb 1 – Nov 11, 2026"
+    assert meta["start"] == "2026-02-01" and meta["end"] == "2026-11-11"
+    assert lp._window_meta("bogus", today)["key"] == "mtd"
+    assert lp._window_meta("rolling_30", today)["label"] == "Last 30 days"     # the digest's keys stay
+
+
+def test_the_program_counts_every_lead_whatever_the_range():
+    class G:
+        program_start = None
+    people = [person(1, days_old=200), person(2, days_old=3)]
+    today = dt.date(2026, 11, 10)
+    assert lp.program_meta(people, G, today) == {"since": (NOW - dt.timedelta(days=200)).date().isoformat(),
+                                                 "until": "2026-11-10", "leads": 2}
+    G.program_start = dt.date(2026, 2, 1)
+    assert lp.program_meta([], G, today) == {"since": "2026-02-01", "until": "2026-11-10", "leads": 0}

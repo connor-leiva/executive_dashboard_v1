@@ -10,19 +10,28 @@
 
    EVERY NUMBER IS THE SERVER'S. The preview, the overlap warning and the "history starts" note all
    arrive computed; this file lays them out. Built from Settings' own kit (settings/kit.jsx), the
-   inputs Recruiting uses, and books/ui's Pill for status. */
+   inputs Recruiting uses, books/ui's Pill for status, and the app's SubTabs.
+
+   ONE GROUP, FOUR TABS. A selected group's settings are one card with a tab each for the group,
+   its Follow Up Boss sources, its QuickBooks spend and its weekly digest, each with its own save.
+   Every label sits above its field, and a refused save says why under the field it is about. */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { T } from "../theme.js";
 import { getJSON, postJSON, patchJSON, putJSON, delJSON } from "../api.js";
 import { Card, SBtn } from "./kit.jsx";
 import { Pill } from "../books/ui.jsx";
+import SubTabs from "../SubTabs.jsx";
 import DigestCard from "./DigestCard.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 
 const FB = "var(--font-text)", FD = "var(--font-display)", FM = "var(--font-data)";
-const label = { display: "block", fontFamily: FB, fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+// A label is a column: its words, then its field. As a block with an inline input, a short field
+// sat BESIDE its label wherever the row left room.
+const label = { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, fontFamily: FB, fontSize: 12,
+                fontWeight: 600, color: T.slate, marginTop: 14, minWidth: 0 };
+const check = { ...label, flexDirection: "row", alignItems: "center", gap: 8 };
 const input = { width: "100%", boxSizing: "border-box", fontFamily: FB, fontSize: 13, color: T.ink,
                 background: T.white, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", marginTop: 4 };
 const num = { ...input, fontFamily: FM, width: 120 };
@@ -30,6 +39,7 @@ const h2 = { fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink };
 const lede = { fontFamily: FB, fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.5, maxWidth: 640 };
 const meta = { fontFamily: FM, fontSize: 12, color: T.muted };
 const errText = { fontFamily: FB, fontSize: 13, color: T.poppyText, marginTop: 12 };
+const fieldErrText = { fontFamily: FB, fontSize: 12, fontWeight: 500, color: T.poppyText, marginTop: 4, lineHeight: 1.45 };
 const savedText = { fontFamily: FB, fontSize: 12, color: T.meadowInk };
 
 const MODES = [["contains", "Contains"], ["exact", "Exact"], ["regex", "Pattern (regex)"]];
@@ -37,7 +47,31 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const monthLabel = (ym) => (ym ? `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}` : "");
 const dayLabel = (iso) => (iso ? `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}` : "");
 const money = (n) => (n == null ? "—" : `${n < 0 ? "−" : ""}$${Math.abs(Math.round(n)).toLocaleString("en-US")}`);
-const errOf = (e, fallback) => String((e && (e.detail || e.message)) || fallback);
+// The server's reason in words. A 422 carries a list of field complaints; join their messages
+// rather than print "[object Object]".
+const errOf = (e, fallback) => {
+  const d = e && e.detail;
+  if (Array.isArray(d)) return d.map((x) => x && x.msg).filter(Boolean).join("; ") || fallback;
+  return String((typeof d === "string" && d) || (e && e.message) || fallback);
+};
+
+/* Which field a refusal is about, from the server's own sentence (services/lead_sources.py and the
+   router's _apply). Anything unrecognised shows above the save button instead. */
+function fieldOf(text) {
+  if (/^Line \d+|variant/i.test(text)) return "variants";
+  if (/display name/i.test(text)) return "display_name";
+  if (/team-side EXP/i.test(text)) return "exp_risk_team_default";
+  if (/agent-side EXP/i.test(text)) return "exp_risk_agent_default";
+  if (/display order/i.test(text)) return "display_order";
+  if (/match mode/i.test(text)) return "match_mode";
+  if (/\bkey\b/i.test(text)) return "key";
+  return null;
+}
+
+/* A settings section either stands alone as a card or sits inside the group's tabbed card. */
+function Shell({ bare, children }) {
+  return bare ? <div>{children}</div> : <Card>{children}</Card>;
+}
 
 /* A boxed sentence in the gold the dashboard uses for "look at this" (SampleBanner, the zero-
    referral chip), never red: an overlap is a thing to know, not a failure. */
@@ -71,7 +105,7 @@ function GroupList({ groups, selected, onSelect, onAdd, canEdit }) {
             What's Working reports, and where that channel's spend lives in QuickBooks.
           </div>
         </div>
-        {canEdit && <SBtn kind="primary" icon="tune" onClick={onAdd}>Add a lead source</SBtn>}
+        {canEdit && <SBtn kind="primary" onClick={onAdd}>Add a lead source</SBtn>}
       </div>
       <div style={{ marginTop: 16, border: `1px solid ${T.line}`, borderRadius: 10, overflow: "hidden" }}>
         {groups.map((g, i) => {
@@ -119,10 +153,10 @@ function toDraft(g) {
   };
 }
 
-function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) {
+function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted, bare }) {
   const [d, setD] = useState(() => toDraft(group));
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
+  const [err, setErr] = useState(null);                 // { field, text }
   const [saved, setSaved] = useState(false);
   useEffect(() => { setD(toDraft(group)); setErr(null); setSaved(false); }, [group?.key, creating]);
   const set = (k) => (e) => { setD({ ...d, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }); setSaved(false); };
@@ -130,7 +164,9 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
 
   async function save() {
     setBusy(true); setErr(null);
-    const body = { display_name: d.display_name, variants, match_mode: d.match_mode,
+    // The box's lines as typed, blanks included: the server names a bad one by its line, and
+    // line 3 there has to be line 3 here. It drops the blanks itself.
+    const body = { display_name: d.display_name, variants: d.variants.split("\n").map((v) => v.trim()), match_mode: d.match_mode,
                    program_start: d.program_start || null, is_active: d.is_active,
                    display_order: Number(d.display_order) || 0,
                    exp_risk_team_default: Number(d.exp_risk_team_default) || 0,
@@ -142,7 +178,8 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
       setSaved(true);
       onSaved(out.key);
     } catch (e) {
-      setErr(errOf(e, "Couldn't save the lead source."));
+      const text = errOf(e, "Couldn't save the lead source.");
+      setErr({ field: fieldOf(text), text });
     } finally { setBusy(false); }
   }
 
@@ -150,29 +187,43 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
     if (!window.confirm(`Delete ${group.display_name}? Its reports stop showing. The rows behind them stay.`)) return;
     setBusy(true); setErr(null);
     try { await delJSON(`/businesses/${bizKey}/lead-sources/${group.key}`); onDeleted(); }
-    catch (e) { setErr(errOf(e, "Couldn't delete the lead source.")); }
+    catch (e) { setErr({ field: null, text: errOf(e, "Couldn't delete the lead source.") }); }
     finally { setBusy(false); }
   }
 
+  // A field the refusal is about: a red edge, the reason under it, and the two tied together for a screen reader.
+  const bad = (f) => err && err.field === f;
+  const edge = (f) => (bad(f) ? { borderColor: T.poppyText } : {});
+  const aria = (f) => (bad(f) ? { "aria-invalid": true, "aria-describedby": `ls-err-${f}` } : {});
+  const below = (f) => (bad(f) ? <span id={`ls-err-${f}`} role="alert" style={fieldErrText}>{err.text}</span> : null);
+  // Labels line up at the top; the fee row aligns to the bottom so the Active checkbox sits level with the inputs.
+  const grid = (n, align = "start") => ({ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${n}px), 1fr))`,
+                                          columnGap: 16, alignItems: align });
+
   return (
-    <Card>
-      <div style={h2}>{creating ? "New lead source" : group.display_name}</div>
-      <div style={lede}>
-        A Follow Up Boss person is in this channel when their source matches a variant. Cohorts start at the
-        program start month, read in the workspace's calendar.
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", columnGap: 16 }}>
+    <Shell bare={bare}>
+      {!bare && <div style={h2}>{creating ? "New lead source" : group.display_name}</div>}
+      {!bare && (
+        <div style={lede}>
+          A Follow Up Boss person is in this channel when their source matches a variant. Cohorts start at the
+          program start month, read in the workspace's calendar.
+        </div>
+      )}
+      <div style={grid(200)}>
         <label style={label}>Display name
-          <input style={input} value={d.display_name} onChange={set("display_name")} maxLength={120} />
+          <input style={{ ...input, ...edge("display_name") }} value={d.display_name} onChange={set("display_name")} maxLength={120} {...aria("display_name")} />
+          {below("display_name")}
         </label>
         <label style={label}>Key
-          <input style={{ ...input, fontFamily: FM, background: creating ? T.white : T.parchment }} value={d.key}
-            onChange={set("key")} disabled={!creating} placeholder="realtor_com" maxLength={64} />
+          <input style={{ ...input, fontFamily: FM, background: creating ? T.white : T.parchment, ...edge("key") }} value={d.key}
+            onChange={set("key")} disabled={!creating} placeholder="realtor_com" maxLength={64} {...aria("key")} />
+          {below("key")}
         </label>
         <label style={label}>Match mode
-          <select style={input} value={d.match_mode} onChange={set("match_mode")}>
+          <select style={{ ...input, ...edge("match_mode") }} value={d.match_mode} onChange={set("match_mode")} {...aria("match_mode")}>
             {MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
+          {below("match_mode")}
         </label>
         <label style={label}>Program start
           <input type="date" style={input} value={d.program_start} onChange={set("program_start")} />
@@ -180,8 +231,9 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
       </div>
 
       <label style={label}>Source variants
-        <textarea rows={6} style={{ ...input, fontFamily: FM, lineHeight: 1.6 }} value={d.variants}
-          onChange={set("variants")} placeholder={"One per line, as Follow Up Boss spells it"} />
+        <textarea rows={6} style={{ ...input, fontFamily: FM, lineHeight: 1.6, ...edge("variants") }} value={d.variants}
+          onChange={set("variants")} placeholder={"One per line, as Follow Up Boss spells it"} {...aria("variants")} />
+        {below("variants")}
       </label>
       <div style={{ ...meta, marginTop: 6 }}>
         {variants.length} of 50 · {d.match_mode === "contains"
@@ -190,17 +242,23 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
             : "each line is a pattern, ignoring case"}
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+      <div style={grid(160, "end")}>
         <label style={label}>EXP risk fee, team side
-          <input type="number" min="0" step="1" style={num} value={d.exp_risk_team_default} onChange={set("exp_risk_team_default")} />
+          <input type="number" min="0" step="1" style={{ ...num, ...edge("exp_risk_team_default") }} value={d.exp_risk_team_default}
+            onChange={set("exp_risk_team_default")} {...aria("exp_risk_team_default")} />
+          {below("exp_risk_team_default")}
         </label>
         <label style={label}>EXP risk fee, agent side
-          <input type="number" min="0" step="1" style={num} value={d.exp_risk_agent_default} onChange={set("exp_risk_agent_default")} />
+          <input type="number" min="0" step="1" style={{ ...num, ...edge("exp_risk_agent_default") }} value={d.exp_risk_agent_default}
+            onChange={set("exp_risk_agent_default")} {...aria("exp_risk_agent_default")} />
+          {below("exp_risk_agent_default")}
         </label>
         <label style={label}>Display order
-          <input type="number" min="0" max="999" style={{ ...num, width: 96 }} value={d.display_order} onChange={set("display_order")} />
+          <input type="number" min="0" max="999" style={{ ...num, width: 96, ...edge("display_order") }} value={d.display_order}
+            onChange={set("display_order")} {...aria("display_order")} />
+          {below("display_order")}
         </label>
-        <label style={{ ...label, display: "inline-flex", alignItems: "center", gap: 8, paddingBottom: 10 }}>
+        <label style={{ ...check, paddingBottom: 10 }}>
           <input type="checkbox" checked={d.is_active} onChange={set("is_active")} /> Active
         </label>
       </div>
@@ -209,15 +267,15 @@ function GroupEditor({ bizKey, group, creating, onSaved, onCancel, onDeleted }) 
         groups' spend rules counts in the lower display order only.
       </div>
 
-      {err && <div style={errText}>{err}</div>}
+      {err && !err.field && <div style={errText} role="alert">{err.text}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-        <SBtn kind="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : creating ? "Add lead source" : "Save"}</SBtn>
+        <SBtn kind="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : creating ? "Add a lead source" : "Save lead source"}</SBtn>
         {creating && <SBtn onClick={onCancel}>Cancel</SBtn>}
         {saved && <span style={savedText}>Saved.</span>}
         <span style={{ flex: 1 }} />
         {!creating && <SBtn disabled={busy} onClick={remove}>Delete</SBtn>}
       </div>
-    </Card>
+    </Shell>
   );
 }
 
@@ -234,7 +292,7 @@ function SourceStatus({ row }) {
   return <Pill tone="muted">Not in this group</Pill>;
 }
 
-function FubSourcesCard({ bizKey, group, bizName, onChanged }) {
+function FubSourcesCard({ bizKey, group, bizName, onChanged, bare }) {
   const [view, setView] = useState(null);
   const [busy, setBusy] = useState(null);           // "check" | a source being added
   const [err, setErr] = useState(null);
@@ -264,8 +322,8 @@ function FubSourcesCard({ bizKey, group, bizName, onChanged }) {
   }
 
   if (!view) {
-    return <Card><div style={h2}>Follow Up Boss sources</div>
-      <div style={{ ...lede, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Card>;
+    return <Shell bare={bare}>{!bare && <div style={h2}>Follow Up Boss sources</div>}
+      <div style={{ ...lede, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Shell>;
   }
 
   const fub = view.fub;
@@ -280,11 +338,11 @@ function FubSourcesCard({ bizKey, group, bizName, onChanged }) {
   const numCell = { ...td, textAlign: "right", fontFamily: FM, color: T.ink, fontVariantNumeric: "tabular-nums" };
 
   return (
-    <Card>
+    <Shell bare={bare}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 320px" }}>
-          <div style={h2}>Follow Up Boss sources · {group.display_name}</div>
-          <div style={lede}>
+          {!bare && <div style={h2}>Follow Up Boss sources · {group.display_name}</div>}
+          <div style={{ ...lede, marginTop: bare ? 0 : 4 }}>
             The source strings Follow Up Boss holds near this group's, and how many people each has brought
             {since ? ` since ${since}` : ""}. The sync reads each variant by its exact spelling, so a string that
             isn't listed is a cohort coming up short. Add it as a variant.
@@ -377,13 +435,13 @@ function FubSourcesCard({ bizKey, group, bizName, onChanged }) {
         </div>
       )}
       {err && <div style={errText}>{err}</div>}
-    </Card>
+    </Shell>
   );
 }
 
 /* ── QuickBooks spend ───────────────────────────────────────────────────────────────────── */
 
-function SpendCard({ bizKey, group, bizName }) {
+function SpendCard({ bizKey, group, bizName, bare }) {
   const [view, setView] = useState(null);
   const [rules, setRules] = useState([]);
   const [shares, setShares] = useState([]);
@@ -400,8 +458,8 @@ function SpendCard({ bizKey, group, bizName }) {
   useEffect(load, [load]);
 
   if (!view) {
-    return <Card><div style={h2}>QuickBooks spend</div>
-      <div style={{ ...lede, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Card>;
+    return <Shell bare={bare}>{!bare && <div style={h2}>QuickBooks spend</div>}
+      <div style={{ ...lede, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Shell>;
   }
 
   const companyId = view.businesses.find((b) => b.key === bizKey)?.id;
@@ -439,9 +497,9 @@ function SpendCard({ bizKey, group, bizName }) {
 
   const cell = { ...input, marginTop: 0 };
   return (
-    <Card>
-      <div style={h2}>QuickBooks spend · {group.display_name}</div>
-      <div style={lede}>
+    <Shell bare={bare}>
+      {!bare && <div style={h2}>QuickBooks spend · {group.display_name}</div>}
+      <div style={{ ...lede, marginTop: bare ? 0 : 4 }}>
         Spend is every line in {bizName}'s QuickBooks that one of these rules matches, in the month of its books
         date. Within a rule, everything set must match. A line that matches several rules counts once.
       </div>
@@ -582,11 +640,13 @@ function SpendCard({ bizKey, group, bizName }) {
           <div style={{ ...meta, marginTop: 8 }}>{view.lines_matching_several_rules} line{view.lines_matching_several_rules === 1 ? " matches" : "s match"} more than one rule and {view.lines_matching_several_rules === 1 ? "is" : "are"} counted once.</div>
         )}
       </div>
-    </Card>
+    </Shell>
   );
 }
 
 /* ── the page ───────────────────────────────────────────────────────────────────────────── */
+
+const TABS = [["group", "Group"], ["sources", "Follow Up Boss sources"], ["spend", "QuickBooks spend"], ["digest", "Weekly digest"]];
 
 export default function LeadSourceSettings() {
   const [params, setParams] = useSearchParams();
@@ -618,7 +678,9 @@ export default function LeadSourceSettings() {
   }, [bizKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
-  const select = (key) => { setCreating(false); setParams((p) => { const n = new URLSearchParams(p); n.set("group", key); return n; }); };
+  const select = (key) => { setCreating(false); setParams((p) => { const n = new URLSearchParams(p); n.set("group", key); n.delete("tab"); return n; }); };
+  const tab = TABS.some(([k]) => k === params.get("tab")) ? params.get("tab") : "group";
+  const setTab = (k) => setParams((p) => { const n = new URLSearchParams(p); if (k === "group") n.delete("tab"); else n.set("tab", k); return n; }, { replace: true });
 
   if (!API_BASE) {
     return <Card title="Lead sources" hint="Lead sources are set on the live app, against your own Follow Up Boss and QuickBooks data." />;
@@ -650,13 +712,20 @@ export default function LeadSourceSettings() {
           onSaved={(key) => { setCreating(false); load(key); select(key); }} onDeleted={() => {}} />
       )}
       {!creating && group && (
-        <>
-          <GroupEditor bizKey={bizKey} group={group} creating={false} onSaved={(key) => load(key)}
-            onDeleted={() => { setParams({ business: bizKey }); load(); }} />
-          <FubSourcesCard bizKey={bizKey} group={group} bizName={biz.name} onChanged={(key) => load(key)} />
-          <SpendCard bizKey={bizKey} group={group} bizName={biz.name} />
-          <DigestCard bizKey={bizKey} group={group} />
-        </>
+        <Card>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={h2}>{group.display_name}</div>
+            <span style={meta}>{group.key}</span>
+          </div>
+          <SubTabs tabs={TABS.map(([k, l]) => ({ k, label: l }))} active={tab} onChange={setTab} />
+          {tab === "group" && (
+            <GroupEditor bare bizKey={bizKey} group={group} creating={false} onSaved={(key) => load(key)}
+              onDeleted={() => { setParams({ business: bizKey }); load(); }} />
+          )}
+          {tab === "sources" && <FubSourcesCard bare bizKey={bizKey} group={group} bizName={biz.name} onChanged={(key) => load(key)} />}
+          {tab === "spend" && <SpendCard bare bizKey={bizKey} group={group} bizName={biz.name} />}
+          {tab === "digest" && <DigestCard bare bizKey={bizKey} group={group} />}
+        </Card>
       )}
     </>
   );

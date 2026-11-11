@@ -11,13 +11,20 @@ import { Card, SBtn } from "./kit.jsx";
 import { Pill } from "../books/ui.jsx";
 
 const FB = "var(--font-text)", FD = "var(--font-display)", FM = "var(--font-data)";
-const label = { display: "block", fontFamily: FB, fontSize: 12, fontWeight: 600, color: T.slate, marginTop: 14 };
+// Every label above its field, as on the group tab (LeadSourceSettings.jsx).
+const label = { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, fontFamily: FB, fontSize: 12,
+                fontWeight: 600, color: T.slate, marginTop: 14, minWidth: 0 };
+const check = { ...label, flexDirection: "row", alignItems: "center", gap: 8 };
 const input = { width: "100%", boxSizing: "border-box", fontFamily: FB, fontSize: 13, color: T.ink, background: T.white,
                 border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", marginTop: 4 };
 const num = { ...input, fontFamily: FM, width: 88, textAlign: "right" };
 const meta = { fontFamily: FB, fontSize: 12, color: T.muted, lineHeight: 1.5 };
 const h3 = { fontFamily: FB, fontSize: 13, fontWeight: 600, color: T.ink, marginTop: 24 };
-const errOf = (e, f) => String((e && (e.detail || e.message)) || f);
+const errOf = (e, f) => {
+  const d = e && e.detail;
+  if (Array.isArray(d)) return d.map((x) => x && x.msg).filter(Boolean).join("; ") || f;
+  return String((typeof d === "string" && d) || (e && e.message) || f);
+};
 const pct = (r) => (r == null || r === "" ? "" : String(Math.round(r * 1000) / 10));
 const pad = (n) => String(n).padStart(2, "0");
 const STATUS_TONE = { sent: "good", queued: "warn", failed: "bad", skipped: "muted" };
@@ -31,7 +38,12 @@ function toDraft(v) {
   };
 }
 
-export default function DigestCard({ bizKey, group }) {
+/* On its own a card; inside the group's tabs (`bare`) just its contents, under the tab's name. */
+function Shell({ bare, children }) {
+  return bare ? <div>{children}</div> : <Card>{children}</Card>;
+}
+
+export default function DigestCard({ bizKey, group, bare }) {
   const base = `/businesses/${bizKey}/lead-sources/${group.key}/digest`;
   const [view, setView] = useState(null);
   const [d, setD] = useState(null);
@@ -47,8 +59,8 @@ export default function DigestCard({ bizKey, group }) {
   useEffect(load, [load]);
 
   if (!view || !d) {
-    return <Card><div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink }}>Weekly digest</div>
-      <div style={{ ...meta, marginTop: 4, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Card>;
+    return <Shell bare={bare}>{!bare && <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink }}>Weekly digest</div>}
+      <div style={{ ...meta, marginTop: 4, color: err ? T.poppyText : T.muted }}>{err || "Loading…"}</div></Shell>;
   }
   const set = (k) => (e) => { setD({ ...d, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }); setNote(null); };
   const setBar = (path, side) => (e) => {
@@ -99,11 +111,11 @@ export default function DigestCard({ bizKey, group }) {
   const bars = [["speed_first_touch_min", "Minutes to first touch", "min", true], ["pct_5plus_attempts", "Leads with 5+ attempts", "%"],
                 ["multichannel_24h_pct", "Two channels in the first day", "%"]];
   return (
-    <Card>
+    <Shell bare={bare}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 320px" }}>
-          <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink }}>Weekly digest · {group.display_name}</div>
-          <div style={{ fontFamily: FB, fontSize: 13, color: T.secondary, marginTop: 4, lineHeight: 1.5, maxWidth: 640 }}>
+          {!bare && <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink }}>Weekly digest · {group.display_name}</div>}
+          <div style={{ fontFamily: FB, fontSize: 13, color: T.secondary, marginTop: bare ? 0 : 4, lineHeight: 1.5, maxWidth: 640 }}>
             A coaching email for whoever runs the team: who to sit down with, who to mention, who to recognize. Scored on the last
             30 days of this source's leads against the bar below.
           </div>
@@ -111,7 +123,7 @@ export default function DigestCard({ bizKey, group }) {
         <Pill tone={view.is_active ? "good" : "muted"}>{view.is_active ? `On · ${view.weekdays[view.send_weekday]}s` : "Off"}</Pill>
       </div>
 
-      <label style={{ ...label, display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16 }}>
+      <label style={{ ...check, marginTop: 16 }}>
         <input type="checkbox" checked={d.is_active} onChange={set("is_active")} /> Send it every week
       </label>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))", columnGap: 16 }}>
@@ -137,14 +149,14 @@ export default function DigestCard({ bizKey, group }) {
         <div style={{ ...meta, marginTop: 6 }}>Unsubscribed, so skipped: {view.unsubscribed.join(", ")}</div>
       )}
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))", columnGap: 16, alignItems: "end" }}>
         <label style={label}>Agents per email
           <input type="number" min="1" max="12" style={num} value={d.max_agents} onChange={set("max_agents")} />
         </label>
         <label style={label}>Minimum leads to be scored
           <input type="number" min="1" max="100" style={num} value={d.min_leads} onChange={set("min_leads")} />
         </label>
-        <label style={{ ...label, display: "inline-flex", alignItems: "center", gap: 8, paddingBottom: 10 }}>
+        <label style={{ ...check, paddingBottom: 10 }}>
           <input type="checkbox" checked={d.include_reinforce} onChange={set("include_reinforce")} /> Recognize one agent each week
         </label>
       </div>
@@ -247,6 +259,6 @@ export default function DigestCard({ bizKey, group }) {
           </tbody>
         </table>
       )}
-    </Card>
+    </Shell>
   );
 }

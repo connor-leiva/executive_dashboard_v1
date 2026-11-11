@@ -249,11 +249,10 @@ export async function patchJSON(path, body) {
     headers: authHeaders(path, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${await res.text()}`);
-    err.status = res.status;
-    throw err;
-  }
+  // The same path as every other verb: `detail` parsed out of the body, and the step-up and
+  // session-expired events fired. It used to build its own Error from the raw text, so a PATCH
+  // that failed showed a person `400 {"detail":"…"}` and never re-locked an expired grant.
+  if (!res.ok) await throwFor(res, path);
   return res.json();
 }
 

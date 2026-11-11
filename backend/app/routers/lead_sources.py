@@ -387,17 +387,32 @@ async def check_fub_sources(key: str, gkey: str, user: User = Depends(require_ro
     return await _fub_sources_view(s, user, b, g)
 
 
+# The app's date-bar period (metrics.KNOWN_PERIODS, or c:YYYY-MM-DD:YYYY-MM-DD). The reports follow
+# the bar like every other page; anything unrecognised reads as the default, as it does elsewhere.
+PERIOD = r"^[a-z_0-9:-]{1,40}$"
+
+
+def _span(window: str, period: str | None) -> str:
+    from ..services.metrics import canonical_period
+    return canonical_period(period) if period else window
+
+
 @router.get("/businesses/{key}/lead-sources/{gkey}/cohorts")
 async def cohorts(key: str, gkey: str, start: str | None = Query(None, pattern=MONTH),
                   end: str | None = Query(None, pattern=MONTH),
+                  period: str | None = Query(None, pattern=PERIOD),
                   user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
-    """The cohort report: one row per month of arrival, from stored rows only. 404 for a missing or
-    inactive group; 403 without the business's tab."""
+    """The cohort report: one row per month of arrival, from stored rows only. `period` picks the
+    cohort months the date bar's range touches. 404 for a missing or inactive group; 403 without
+    the business's tab."""
     from ..services.lead_source_report import cohort_report
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)
     if start and end and start > end:
         raise HTTPException(400, "The first month comes before the last.")
+    if period:
+        from ..services.metrics import canonical_period
+        return await cohort_report(s, user.tenant_id, b, g, period=canonical_period(period))
     return await cohort_report(s, user.tenant_id, b, g, start=start, end=end)
 
 
@@ -415,37 +430,40 @@ WINDOW = r"^(all_time|rolling_30|rolling_90|last_4mo|ytd)$"
 
 @router.get("/businesses/{key}/lead-sources/{gkey}/pipeline")
 async def pipeline(key: str, gkey: str, window: str = Query("all_time", pattern=WINDOW),
+                   period: str | None = Query(None, pattern=PERIOD),
                    user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """The team pipeline: the eight-stage funnel, coaching tiers and the agent table."""
     from ..services.lead_source_pipeline import team_pipeline
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)
-    return await team_pipeline(s, user.tenant_id, b, g, window=window)
+    return await team_pipeline(s, user.tenant_id, b, g, window=_span(window, period))
 
 
 @router.get("/businesses/{key}/lead-sources/{gkey}/pipeline/agents/{agent_key}")
 async def agent_pipeline(key: str, gkey: str, agent_key: str,
                          window: str = Query("all_time", pattern=WINDOW),
+                         period: str | None = Query(None, pattern=PERIOD),
                          user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """One agent's pipeline. `agent_key` is the Axcion agent id, `fub-…` for an agent FUB names that
     Axcion does not hold (lead_source_report.agent_key), or `unassigned`."""
     from ..services.lead_source_pipeline import agent_pipeline as build
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)
-    out = await build(s, user.tenant_id, b, g, agent_key, window=window)
+    out = await build(s, user.tenant_id, b, g, agent_key, window=_span(window, period))
     if out is None:
-        raise HTTPException(404, "That agent has no leads from this source in the window")
+        raise HTTPException(404, "That agent has no leads from this source in this date range")
     return out
 
 
 @router.get("/businesses/{key}/lead-sources/{gkey}/whats-working")
 async def whats_working(key: str, gkey: str, window: str = Query("all_time", pattern=WINDOW),
+                        period: str | None = Query(None, pattern=PERIOD),
                         user: User = Depends(current_user), s: AsyncSession = Depends(get_session)):
     """What's Working: behavior medians by agent, team and outcome, and 72-hour lead journeys."""
     from ..services.lead_source_behavior import whats_working as build
     b = await business_for(s, user, key)
     g = await group_for(s, user, b, gkey, active_only=True)
-    return await build(s, user.tenant_id, b, g, window=window)
+    return await build(s, user.tenant_id, b, g, window=_span(window, period))
 
 
 # ── weekly digest (phase 6) ──────────────────────────────────────────────────────────────────

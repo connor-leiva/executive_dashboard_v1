@@ -1241,6 +1241,7 @@ export default function CommandCenter() {
     : <SkeletonDashboard />;
   else if (activeView === "ulrg" && areas?.ulrg) content = <UlrgTabs role={user?.role}
     businessKey={areas.ulrg.key} businessName={areas.ulrg.name} sub={brokerSub} onSub={setBrokerSub}
+    period={periodKeyStr} onPeriod={(k) => setSpan(fromPeriodKey(k))}
     overview={<AreaDetail area={areas.ulrg} onDrill={onDrill} period={periodKeyStr} onLeadSources={() => setBrokerSub("lead_sources")} />} />;
   else if (activeView === "sympli") content = <BrandScorecardTabs scope="sympli" role={user?.role}
     overview={<AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />} />;
@@ -1261,6 +1262,7 @@ export default function CommandCenter() {
   else if (activeView === "onboarding") content = <Onboarding data={onb.data} loading={onb.loading} error={onb.error} reload={onb.reload} apply={onb.apply} onPickPlan={setOnbPlanId} />;
   else if (areas && areas[activeView]?.kind === "real_estate") content = <BrokerageTabs
     businessKey={areas[activeView].key} businessName={areas[activeView].name} sub={brokerSub} onSub={setBrokerSub}
+    period={periodKeyStr} onPeriod={(k) => setSpan(fromPeriodKey(k))}
     overview={<AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} onLeadSources={() => setBrokerSub("lead_sources")} />} />;
   else if (areas && areas[activeView]) content = <AreaDetail area={areas[activeView]} onDrill={onDrill} period={periodKeyStr} />;
 
@@ -1284,6 +1286,11 @@ export default function CommandCenter() {
         .ls-funnel { display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); gap: 10px; }
         @media (max-width: 1180px) { .ls-funnel { grid-template-columns: repeat(4, minmax(0,1fr)); } }
         @media (max-width: 560px) { .ls-funnel { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        /* The cohort strip's one wide tile (spend not mapped): three columns beside company dollar, a full row once the strip folds. */
+        .ls-wide { grid-column: span 3; }
+        @media (max-width: 900px) { .ls-wide { grid-column: 1 / -1; } }
+        .ls-title-select:hover { background: ${T.parchment} !important; }
+        .ls-title-select:focus-visible { outline: 2px solid ${T.teal}; outline-offset: 2px; }
         .cc-skel { background: linear-gradient(90deg, ${T.line} 25%, ${T.parchment} 50%, ${T.line} 75%); background-size: 800px 100%; animation: cc-shimmer 1.4s linear infinite; }
         @keyframes cc-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
         @keyframes cc-spin { to { transform: rotate(360deg); } }

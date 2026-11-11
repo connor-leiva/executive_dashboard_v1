@@ -493,9 +493,17 @@ def header(rows: list[dict], m: dict | None) -> dict:
 
 
 async def cohort_report(s, tenant_id, business, group: LeadSourceGroup, *, start: str | None = None,
-                        end: str | None = None, now=None) -> dict:
+                        end: str | None = None, period: str | None = None, now=None) -> dict:
+    """`period` is the app's date-bar period. A cohort is a whole month, so the range picks the
+    months it touches: Nov 5-11 shows the November cohort, every lead of it. `start`/`end` (month
+    keys) still work for a caller that names months."""
+    from .lead_source_pipeline import _window_meta, program_meta, window_bounds
     uni = await load_universe(s, tenant_id, business.id, group, now=now)
     people, today, now = uni["people"], uni["today"], uni["now"]
+    if period:
+        p_start, p_end = window_bounds(period, today)
+        start = p_start.strftime("%Y-%m") if p_start else None
+        end = p_end.strftime("%Y-%m") if p_end else None
     tables = aggregate_cohorts(people, now=now, today=today)
     rows = tables["cohort_rows"]
     m = await spend.monthly_spend(s, tenant_id, group)
@@ -529,6 +537,7 @@ async def cohort_report(s, tenant_id, business, group: LeadSourceGroup, *, start
         "business": {"key": business.key, "name": business.name},
         "as_of": now.isoformat(timespec="seconds"), "today": today.isoformat(),
         "applied_filters": {"start_cohort": start, "end_cohort": end},
+        "window": _window_meta(period or "all_time", today), "program": program_meta(people, group, today),
         "available_months": [r["cohort_key"] for r in rows],
         "source_variants_matched": uni["origins"],
         "spend": {"mapped": m["mapped"], "synced": m["synced"], "connected": m["connected"],

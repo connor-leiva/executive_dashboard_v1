@@ -2,7 +2,8 @@
    and theme tokens. Formatting follows the product's rules: whole dollars in tables, accounting
    parentheses for a negative (the P&L's `signed`), sentence-case labels, and every rate written with
    what it is a rate of. Nothing here computes a metric -- the server sends them decided. */
-import { T, usd, signed } from "../theme.js";
+import { T, compactUsd, usd, signed } from "../theme.js";
+import { Icon } from "../Brand.jsx";
 import { Card, Skel, SkeletonCard } from "../panels.jsx";
 
 export const FD = "var(--font-display)";
@@ -12,6 +13,7 @@ export const FM = "var(--font-data)";
 export const fmt = {
   money: (n) => (n == null ? "—" : signed(n)),
   plainMoney: (n) => (n == null ? "—" : usd(n)),
+  compactMoney: (n) => compactUsd(n),
   pct: (n) => (n == null ? "—" : `${Number.isInteger(n) ? n : Number(n).toFixed(1)}%`),
   mult: (n) => (n == null ? "—" : `${Number(n).toFixed(2)}×`),
   count: (n) => (n == null ? "—" : Number(n).toLocaleString("en-US")),
@@ -24,6 +26,12 @@ export const fmt = {
   seconds: (sec) => (sec == null ? "—" : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`),
   days: (d) => (d == null ? "—" : `${Number(d).toFixed(1).replace(/\.0$/, "")} days`),
   pp: (n) => (n == null ? "" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(Math.round(n))} pts`),
+  // A gap to benchmark as a phrase: "51 pts below", "4 pts above", "at benchmark".
+  gap: (n) => {
+    if (n == null) return "";
+    const r = Math.abs(Math.round(n));
+    return r === 0 ? "at benchmark" : `${r} pts ${n < 0 ? "below" : "above"}`;
+  },
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -52,13 +60,21 @@ export function downloadCsv(filename, columns, rows) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function ExportButton({ onClick, disabled }) {
+/* The one action in a card's header, in the Flywheel's "View the list" look: white, outlined, the
+   display face, with its glyph. */
+export function OutlineButton({ onClick, disabled, icon, children, title }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} style={{
-      fontFamily: FB, fontSize: 12, fontWeight: 600, color: disabled ? T.muted : T.slate, background: T.parchment,
-      border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 10px", cursor: disabled ? "default" : "pointer",
-      whiteSpace: "nowrap" }}>Export CSV</button>
+    <button type="button" onClick={onClick} disabled={disabled} title={title} style={{
+      display: "inline-flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.line}`,
+      borderRadius: 8, padding: "6px 12px", cursor: disabled ? "default" : "pointer", whiteSpace: "nowrap",
+      fontFamily: FD, fontSize: 12, fontWeight: 600, color: disabled ? T.muted : T.slate }}>
+      {icon && <Icon name={icon} size={12} color={disabled ? T.muted : T.slate} />}{children}
+    </button>
   );
+}
+
+export function ExportButton({ onClick, disabled }) {
+  return <OutlineButton icon="download" onClick={onClick} disabled={disabled}>Export CSV</OutlineButton>;
 }
 
 /* A card's header row: the accent-ruled label on the left, chips and actions on the right. */
@@ -93,11 +109,20 @@ export function ReportSkeleton() {
   );
 }
 
-export function ReportError({ onRetry }) {
+/* What went wrong, in the words that fit it: no answer at all is the network; a 5xx answered and
+   failed; a 403 is access; anything else, the server's own reason. */
+function errorWords(error) {
+  if (!error || !error.status) return "The dashboard couldn't reach its server. Check the connection, then retry.";
+  if (error.status === 403) return "Your role can't see this brokerage's lead-source reports. An owner or admin can give access.";
+  if (error.status >= 500) return "The server answered with an error while building it. Retrying usually works.";
+  return typeof error.detail === "string" && error.detail ? error.detail : `The server refused it (${error.status}).`;
+}
+
+export function ReportError({ onRetry, error }) {
   return (
     <Card style={{ textAlign: "center", padding: 40 }}>
       <div style={{ fontFamily: FD, fontSize: 16, fontWeight: 600, color: T.ink }}>Couldn't load this report</div>
-      <div style={{ fontFamily: FB, fontSize: 13, color: T.muted, marginTop: 6 }}>The dashboard service didn't answer.</div>
+      <div style={{ fontFamily: FB, fontSize: 13, color: T.muted, marginTop: 6, maxWidth: 520, marginInline: "auto", lineHeight: 1.5 }}>{errorWords(error)}</div>
       <button onClick={onRetry} className="cc-nav" style={{ marginTop: 16, fontFamily: FB, fontSize: 13, fontWeight: 600,
         color: T.onDark, background: T.evergreen, border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer" }}>Retry</button>
     </Card>

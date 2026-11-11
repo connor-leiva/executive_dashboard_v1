@@ -95,6 +95,17 @@ def test_empty_variants_match_nothing():
     assert not ls.build_matcher(["  "], "exact")("")
 
 
+def test_a_bad_pattern_names_its_line_in_plain_words():
+    """The settings page sends the box's lines as typed, blanks included, and shows this sentence
+    under the box: it has to name the line and say what is wrong without Python's jargon."""
+    with pytest.raises(ls.InvalidGroup) as e:
+        ls.clean_variants(["Realtor.com", "", "(unclosed"], "regex")
+    assert str(e.value) == "Line 3, “(unclosed”, isn't a valid pattern: it opens a bracket and never closes it."
+    with pytest.raises(ls.InvalidGroup, match="a range inside"):
+        ls.clean_variants(["[z-a]"], "regex")
+    assert ls.clean_variants(["Realtor.com", "", "  ", "Realtor.com"], "contains") == ["Realtor.com"]
+
+
 def test_bad_regex_and_bad_key_are_refused():
     with pytest.raises(ls.InvalidGroup):
         ls.clean_variants(["(unclosed"], "regex")
