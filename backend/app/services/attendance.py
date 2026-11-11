@@ -236,7 +236,16 @@ async def run_for_tenant(s: AsyncSession, tenant_id, *, backfill: bool = False) 
     tenant = await s.get(Tenant, tenant_id)
     state = await _sync_row(s, tenant_id)
     today = dt.date.today()
-    if backfill or state.backfilled_at is None:
+    # A window that only reaches back a few days is not the sprint backfill. The first
+    # production pull saved a 3-day range and would otherwise never look further.
+    frm = (state.last_stats or {}).get("from")
+    needs_history = True
+    if frm:
+        try:
+            needs_history = dt.date.fromisoformat(frm) > today - dt.timedelta(days=60)
+        except ValueError:
+            needs_history = True
+    if backfill or state.backfilled_at is None or needs_history:
         start, end = backfill_bounds(today, (tenant.config or {}).get("fiscal_quarters") if tenant else None)
         result = await sync_range(s, tenant_id, start, end)
         # An empty first pull is not a finished backfill. The next boot tries the
