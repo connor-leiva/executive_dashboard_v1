@@ -2,7 +2,7 @@
    Colours come from adsTokens so a rebrand still has a single place to move. The look lives in
    screenStyles.js as classes, because hover, press, focus and reduced motion cannot be written
    as inline styles. */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { C } from "./adsTokens.js";
 
@@ -14,19 +14,8 @@ export const SCREENS = [
   { id: "settings", label: "Settings" },
 ];
 
-export function weeklyPace(data) {
-  const groups = data?.groups || [];
-  const plan = groups.reduce((sum, g) => sum + (Number(g.weekly_budget) || 0), 0);
-  const spend = groups.reduce((sum, g) => sum + (Number(g.spend) || 0), 0);
-  const days = data?.range?.days || 7;
-  const expected = plan ? plan * days / 7 : 0;
-  const pace = expected ? (spend / expected) * 100 : null;
-  let status = "none";
-  if (pace != null) status = pace < 90 ? "behind" : pace > 110 ? "ahead" : "on";
-  const today = new Date().toISOString().slice(0, 10);
-  const open = !!(data?.range?.end && data.range.end >= today);
-  return { plan, spend, expected, pace, status, open, days };
-}
+/* The pace arithmetic lives in pace.js, where it is tested without a browser. */
+export const PACE_WORD = { ahead: "Ahead", behind: "Behind", on: "On pace", none: "No plan" };
 
 /* The open week stays readable. Mix the status color toward paper instead of
    fading the whole bar, which would turn it grey. */
@@ -146,40 +135,84 @@ export function ErrorNote({ children, onRetry }) {
   );
 }
 
-export function PaceBar({ pace }) {
-  const t = tone(pace.status, pace.open);
-  const width = pace.pace == null ? 0 : Math.max(4, Math.min(100, pace.pace > 100 ? 100 : pace.pace));
-  const label = pace.status === "behind" ? "Behind" : pace.status === "ahead" ? "Ahead" : pace.status === "on" ? "On pace" : "No weekly plan";
+/* The screen while its numbers load. The header and the screen tabs stay put above it, so a
+   change of period or basis no longer blanks the whole tab to one word. */
+export function Skeleton({ label = "Loading" }) {
   return (
-    <Card title="Weekly Pace"
-          meta={<span style={{ color: t.ink, fontWeight: 600 }}>{label}{pace.open ? " · this week is still open" : ""}</span>}>
-      <div className="ax-bar"><i style={{ width: `${width}%`, background: t.bar }} /></div>
-      <div className="ax-spread ax-num ax-meta" style={{ marginTop: 8, color: C.slate }}>
-        <span>{pace.plan ? `$${Math.round(pace.spend).toLocaleString()} spent` : "Set a weekly plan on Budget"}</span>
-        <span>{pace.expected ? `$${Math.round(pace.expected).toLocaleString()} of the plan for these ${pace.days} days` : ""}</span>
+    <div className="ax-stack" role="status" aria-busy="true">
+      <span className="ax-sr">{label}</span>
+      <div className="ax-stats" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="ax-card ax-stat">
+            <span className="ax-sk" style={{ width: "45%" }} />
+            <span className="ax-sk" style={{ width: "70%", height: 22 }} />
+          </div>
+        ))}
       </div>
-    </Card>
+      <div className="ax-card ax-stack" aria-hidden="true">
+        <span className="ax-sk" style={{ width: "25%" }} />
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{ display: "grid", gap: "var(--ax-2)" }}>
+            <span className="ax-sk" style={{ width: "35%" }} />
+            <span className="ax-sk" style={{ height: 8 }} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
+function useMedia(query) {
+  const get = () => typeof window !== "undefined" && !!window.matchMedia?.(query).matches;
+  const [on, setOn] = useState(get);
+  useEffect(() => {
+    const m = window.matchMedia?.(query);
+    if (!m) return undefined;
+    const update = () => setOn(m.matches);
+    update();
+    m.addEventListener?.("change", update);
+    return () => m.removeEventListener?.("change", update);
+  }, [query]);
+  return on;
+}
+
+const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), "
+  + "textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
 /* The side panel. It takes the focus when it opens and hands it back when it closes, so a
-   keyboard user lands in it and returns to the row they came from. */
+   keyboard user lands in it and returns to the row they came from.
+   Beside the page it is a non-modal panel: the rows behind it stay usable, and clicking another
+   one swaps what it shows. At phone width it covers the page, so there it is modal: Tab cycles
+   inside it, because the controls behind it can no longer be seen. */
 export function Drawer({ title, onClose, children }) {
+  const panelRef = useRef(null);
   const closeRef = useRef(null);
+  const covers = useMedia("(max-width: 640px)");
   useEffect(() => {
     function onKey(e) {
-      if (e.key === "Escape") onClose?.();
+      if (e.key === "Escape") { onClose?.(); return; }
+      if (e.key !== "Tab" || !covers || !panelRef.current) return;
+      const items = [...panelRef.current.querySelectorAll(FOCUSABLE)]
+        .filter((el) => el.getClientRects().length > 0);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (!panelRef.current.contains(at)) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, covers]);
   useEffect(() => {
     const from = document.activeElement;
     closeRef.current?.focus({ preventScroll: true });
     return () => { if (from && from.isConnected) from.focus?.({ preventScroll: true }); };
   }, []);
   return (
-    <aside className="ax-drawer" role="dialog" aria-labelledby="ax-drawer-title">
+    <aside ref={panelRef} className="ax-drawer" role="dialog" aria-labelledby="ax-drawer-title"
+           aria-modal={covers ? "true" : undefined}>
       <div className="ax-drawer__head">
         <h2 id="ax-drawer-title" className="ax-drawer__title">{title}</h2>
         <button ref={closeRef} type="button" className="ax-btn ax-btn--icon" onClick={onClose}

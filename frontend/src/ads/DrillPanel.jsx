@@ -95,14 +95,20 @@ export default function DrillPanel({ drill, loading, error, label, onClose }) {
 
       {!loading && !error && !!drill?.rows?.length && (
         <div className="ax-scroll" style={{ maxHeight: 380, overflowY: "auto" }}>
-          <table className="ax-table ax-table--plain">
+          <table className="ax-table ax-table--plain ax-table--stack">
             <thead>
-              <tr>{cols.map((c) => <th key={c} className={MONEY.has(c) ? "num" : undefined}>{HEADINGS[c] || c}</th>)}</tr>
+              <tr>{cols.map((c) => <th key={c} scope="col" className={MONEY.has(c) ? "num" : undefined}>{HEADINGS[c] || c}</th>)}</tr>
             </thead>
             <tbody>
               {drill.rows.map((r, i) => (
                 <tr key={`${r.email || r.name}-${i}`}>
-                  {cols.map((c) => <td key={c} className={MONEY.has(c) ? "num" : undefined}><Cell col={c} row={r} /></td>)}
+                  {cols.map((c) => (
+                    // On a phone the name leads each person's block and the rest sit under labels.
+                    <td key={c} data-label={c === "name" ? undefined : (HEADINGS[c] || c)}
+                        className={[MONEY.has(c) ? "num" : "", c === "name" ? "ax-cell-title ax-strong" : ""].join(" ").trim() || undefined}>
+                      <Cell col={c} row={r} />
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>

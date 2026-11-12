@@ -13,7 +13,7 @@ import SettingsScreen from "./screens/Settings.jsx";
 import Today from "./screens/Today.jsx";
 import { sampleAdsDrill } from "./sampleAds.js";
 import { screenCss } from "./screenStyles.js";
-import { Card, Empty, ErrorNote, SCREENS, Segmented } from "./ui.jsx";
+import { Card, ErrorNote, SCREENS, Segmented, Skeleton } from "./ui.jsx";
 import { qs, useAdsAccounts, useAdsCreatives, useAdsOverview, useAdsWrites } from "./useAds.js";
 
 export default function AdsView({ periodKey }) {
@@ -26,13 +26,27 @@ export default function AdsView({ periodKey }) {
   const [drill, setDrill] = useState({ stage: null, label: null, data: null, loading: false, error: null });
 
   const accounts = useAdsAccounts();
-  const { data, error, loading, retry } = useAdsOverview({ account, period, basis, campaign });
+  const { data, error, retry } = useAdsOverview({ account, period, basis, campaign });
   const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 48 });
   const writes = useAdsWrites(data?.account?.id);
+
+  // The account's name outlives a reload of its numbers, so the header can keep it on screen
+  // while a new period or basis loads. The window label is not kept: it belongs to the request
+  // in flight, and showing the old one would put the new numbers under the wrong window.
+  const [lastAccount, setLastAccount] = useState(null);
+  useEffect(() => {
+    if (data?.connected && data.account?.name) setLastAccount(data.account.name);
+  }, [data]);
 
   useEffect(() => {
     if (periodKey) setPeriod(periodKey);
   }, [periodKey]);
+
+  // A drill lists the people behind one figure for one account, window and basis. When any of
+  // those changes the figure changes, so the list closes rather than outliving it.
+  useEffect(() => {
+    setDrill({ stage: null, label: null, data: null, loading: false, error: null });
+  }, [account, period, basis, campaign]);
 
   async function openDrill(ladder, key, label) {
     const stage = `${ladder?.title || "funnel"}:${key}`;
@@ -64,20 +78,16 @@ export default function AdsView({ periodKey }) {
     }
   }
 
-  if (error) {
-    return <Frame><ErrorNote onRetry={retry}>Couldn&apos;t load ad performance.</ErrorNote></Frame>;
-  }
-  if (loading || !data) {
-    return <Frame><Empty>Loading…</Empty></Frame>;
-  }
-  if (!data.connected) {
+  if (data && !data.connected) {
     return (
       <Frame>
         <Card title="Connect a Meta ad account">
           <div className="ax-stack" style={{ gap: 8 }}>
             <p className="ax-text">{data.reason}</p>
             <p className="ax-text">
-              You&apos;ll need a System User token with ads_read and ads_management. Until the token includes ads_management, Approve only previews a change.
+              You&apos;ll need a System User token with ads_read and ads_management, added under Meta Ads
+              in <a href="/settings/integrations" className="ax-link">Integrations</a>. Until the token
+              includes ads_management, Approve only previews a change.
             </p>
           </div>
         </Card>
@@ -86,6 +96,13 @@ export default function AdsView({ periodKey }) {
   }
 
   const acctList = Array.isArray(accounts.data) ? accounts.data : [];
+  // `data` is only ever the payload for the path on screen (useAds.js), so without it the
+  // screen is loading or failed, and the header shows what is still true: the tab, its tabs,
+  // and the account.
+  const ready = !!data && !error;
+  const accountName = ready
+    ? data.account?.name
+    : (account && acctList.find((a) => a.id === account)?.name) || lastAccount;
 
   return (
     <Frame>
@@ -94,7 +111,12 @@ export default function AdsView({ periodKey }) {
           <ProductIcon name={iconFor("ads")} size={24} tone={C.accent} />
           <div>
             <h1 className="ax-h1">Ads</h1>
-            <div className="ax-meta">{data.account?.name} · {data.range?.label}</div>
+            {/* The account and the window are two facts, so they sit apart instead of being
+                joined by a dot. */}
+            <div className="ax-facts ax-meta">
+              {accountName ? <span>{accountName}</span> : <span className="ax-sk" style={{ width: 112 }} />}
+              {ready ? <span>{data.range?.label}</span> : !error && <span className="ax-sk" style={{ width: 88 }} />}
+            </div>
           </div>
         </div>
         <div className="ax-row">
@@ -119,19 +141,22 @@ export default function AdsView({ periodKey }) {
         ))}
       </nav>
 
-      {screen === "today" && <Today data={data} onSaved={retry} onBudget={() => setScreen("budget")} />}
-      {screen === "performance" && (
+      {error && <ErrorNote onRetry={retry}>Couldn&apos;t load ad performance.</ErrorNote>}
+      {!error && !ready && <Skeleton label="Loading ad performance" />}
+
+      {ready && screen === "today" && <Today data={data} onSaved={retry} onBudget={() => setScreen("budget")} />}
+      {ready && screen === "performance" && (
         <Performance data={data} creatives={creatives.data} brand={brand}
                      setBrand={setBrand} onDrill={openDrill} />
       )}
-      {screen === "budget" && <Budget data={data} onSaved={retry} />}
-      {screen === "activity" && (
+      {ready && screen === "budget" && <Budget data={data} onSaved={retry} />}
+      {ready && screen === "activity" && (
         <Activity log={writes} accountId={data.account?.id} canUndo={!!data.writes?.can_undo}
                   onSaved={() => { retry(); writes.retry?.(); }} />
       )}
-      {screen === "settings" && <SettingsScreen data={data} account={account} onSaved={retry} />}
+      {ready && screen === "settings" && <SettingsScreen data={data} account={account} onSaved={retry} />}
 
-      {drill.stage && (
+      {ready && drill.stage && (
         <DrillPanel drill={drill.data} loading={drill.loading} error={drill.error} label={drill.label}
                     onClose={() => setDrill({ stage: null, label: null, data: null, loading: false, error: null })} />
       )}

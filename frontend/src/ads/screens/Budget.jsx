@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { API_BASE, patchJSON } from "../../api";
 import { C, usd } from "../adsTokens.js";
+import { accountToday, brandPace, windowPace, windowPhrase } from "../pace.js";
 import { Btn, Card, Empty, MoneyInput, PageTitle, Stat, tone } from "../ui.jsx";
 
 export default function Budget({ data, onSaved }) {
@@ -43,22 +44,28 @@ export default function Budget({ data, onSaved }) {
     }
   }
 
-  const all = data.groups || [];
-  const spent = all.reduce((a, g) => a + (Number(g.spend) || 0), 0);
-  const planned = brands.reduce((a, g) => a + (Number(g.plan_spend) || 0), 0);
-  const remaining = planned ? planned - spent : null;
-  const pace = planned ? (spent / planned) * 100 : null;
-  const status = pace == null ? "none" : pace < 90 ? "behind" : pace > 110 ? "ahead" : "on";
-  const t = tone(status, true);
+  // One helper for the headline and the rows, shared with Today, so the two screens cannot
+  // disagree. For a window that runs past today it is the plan so far, not the window's whole.
+  const pace = windowPace(data, accountToday(data));
+  const planned = pace.expected;
+  const remaining = planned ? planned - pace.spend : null;
+  const t = tone(pace.status, true);
+  const planLabel = pace.partial ? "Plan through today" : "Plan for these days";
+  const over = remaining != null && remaining < 0;
 
   return (
     <div className="ax-stack">
       <PageTitle title="Budget" />
       <div className="ax-stats">
-        <Stat label="Spent" value={usd(spent)} />
-        <Stat label="Plan for these days" value={planned ? usd(planned) : "No plan"} />
-        <Stat label="Remaining" value={remaining == null ? "—" : remaining >= 0 ? usd(remaining) : `${usd(-remaining)} over`} />
-        <Stat label="Pace" value={pace == null ? "—" : `${Math.round(pace)}%`} color={t.ink} />
+        <Stat label="Spent" value={usd(pace.spend)} />
+        <Stat label={planLabel} value={planned ? usd(planned) : "No plan"} />
+        {/* The label says what the figure is: "Remaining $11,501 over" asked the reader to
+            notice the last word to learn the figure meant the opposite of its label. */}
+        <Stat label={over ? "Over plan" : "Remaining"} value={remaining == null ? "—" : usd(Math.abs(remaining))}
+              color={over ? C.badInk : undefined} />
+        <Stat label={`Pace, ${windowPhrase(data.range?.label)}`}
+              value={pace.pace == null ? "—" : `${Math.round(pace.pace)}%`}
+              color={pace.pace == null ? undefined : t.ink} />
       </div>
 
       {week?.days?.length > 0 && <WeekChart days={week.days} />}
@@ -68,37 +75,48 @@ export default function Budget({ data, onSaved }) {
               <Btn primary disabled={busy || brands.length === 0} onClick={save}>Save weekly plan</Btn>
               {msg && <span className="ax-text">{msg}</span>}
             </>}>
-        {brands.length === 0 && <div className="ax-empty"><Empty>No brands in this window.</Empty></div>}
-        <div style={{ padding: "0 var(--ax-pad)" }}>
-          {brands.length > 0 && (
-            <div className="ax-listhead ax-planrow">
-              <span className="ax-label">Brand</span>
-              <span className="ax-label">Weekly plan</span>
-            </div>
-          )}
-          <div className="ax-list">
-            {brands.map((g) => {
-              const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
-              const left = g.plan_spend == null ? null : g.plan_spend - (g.spend || 0);
-              const rowTone = tone(g.pace == null ? "none" : g.pace < 90 ? "behind" : g.pace > 110 ? "ahead" : "on", true);
-              return (
-                <div key={g.name} className="ax-planrow" style={{ padding: "12px 0" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 600 }}>{g.name}</div>
-                    <div className="ax-meta" style={{ color: C.slate }}>
-                      <span className="ax-num">{usd(g.spend)}</span> spent
-                      {g.weekly_budget ? ` · plan ${usd(g.weekly_budget)} / week` : " · no weekly plan"}
-                      {left == null ? "" : left >= 0 ? ` · ${usd(left)} remaining` : ` · ${usd(-left)} over`}
-                      {g.pace != null ? <span style={{ color: rowTone.ink }}>{` · ${g.pace}% pace`}</span> : ""}
-                    </div>
-                  </div>
-                  <MoneyInput label={`Weekly plan for ${g.name}`} value={shown}
-                              onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))} />
-                </div>
-              );
-            })}
+        {brands.length === 0 ? <div className="ax-empty"><Empty>No brands in this window.</Empty></div> : (
+          <div className="ax-scroll">
+            <table className="ax-table ax-table--stack ax-table--wide" style={{ "--ax-minw": "720px" }}>
+              <thead>
+                <tr>
+                  <th scope="col">Brand</th>
+                  <th scope="col" className="num">Spent</th>
+                  <th scope="col" className="num">{planLabel}</th>
+                  <th scope="col" className="num">Over or left</th>
+                  <th scope="col" className="num">Pace</th>
+                  <th scope="col" className="num">Weekly plan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {brands.map((g) => {
+                  const shown = draft[g.name] != null ? draft[g.name] : (g.weekly_budget ?? "");
+                  const row = brandPace(g, pace.elapsed);
+                  const rowTone = tone(row.status, true);
+                  return (
+                    <tr key={g.name}>
+                      <td className="ax-strong ax-cell-title">{g.name}</td>
+                      <td className="num" data-label="Spent">{usd(g.spend)}</td>
+                      <td className="num" data-label={planLabel}>{row.plan == null ? "No plan" : usd(row.plan)}</td>
+                      <td className="num" data-label="Over or left"
+                          style={row.left != null && row.left < 0 ? { color: C.badInk } : undefined}>
+                        {row.left == null ? "—" : row.left >= 0 ? `${usd(row.left)} left` : `${usd(-row.left)} over`}
+                      </td>
+                      <td className="num" data-label="Pace"
+                          style={row.pace == null ? undefined : { color: rowTone.ink }}>
+                        {row.pace == null ? "—" : `${row.pace.toFixed(1)}%`}
+                      </td>
+                      <td className="num" data-label="Weekly plan">
+                        <MoneyInput label={`Weekly plan for ${g.name}`} value={shown}
+                                    onChange={(e) => setDraft((d) => ({ ...d, [g.name]: e.target.value }))} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
+        )}
       </Card>
     </div>
   );

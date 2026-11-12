@@ -96,14 +96,22 @@ export default function SettingsScreen({ data, account, onSaved }) {
               }}>Rebuild attribution</Btn>
             </>}>
         <div className="ax-list">
-          <Connection name="Meta" detail={`${data.account?.name || "Ad account"} · ${data.account?.external_id || ""} · ${writes.scope || "not checked"}`} />
+          <Connection name="Meta" detail={[
+            data.account?.name || "Ad account",
+            data.account?.external_id,
+            writes.scope ? `Token scope ${writes.scope}` : "Token scope not checked",
+          ]} />
           <Connection name="GoHighLevel" detail="Supplies Spring's leads." />
           <Connection name="Zoom" detail="Attendance is on Session Attendance." />
         </div>
         {!writes.can_write && (
           <div style={{ marginTop: 16 }}>
+            {/* This screen is itself called Settings, so "in Settings" sent people round in a
+                circle. The token goes in the workspace's Integrations page, under Meta Ads. */}
             <Banner title="Reconnect Meta to enable changes">
-              Paste a System User token with ads_read and ads_management in Settings, then check access here.
+              Paste a System User token with ads_read and ads_management under Meta Ads
+              in <a href="/settings/integrations" className="ax-link">Integrations</a>, then
+              come back and press Check access.
             </Banner>
           </div>
         )}
@@ -120,10 +128,10 @@ export default function SettingsScreen({ data, account, onSaved }) {
               <Btn primary disabled={busy} onClick={save}>Save guardrails</Btn>
             </>}>
         <div className="ax-scroll">
-          <table className="ax-table ax-table--plain">
+          <table className="ax-table ax-table--plain ax-table--narrow">
             <thead>
               <tr>
-                {["Brand", "Autopilot", "Pause only", "Max daily spend"].map((h) => <th key={h}>{h}</th>)}
+                {["Brand", "Autopilot", "Pause only", "Max daily spend"].map((h) => <th key={h} scope="col">{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -131,10 +139,10 @@ export default function SettingsScreen({ data, account, onSaved }) {
                 const cfg = autopilot[name] || {};
                 return (
                   <tr key={name}>
-                    <td className="ax-strong" style={{ verticalAlign: "middle" }}>{name}</td>
-                    <td style={{ verticalAlign: "middle" }}><label className="ax-check"><input type="checkbox" aria-label={`Autopilot for ${name}`} checked={!!cfg.on} onChange={(e) => setAutopilot((a) => ({ ...a, [name]: { ...cfg, on: e.target.checked } }))} /></label></td>
-                    <td style={{ verticalAlign: "middle" }}><label className="ax-check"><input type="checkbox" aria-label={`Pause only for ${name}`} checked={!!cfg.pause_only} onChange={(e) => setAutopilot((a) => ({ ...a, [name]: { ...cfg, pause_only: e.target.checked } }))} /></label></td>
-                    <td style={{ verticalAlign: "middle" }}>
+                    <td className="ax-strong ax-cell-title" style={{ verticalAlign: "middle" }}>{name}</td>
+                    <td data-label="Autopilot" style={{ verticalAlign: "middle" }}><label className="ax-check"><input type="checkbox" aria-label={`Autopilot for ${name}`} checked={!!cfg.on} onChange={(e) => setAutopilot((a) => ({ ...a, [name]: { ...cfg, on: e.target.checked } }))} /></label></td>
+                    <td data-label="Pause only" style={{ verticalAlign: "middle" }}><label className="ax-check"><input type="checkbox" aria-label={`Pause only for ${name}`} checked={!!cfg.pause_only} onChange={(e) => setAutopilot((a) => ({ ...a, [name]: { ...cfg, pause_only: e.target.checked } }))} /></label></td>
+                    <td data-label="Max daily spend" style={{ verticalAlign: "middle" }}>
                       <MoneyInput label={`Max daily spend for ${name}`} value={cfg.max_daily_spend ?? ""}
                                   onChange={(e) => setAutopilot((a) => ({ ...a, [name]: { ...cfg, max_daily_spend: e.target.value } }))} />
                     </td>
@@ -173,11 +181,15 @@ export default function SettingsScreen({ data, account, onSaved }) {
   );
 }
 
+/* A connection and its facts, one fact to a line. */
 function Connection({ name, detail }) {
+  const parts = (Array.isArray(detail) ? detail : [detail]).filter(Boolean);
   return (
     <div className="ax-kv">
       <span className="ax-kv__name">{name}</span>
-      <span className="ax-kv__value">{detail}</span>
+      <span className="ax-kv__value">
+        {parts.map((p) => <span key={p} className="ax-kv__part">{p}</span>)}
+      </span>
     </div>
   );
 }

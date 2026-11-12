@@ -289,7 +289,7 @@ export default function GroupingRules({ account, onSaved }) {
                              color: g === "Other" ? C.warnInk : C.slate,
                              background: g === "Other" ? C.warnBg : C.surface2,
                              border: `1px solid ${g === "Other" ? C.warnBar : C.line}` }}>
-                {g} · {v.n}
+                {g}<b className="ax-num" style={{ marginLeft: 6 }}>{v.n}</b>
               </span>
             ))}
           </div>

@@ -2,11 +2,22 @@ import { useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
 import { C, num, usd } from "../adsTokens.js";
+import { accountToday, weekPace, windowPace, windowPhrase } from "../pace.js";
 import {
-  Banner, Btn, Card, Drawer, Empty, Glyph, PageTitle, Stat, foldRows, sentenceStatus, tone, weeklyPace,
+  Banner, Btn, Card, Drawer, Empty, Glyph, PACE_WORD, PageTitle, Stat, foldRows, sentenceStatus, tone,
 } from "../ui.jsx";
 
 const VERDICT = { kill: "Turn off", keep: "Keep", scale: "Scale" };
+
+const PACE_NOTE = { ahead: "Ahead of plan", behind: "Behind plan", on: "On plan" };
+
+/* Where an ad runs, as words rather than a dot-separated string. */
+function placement(item) {
+  if (item.campaign && item.adset) return `${item.campaign}, ad set ${item.adset}`;
+  if (item.campaign) return item.campaign;
+  if (item.adset) return `Ad set ${item.adset}`;
+  return null;
+}
 
 function keepLine(rows) {
   const below = rows.filter((r) => r.metric === "delivery").length;
@@ -28,14 +39,15 @@ export default function Today({ data, onSaved, onBudget }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const pace = weeklyPace(data);
+  const pace = windowPace(data, accountToday(data));
   const paceTone = tone(pace.status, pace.open);
   const spring = (data.brand_funnels?.forum?.rungs || []).find((r) => r.key === "qualified");
   const decisions = items.filter((i) => i.verdict === "kill" || i.verdict === "scale");
   const keeps = items.filter((i) => i.verdict === "keep");
   const folded = foldRows(decisions);
   const selected = decisions.filter((i) => i.action && picked[`${i.level}:${i.external_id}`]);
-  const paceWord = pace.status === "behind" ? "Behind" : pace.status === "ahead" ? "Ahead" : pace.status === "on" ? "On pace" : "No plan";
+  // The window is named, because the weekly bars below it measure a different one.
+  const paceValue = !pace.plan ? "No plan" : pace.pace == null ? "Not started" : `${Math.round(pace.pace)}%`;
   const open = items.find((i) => `${i.level}:${i.external_id}` === openKey) || null;
   const sameNameKept = open ? keeps.filter((k) => k.name === open.name) : [];
 
@@ -78,7 +90,8 @@ export default function Today({ data, onSaved, onBudget }) {
         <Stat label="Spent" value={usd(pace.spend)} />
         <Stat label="Spring leads" value={spring?.missing ? "Not recorded" : num(spring?.n)} />
         <Stat label="Cost / Spring lead" value={usd(spring?.cost_per)} />
-        <Stat label="Pace" value={paceWord} color={paceTone.ink} />
+        <Stat label={`Pace, ${windowPhrase(data.range?.label)}`} value={paceValue}
+              color={pace.pace == null ? undefined : paceTone.ink} note={PACE_NOTE[pace.status]} />
       </div>
 
       <WeekPace data={data} onBudget={onBudget} />
@@ -161,9 +174,7 @@ export default function Today({ data, onSaved, onBudget }) {
           <div className="ax-stack" style={{ gap: 4 }}>
             <span className="ax-verdict" data-v={open.verdict}>{VERDICT[open.verdict] || open.verdict}</span>
             <p className="ax-text" style={{ color: C.ink }}>{open.reason}</p>
-            <p className="ax-meta">
-              {[open.campaign, open.adset].filter(Boolean).join(" · ") || open.group}
-            </p>
+            <p className="ax-meta">{placement(open) || open.group}</p>
           </div>
           <dl className="ax-dl">
             <div><dt>Spend</dt><dd>{usd(open.spend)}</dd></div>
@@ -187,12 +198,15 @@ export default function Today({ data, onSaved, onBudget }) {
   );
 }
 
+/* This week, Monday to Sunday in the ad account's timezone. Each brand is measured against its
+   plan through the end of today, not the whole week's: dividing by the full week made every
+   brand read "behind" until Sunday. The bar still shows the whole week, and the dark mark is
+   where today ends, so a bar past the mark is ahead. */
 function WeekPace({ data, onBudget }) {
-  const week = data.week;
-  const brands = (week?.brands || []).filter((b) => b.plan);
-  if (!week?.has_plan && brands.length === 0) {
+  const wk = weekPace(data.week);
+  if (!data.week?.has_plan && wk.brands.length === 0) {
     return (
-      <Card title="Weekly pace">
+      <Card title="This week’s pace">
         <div className="ax-spread">
           <p className="ax-text">No weekly plan yet.</p>
           <Btn onClick={onBudget}>Set this week&apos;s plan</Btn>
@@ -201,25 +215,32 @@ function WeekPace({ data, onBudget }) {
     );
   }
   return (
-    <Card title="Weekly pace">
+    <Card title="This week’s pace" meta={wk.day ? `${wk.dayName}, day ${wk.day} of 7` : null}>
       <div className="ax-pace">
-        {brands.map((b) => {
-          const pct = b.plan ? (b.spend / b.plan) * 100 : 0;
-          const status = pct < 90 ? "behind" : pct > 110 ? "ahead" : "on";
-          const t = tone(status, true);
+        {wk.brands.map((b) => {
+          const t = tone(b.status, true);
+          const through = b.pace == null ? "" : `; ${Math.round(b.pace)} percent of the plan through today`;
           return (
             <div key={b.name}>
               <div className="ax-pace__head">
                 <span>{b.name}</span>
-                <span className="ax-num" style={{ color: t.ink }}>{usd(b.spend)} of {usd(b.plan)} · {Math.round(pct)}%</span>
+                <span className="ax-pace__fig">
+                  <span className="ax-pace__word" style={{ color: t.ink }}>{PACE_WORD[b.status]}</span>
+                  <span className="ax-num ax-meta">{usd(b.spend)} of {usd(b.plan)}</span>
+                </span>
               </div>
-              <div className="ax-bar">
-                <i style={{ width: `${Math.max(4, Math.min(100, pct))}%`, background: t.bar }} />
+              <div className="ax-bar" role="img"
+                   aria-label={`${b.name}: ${usd(b.spend)} spent of a ${usd(b.plan)} week${through}`}>
+                {b.spend > 0 && <i style={{ width: `${Math.max(2, b.fill)}%`, background: t.bar }} />}
+                {wk.share != null && <b style={{ left: `${wk.share * 100}%` }} />}
               </div>
             </div>
           );
         })}
       </div>
+      <p className="ax-meta" style={{ marginTop: "var(--ax-4)" }}>
+        The dark mark is the plan through the end of today. A bar past it is ahead.
+      </p>
     </Card>
   );
 }
@@ -282,9 +303,13 @@ function RowBody({ item, keeps, onOpen, nested }) {
         <span className="ax-dec__name">{item.name}</span>
         <span className="ax-dec__group">{item.group}</span>
         <span className="ax-dec__line" style={{ display: "block" }}>
-          {[item.campaign, item.adset].filter(Boolean).join(" · ") || "Campaign not on this row"}
-          {twin ? ` · ${VERDICT[item.verdict]} at ${usd(item.spend)}; a Keep row with this name is ${usd(twin.spend)}` : ""}
+          {placement(item) || "Campaign not on this row"}
         </span>
+        {twin && (
+          <span className="ax-dec__line" style={{ display: "block" }}>
+            {VERDICT[item.verdict]} at {usd(item.spend)}. A Keep row with this name is {usd(twin.spend)}.
+          </span>
+        )}
         <span className="ax-dec__line" style={{ display: "block" }}>{item.reason}</span>
       </span>
     </button>

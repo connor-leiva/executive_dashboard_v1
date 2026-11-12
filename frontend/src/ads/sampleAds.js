@@ -162,7 +162,8 @@ export const sampleAdsOverview = {
   groups: groupsOf(withRates).map((g) => {
     const weekly = { "Forum Dallas": 2500, "Forum Scottsdale": 1200,
                      "beCollective / The Shift": 4000, "Edge Webinar": 800 }[g.name] || null;
-    const plan = weekly ? weekly * 30 / 7 : null;
+    // The server's rule: weekly x the window's days / 7, and the window above is 11 days.
+    const plan = weekly ? weekly * 11 / 7 : null;
     return { ...g, weekly_budget: weekly, plan_spend: plan,
              pace: plan ? Math.round(g.spend / plan * 1000) / 10 : null };
   }),

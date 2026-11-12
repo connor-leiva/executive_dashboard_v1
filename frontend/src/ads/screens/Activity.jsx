@@ -107,26 +107,28 @@ export default function Activity({ log, accountId, canUndo, onSaved }) {
       {shown.length > 0 && (
         <Card flush>
           <div className="ax-scroll">
-            <table className="ax-table" style={{ minWidth: 760 }}>
+            <table className="ax-table ax-table--stack ax-table--wide" style={{ "--ax-minw": "760px" }}>
               <thead>
                 <tr>
                   {["When", "Who", "What changed", "Before → after", "Why", "Result"].map((h) => (
-                    <th key={h}>{h}</th>
+                    <th key={h} scope="col">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {shown.map((row) => (
                   <tr key={row.id}>
-                    <td className="ax-num ax-nowrap">{when(row.at)}</td>
-                    <td className="ax-nowrap">{row.actor || "—"}</td>
-                    <td>
-                      <span style={{ fontWeight: 600 }}>{ACTION[row.action] || row.action}</span>
-                      <span style={{ color: C.slate }}> · {row.name || row.external_id}</span>
+                    <td className="ax-num ax-nowrap" data-label="When">{when(row.at)}</td>
+                    <td className="ax-nowrap" data-label="Who">{row.actor || "—"}</td>
+                    {/* The action and the ad it touched, as two lines rather than one dotted
+                        string. On a phone this cell leads the row. */}
+                    <td className="ax-cell-title">
+                      <span style={{ display: "block", fontWeight: 600 }}>{ACTION[row.action] || row.action}</span>
+                      <span style={{ display: "block", color: C.slate }}>{row.name || row.external_id}</span>
                     </td>
-                    <td className="ax-num ax-nowrap">{change(row)}</td>
-                    <td className="ax-soft">{row.reason || "—"}</td>
-                    <td className="ax-nowrap" style={row.meta_error ? { color: C.badInk } : undefined}>
+                    <td className="ax-num ax-nowrap" data-label="Before → after">{change(row)}</td>
+                    <td className="ax-soft" data-label="Why">{row.reason || "—"}</td>
+                    <td className="ax-nowrap" data-label="Result" style={row.meta_error ? { color: C.badInk } : undefined}>
                       {row.meta_error || (row.dry_run ? "Preview" : sentenceStatus(row.status))}
                     </td>
                   </tr>

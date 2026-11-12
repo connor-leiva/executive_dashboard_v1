@@ -17,9 +17,61 @@
  *             opacity only, nothing on data, and nothing moves under reduced motion.
  *
  * Colours come from adsTokens, which is still the only file under ads/ permitted a hex.
+ *
+ * Hallmark · v2.0.0 · shape: app screen · redesign: polish · scope: the Ads tab · theme: brand, kept · posture: restrained · states: loading, empty, error, full
+ * Hallmark · dismissed 40 · a disabled button's label (muted on parchment, about 3:1) is an inactive control, which WCAG 1.4.3 exempts; the state also shows in the not-allowed cursor and the disabled attribute
+ * Hallmark · dismissed 19 · the em dash here is the empty value of a figure or cell (adsTokens: null renders as a dash, never as 0), not punctuation in a sentence
  */
 import { alpha } from "../theme.js";
 import { C } from "./adsTokens.js";
+
+/* A table restacks instead of scrolling sideways with its figures out of sight: each row becomes
+ * a block led by its name (.ax-cell-title), with every figure under its own label (data-label),
+ * as many to a line as fit (two on a phone, four in a 670px laptop column).
+ *
+ * Written once and emitted per width, because a container query cannot read a variable. A table
+ * restacks below its own width: .ax-table--stack under 640px (Performance, the drill list),
+ * .ax-table--wide under 760px (Activity at 760, Budget at about 720), and .ax-table--narrow
+ * under 480px (Settings' guardrails, which fit a table down to there). The width that matters is
+ * the table's wrapper, not the window: with the side rail open, a 990px window leaves 670.
+ */
+const stackRules = (t) => `
+  .adsx ${t}, .adsx ${t} tbody { display:block; width:100%; min-width:0; }
+  .adsx ${t} thead { position:absolute; width:1px; height:1px; overflow:hidden;
+    clip:rect(0 0 0 0); white-space:nowrap; margin:-1px; padding:0; border:0; }
+  .adsx ${t} tr { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap:var(--ax-2) var(--ax-3); padding:var(--ax-3) var(--ax-pad); border-top:1px solid ${C.hair}; }
+  .adsx ${t} tbody tr:first-child { border-top:0; }
+  /* A plain table already sits inside a padded card, so its blocks take no second gutter. */
+  .adsx ${t}.ax-table--plain tr { padding-left:0; padding-right:0; }
+  .adsx ${t} td, .adsx ${t} td:first-child, .adsx ${t} td:last-child,
+  .adsx ${t} td.num, .adsx ${t} td.ax-nowrap {
+    min-width:0; padding:0; border:0; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+  .adsx ${t} td.ax-cell-title { grid-column:1 / -1; order:-1; }
+  .adsx ${t} td[data-label]::before { content:attr(data-label); display:block;
+    margin-bottom:2px; font-family:var(--font-text); font-size:var(--ax-meta); font-weight:500;
+    line-height:1.35; color:${C.quiet}; }
+  /* Selection and hover belong to the block, not to each cell, or the gaps between cells show. */
+  .adsx ${t} tbody tr.is-link:hover { background:${C.parchment}; }
+  .adsx ${t} tbody tr.is-on, .adsx ${t} tbody tr.is-on:hover {
+    background:${C.accentBg}; box-shadow:inset 2px 0 0 ${C.accent}; }
+  .adsx ${t} tbody tr td, .adsx ${t} tbody tr.is-link:hover td,
+  .adsx ${t} tbody tr.is-on td:first-child { background:none; box-shadow:none; }
+  .adsx ${t} .ax-money { width:100%; }
+
+  /* A sortable table keeps its heads, as one wrapping row of sort buttons above the blocks. */
+  .adsx ${t}.ax-table--sorts thead { position:static; display:block; width:auto; height:auto;
+    overflow:visible; clip:auto; margin:0; white-space:normal; }
+  .adsx ${t}.ax-table--sorts thead tr { display:flex; flex-wrap:wrap; align-items:center;
+    gap:0 var(--ax-3); padding:var(--ax-1) var(--ax-pad); border-bottom:1px solid ${C.line}; }
+  .adsx ${t}.ax-table--sorts thead tr::before { content:attr(data-sort-label); margin-right:var(--ax-1);
+    font-size:var(--ax-meta); font-weight:500; color:${C.quiet}; }
+  .adsx ${t}.ax-table--sorts thead th, .adsx ${t}.ax-table--sorts thead th:first-child,
+  .adsx ${t}.ax-table--sorts thead th:last-child { padding:0; border:0; }
+  /* thead in the selector outranks the touch-screen rule further down (-12px margins). */
+  .adsx ${t}.ax-table--sorts thead th .ax-sort, .adsx ${t}.ax-table--sorts thead th.num .ax-sort {
+    width:auto; flex-direction:row; margin:0; }
+`;
 
 export const screenCss = () => `
 .adsx {
@@ -59,6 +111,9 @@ export const screenCss = () => `
 .adsx .ax-brand { display:flex; align-items:center; gap:var(--ax-3); min-width:0; }
 .adsx .ax-h1 { margin:0; font-family:var(--font-display); font-size:var(--ax-fig); font-weight:600;
   line-height:1.2; letter-spacing:-.01em; color:${C.ink}; }
+/* The account and the window: two facts set apart by space, not joined by a dot. */
+.adsx .ax-facts { display:flex; flex-wrap:wrap; align-items:center; gap:var(--ax-1) var(--ax-4);
+  min-height:20px; }
 .adsx .ax-tabs { display:flex; gap:var(--ax-5); border-bottom:1px solid ${C.line}; overflow-x:auto;
   scrollbar-width:none; }
 .adsx .ax-tabs::-webkit-scrollbar { display:none; }
@@ -94,9 +149,13 @@ export const screenCss = () => `
 /* ── Segmented control: the app shell's period switch, on a card ground ── */
 .adsx .ax-seg { display:inline-flex; flex-wrap:wrap; gap:2px; padding:3px; max-width:100%;
   background:${C.surface}; border:1px solid ${C.line}; border-radius:10px; }
-.adsx .ax-seg button { height:28px; padding:0 12px; border:0; border-radius:7px; background:transparent;
-  cursor:pointer; font:500 var(--ax-meta)/1 var(--font-text); color:${C.slate}; white-space:nowrap;
+.adsx .ax-seg button { position:relative; height:28px; padding:0 12px; border:0; border-radius:7px;
+  background:transparent; cursor:pointer; font:500 var(--ax-meta)/1 var(--font-text); color:${C.slate};
+  white-space:nowrap;
   transition:background-color var(--ax-out) var(--ax-ease), color var(--ax-out) var(--ax-ease); }
+/* The pill is 28px, the control around it 36. The hit area reaches the control's edge, so a
+   click on the track's padding still lands on the choice under it. */
+.adsx .ax-seg button::after { content:""; position:absolute; inset:-4px -1px; }
 .adsx .ax-seg button[aria-checked="true"] { background:${C.evergreen}; color:${C.onDark}; }
 
 /* ── Cards ────────────────────────────────────────────────────────────── */
@@ -169,8 +228,12 @@ export const screenCss = () => `
 .adsx .ax-switch[aria-checked="true"] .ax-switch__track::after { transform:translateX(16px); }
 
 /* ── Tables ───────────────────────────────────────────────────────────── */
-.adsx .ax-scroll { overflow-x:auto; }
-.adsx .ax-table { width:100%; border-collapse:collapse; font-size:var(--ax-body); }
+/* The table's wrapper is a size container, so a table restacks when IT is narrow (a phone, or a
+   laptop window where the side rail leaves the tab 560px) rather than when the window is. */
+.adsx .ax-scroll { overflow-x:auto; container-type:inline-size; }
+/* --ax-minw is set per table (640 or 760) and dropped where the table restacks. */
+.adsx .ax-table { width:100%; min-width:var(--ax-minw, 0px); border-collapse:collapse;
+  font-size:var(--ax-body); }
 .adsx .ax-table th { padding:var(--ax-3) var(--ax-4); text-align:left; vertical-align:bottom;
   font-size:var(--ax-meta); font-weight:500; line-height:1.35; color:${C.quiet}; white-space:nowrap;
   border-bottom:1px solid ${C.line}; }
@@ -198,8 +261,14 @@ export const screenCss = () => `
   .adsx .ax-table--plain th { white-space:normal; }
   .adsx .ax-table--plain .ax-money { width:100px; }
 }
+@container (max-width:639px) {${stackRules(".ax-table--stack")}}
+@container (max-width:759px) {${stackRules(".ax-table--wide")}}
+@container (max-width:479px) {${stackRules(".ax-table--narrow")}}
 .adsx .ax-sort { display:inline-flex; align-items:center; gap:4px; padding:0; border:0; background:none;
   cursor:pointer; font:inherit; color:inherit; }
+/* A sort head is a 13px word; its target is the whole head cell, 32px tall, without growing the
+   row. A touch screen gets 44 below. */
+.adsx .ax-table th .ax-sort { width:100%; min-height:32px; margin:-7px 0; }
 .adsx .ax-sort svg { opacity:0; transition:opacity var(--ax-out) var(--ax-ease); }
 .adsx .ax-sort[data-on] { color:${C.ink}; }
 /* On a number column the arrow goes in front, so the label's right edge sits on the figures'. */
@@ -255,9 +324,14 @@ export const screenCss = () => `
 .adsx .ax-pace { display:grid; gap:var(--ax-4); }
 .adsx .ax-pace__head { display:flex; justify-content:space-between; align-items:baseline;
   gap:var(--ax-3); flex-wrap:wrap; }
-.adsx .ax-bar { height:8px; margin-top:6px; border-radius:999px; background:${alpha(C.ink, 0.07)};
-  overflow:hidden; }
+.adsx .ax-pace__fig { display:inline-flex; align-items:baseline; gap:var(--ax-3); }
+.adsx .ax-pace__word { font-size:var(--ax-meta); font-weight:600; }
+/* The bar is the whole week; the mark (b) is where the plan stands at the end of today. */
+.adsx .ax-bar { position:relative; height:8px; margin-top:6px; border-radius:999px;
+  background:${alpha(C.ink, 0.07)}; }
 .adsx .ax-bar > i { display:block; height:100%; border-radius:inherit; }
+.adsx .ax-bar > b { position:absolute; top:-3px; bottom:-3px; width:2px; margin-left:-1px;
+  border-radius:1px; background:${C.ink}; }
 
 /* Budget: the week chart. */
 .adsx .ax-week { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:var(--ax-2); }
@@ -273,18 +347,14 @@ export const screenCss = () => `
 .adsx .ax-key i.is-line { height:0; width:14px; border-radius:0; border-top:2px solid ${C.slate};
   background:none; }
 
-/* Lists of label-and-value rows: connections, the weekly plan, the brand plans. */
+/* Lists of label-and-value rows: the connections on Settings. Budget's brand plans are a table. */
 .adsx .ax-list > * + * { border-top:1px solid ${C.hair}; }
 .adsx .ax-kv { display:flex; justify-content:space-between; align-items:center; gap:var(--ax-4);
   padding:var(--ax-3) 0; }
 .adsx .ax-kv:first-child { padding-top:0; }
 .adsx .ax-kv__name { font-weight:600; color:${C.ink}; }
 .adsx .ax-kv__value { color:${C.slate}; text-align:right; overflow-wrap:anywhere; }
-.adsx .ax-listhead { padding-bottom:var(--ax-2); border-bottom:1px solid ${C.line}; }
-.adsx .ax-planrow { display:grid; grid-template-columns:minmax(0, 1fr) 132px; gap:var(--ax-4);
-  align-items:center; }
-.adsx .ax-planrow .ax-money { width:100%; }
-@media (max-width:640px) { .adsx .ax-planrow { grid-template-columns:minmax(0, 1fr) 100px; gap:var(--ax-3); } }
+.adsx .ax-kv__part { display:block; }
 @media (max-width:640px) {
   .adsx .ax-kv { flex-direction:column; align-items:flex-start; gap:var(--ax-1); }
   .adsx .ax-kv__value { text-align:left; }
@@ -309,6 +379,11 @@ export const screenCss = () => `
   font-variant-numeric:tabular-nums; color:${C.ink}; }
 .adsx .ax-thumb { display:block; width:100%; max-height:180px; object-fit:cover;
   border-radius:var(--ax-r-sm); border:1px solid ${C.hair}; }
+
+/* ── Loading: the screen as a skeleton of itself, under a header that stays ── */
+.adsx .ax-sk { display:block; height:12px; border-radius:4px; background:${alpha(C.ink, 0.07)};
+  animation:ax-pulse 1.4s ease-in-out infinite; }
+@keyframes ax-pulse { 50% { opacity:.55; } }
 
 /* ── Focus, hover, press, reduced motion ──────────────────────────────── */
 .adsx button:focus-visible, .adsx [role="button"]:focus-visible, .adsx a:focus-visible,

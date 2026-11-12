@@ -94,10 +94,10 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
         <section className="ax-section" aria-labelledby="ax-forum-vip">
           <h3 id="ax-forum-vip" className="ax-card__title">Forum VIP</h3>
           <div className="ax-stats">
-            <Stat label="Spring · leads in" value={spring?.missing ? "Not recorded" : num(spring?.n)}
+            <Stat label="Leads in, from Spring" value={spring?.missing ? "Not recorded" : num(spring?.n)}
                   hint="See who these leads are"
                   onClick={spring && !spring.missing ? () => onDrill?.(forum, "qualified", spring.label) : undefined} />
-            <Stat label="Justin · guest seats" value={justin?.missing ? "Not recorded" : num(justin?.n)}
+            <Stat label="Guest seats, from Justin" value={justin?.missing ? "Not recorded" : num(justin?.n)}
                   hint="See who holds these seats"
                   onClick={justin && !justin.missing ? () => onDrill?.(forum, "seat", justin.label) : undefined} />
             <Stat label="Cost / Spring lead" value={usd(spring?.cost_per)} />
@@ -122,9 +122,11 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 
       <Card flush>
         <div className="ax-scroll">
-          <table className="ax-table" style={{ minWidth: 640 }}>
+          {/* On a phone each row restacks under its own labels, and the heads become a row of
+              sort buttons, so no figure scrolls out of sight. */}
+          <table className="ax-table ax-table--stack ax-table--sorts" style={{ "--ax-minw": "640px" }}>
             <thead>
-              <tr>
+              <tr data-sort-label="Sort by">
                 {COLS[mode].map((col) => {
                   const on = sort === col.key;
                   return (
@@ -142,7 +144,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
             </thead>
             <tbody>
               {tableRows.length === 0 && (
-                <tr><td colSpan={COLS[mode].length}><Empty>Nothing matches this filter.</Empty></td></tr>
+                <tr><td className="ax-cell-title" colSpan={COLS[mode].length}><Empty>Nothing matches this filter.</Empty></td></tr>
               )}
               {tableRows.map((row) => {
                 const on = openKey === (row.external_id || row.id);
@@ -150,8 +152,8 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
                   <tr key={row.external_id || row.id} className={`is-link${on ? " is-on" : ""}`}
                       tabIndex={0} onClick={() => setOpen(row)} onKeyDown={rowKeys(() => setOpen(row))}>
                     {COLS[mode].map((col) => (
-                      <td key={col.key}
-                          className={col.num ? "num" : col.key === "name" ? "ax-strong" : "ax-soft"}>
+                      <td key={col.key} data-label={col.key === "name" ? undefined : col.label}
+                          className={col.num ? "num" : col.key === "name" ? "ax-strong ax-cell-title" : "ax-soft"}>
                         {cell(row, col.key)}
                         {col.key === "name" && row.fatigue ? <span className="ax-tag">Fatigue</span> : null}
                       </td>
