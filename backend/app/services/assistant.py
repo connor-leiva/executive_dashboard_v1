@@ -51,7 +51,14 @@ DRILL_TOOL = {
         "(e.g. to isolate or exclude specific large sales from a projection), or RECONCILE two "
         "counts. For a financial line, pass the row's 'key' (fin_projected, fin_closed, "
         "fin_expenses) and business='ulrg'|'sympli'; otherwise pass metric_key exactly as it "
-        "appears in a 'drill' field of the dashboard JSON."
+        "appears in a 'drill' field of the dashboard JSON. "
+        "MEMBER ROSTERS: 'forum_roster' (The Forum + Inner Circle), 'edge_roster' and 'bc_roster' "
+        "return the full roster drawer — one row per member with seg, member_type, tier, status, "
+        "payment plan, amount, last_payment, next_payment, enrolled, renews, brokerage, "
+        "stripe_account (which Stripe account bills them, e.g. the legacy account), and event "
+        "registration. Use these for any per-member attribute question (who is billed through "
+        "which Stripe account, who is at which brokerage, who is on monthly vs paid-in-full). "
+        "'active_members' is only a name list and carries none of those fields."
     ),
     "input_schema": {
         "type": "object",
@@ -197,7 +204,10 @@ def _system_prompt(ctx: dict, period: str) -> str:
         f"records BEHIND a tile or a financial line — naming specific members, listing the individual "
         f"deals behind Projected GCI (drill 'fin_projected' with business='ulrg' to see each pending "
         f"sale and its GCI, e.g. to exclude specific large deals and recompute), listing transactions, "
-        f"or reconciling two counts — call the tool. Prefer the summary/financials for overview "
+        f"or reconciling two counts — call the tool. For any question about individual members' "
+        f"attributes (Stripe account, brokerage, payment plan, renewal date, event registration) "
+        f"drill the roster ('forum_roster', 'edge_roster' or 'bc_roster') before saying a field is "
+        f"missing. Prefer the summary/financials for overview "
         f"questions; drill only when they genuinely can't answer. You may call it more than once.\n\n"
         f"TAB LEGEND:\n{ctx['legend']}\n\n"
         f"DASHBOARD DATA (JSON):\n{data_json}\n"
@@ -221,10 +231,44 @@ async def _run_tool(s, user: User, allowed_tabs: list[str], period: str, inp: di
             None, None, inp.get("stage"), inp.get("source"), inp.get("stream"))
     except Exception as e:  # unknown key / builder error — tell the model, don't 500
         return {"error": f"Couldn't fetch '{key}' ({type(e).__name__})."}
+    return _fit_detail(detail)
+
+
+# Ceiling on one tool result sent to the model. The result is cut by ROWS to fit this, never
+# by characters: slicing the JSON string left the model a half-row and a roster that silently
+# ended partway through, which it then answered from as if it were complete.
+TOOL_RESULT_CHARS = 60000
+
+
+def _strip_urls(v):
+    """Links are for the drawer's click-throughs, not for answering; on a roster they are
+    most of each row's size."""
+    if isinstance(v, dict):
+        return {k: _strip_urls(x) for k, x in v.items() if k not in ("url", "source_url")}
+    if isinstance(v, list):
+        return [_strip_urls(x) for x in v]
+    return v
+
+
+def _dumps(v) -> str:
+    return json.dumps(v, separators=(",", ":"), default=str)
+
+
+def _fit_detail(detail: dict) -> dict:
     rows = detail.get("rows")
-    if isinstance(rows, list) and len(rows) > 300:   # bound the token cost
-        detail = {**detail, "rows": rows[:300], "rows_truncated_from": len(rows)}
-    return detail
+    if not isinstance(rows, list):
+        return detail
+    total = len(rows)
+    rows = _strip_urls(rows[:300])                     # bound the token cost
+    out = {**detail, "rows": rows}
+    while len(_dumps(out)) > TOOL_RESULT_CHARS and rows:
+        rows = rows[: max(1, int(len(rows) * 0.8))] if len(rows) > 1 else []
+        out = {**detail, "rows": rows}
+    if len(rows) < total:
+        out["rows_truncated_from"] = total
+        out["note"] = (f"Only the first {len(rows)} of {total} rows are included; say the "
+                       f"answer may be incomplete and suggest checking the drawer.")
+    return out
 
 
 async def ask(s, user: User, question: str, history: list[dict] | None = None, period: str = "mtd",
@@ -285,7 +329,7 @@ async def ask(s, user: User, question: str, history: list[dict] | None = None, p
                 tools_used.append(b.input.get("metric_key", "?"))
                 out = await _run_tool(s, user, tabs, period, b.input)
                 results.append({"type": "tool_result", "tool_use_id": b.id,
-                                "content": json.dumps(out, separators=(",", ":"), default=str)[:24000]})
+                                "content": _dumps(out)})
         messages.append({"role": "assistant", "content": assistant_content})
         messages.append({"role": "user", "content": results})
 
