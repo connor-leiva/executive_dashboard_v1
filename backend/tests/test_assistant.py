@@ -55,3 +55,28 @@ async def test_member_financials_scoped_to_granted_tabs():
         async with SessionLocal() as s:
             await s.execute(delete(User).where(User.id == mid))
             await s.commit()
+
+
+def test_drill_tool_advertises_roster_fields():
+    """The roster drawer's per-member fields (Stripe account, brokerage) are only in the
+    roster drills; the tool must name them or the model drills active_members and gives up."""
+    from app.services.assistant import DRILL_TOOL
+    desc = DRILL_TOOL["description"]
+    assert "forum_roster" in desc and "stripe_account" in desc
+
+
+def test_tool_result_cut_by_rows_not_characters():
+    import json
+    from app.services.assistant import _fit_detail, TOOL_RESULT_CHARS
+    rows = [{"name": f"Member {i}", "stripe_account": "Legacy SB Account", "pad": "x" * 400,
+             "source_url": "https://app.gohighlevel.com/" + "y" * 200,
+             "last_payment": {"date": "2026-01-01", "amount": 1, "url": "https://stripe/" + "z" * 200}}
+            for i in range(250)]
+    out = _fit_detail({"label": "Roster", "rows": rows})
+    s = json.dumps(out)
+    json.loads(s)                                                 # still valid JSON
+    assert len(s) <= TOOL_RESULT_CHARS + 500
+    assert out["rows_truncated_from"] == 250 and "note" in out
+    assert "source_url" not in out["rows"][0] and "url" not in out["rows"][0]["last_payment"]
+    small = _fit_detail({"rows": rows[:5]})
+    assert len(small["rows"]) == 5 and "rows_truncated_from" not in small
