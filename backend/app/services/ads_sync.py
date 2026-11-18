@@ -244,18 +244,40 @@ def _creative_is_fresh(ad: Ad, cutoff: dt.datetime) -> bool:
     return got > cutoff
 
 
-async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token: str) -> int:
-    """Thumbnails and url_tags for the highest-spending ads, one request each.
+def _rank_for_refresh(rows, today: dt.date, recent_days: int) -> list:
+    """Ad ids, the one most worth a fresh picture first: spend in the last `recent_days`, then
+    lifetime spend.
 
-    Capped by ADS_MAX_CREATIVE_HOPS and ordered by spend, because the creative wall shows a
-    couple of dozen and there is no reason to buy detail for an ad nobody will look at.
+    Recent first because the tab ranks ads by spend IN THE WINDOW ON SCREEN (month to date by
+    default). Ranked by lifetime spend, August's $99k campaign kept the fresh slice while a
+    campaign launched this month, the one being looked at and acted on, fell into the weekly tail
+    and showed images past their signed expiry. Lifetime still orders the ads with no recent
+    spend, so a past window's biggest ads come next.
     """
-    spend_by_ad: dict = {}
-    for r in (await s.execute(select(AdInsightDaily).where(
-            AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
-            AdInsightDaily.level == "ad"))).scalars():
-        if r.ad_id:
-            spend_by_ad[r.ad_id] = spend_by_ad.get(r.ad_id, 0) + float(r.spend or 0)
+    since = today - dt.timedelta(days=recent_days - 1)
+    recent: dict = {}
+    total: dict = {}
+    for r in rows:
+        if not r.ad_id:
+            continue
+        amount = float(r.spend or 0)
+        total[r.ad_id] = total.get(r.ad_id, 0) + amount
+        if r.occurred_on and r.occurred_on >= since:
+            recent[r.ad_id] = recent.get(r.ad_id, 0) + amount
+    return sorted(total, key=lambda k: (-recent.get(k, 0), -total[k]))
+
+
+async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token: str) -> int:
+    """Thumbnails and url_tags for the ads the tab shows, one request each.
+
+    Capped by ADS_MAX_CREATIVE_HOPS and ordered by recent spend (_rank_for_refresh), because
+    the tab shows a few dozen and there is no reason to buy detail for an ad nobody will look at.
+    """
+    insight_rows = (await s.execute(select(AdInsightDaily).where(
+        AdInsightDaily.tenant_id == tenant_id, AdInsightDaily.ad_account_id == acct.id,
+        AdInsightDaily.level == "ad"))).scalars()
+    ranked = _rank_for_refresh(insight_rows, account_today(acct.timezone_name),
+                               settings.ADS_CREATIVE_RECENT_DAYS)
 
     ads_by_id = {a.id: a for a in (await s.execute(select(Ad).where(
         Ad.tenant_id == tenant_id, Ad.ad_account_id == acct.id))).scalars()}
@@ -268,15 +290,14 @@ async def _refresh_creatives(s: AsyncSession, tenant_id, acct: AdAccount, token:
     now = dt.datetime.now(dt.timezone.utc)
     hot_before = now - dt.timedelta(hours=settings.ADS_CREATIVE_HOT_TTL_HOURS)
     cold_before = now - dt.timedelta(days=settings.ADS_CREATIVE_TTL_DAYS)
-    ranked = sorted(spend_by_ad, key=lambda k: -spend_by_ad[k])
     stale = []
     for i, ad_id in enumerate(ranked):
         ad = ads_by_id.get(ad_id)
         if ad is None:
             continue
-        # Rank decides the deadline. The top slice is what the creative wall renders, and a
-        # signed URL that has expired there is the visible failure; further down, nobody is
-        # looking at the picture and a week-stale headline costs nothing.
+        # Rank decides the deadline. The top slice is what the tab renders (the gallery, the
+        # Today rows), and a signed URL that has expired there is the visible failure; further
+        # down, nobody is looking at the picture and a week-stale headline costs nothing.
         cutoff = hot_before if i < settings.ADS_CREATIVE_HOT_COUNT else cold_before
         if not _creative_is_fresh(ad, cutoff):
             stale.append(ad_id)

@@ -324,6 +324,9 @@ async def recommendation_items(s: AsyncSession, account: AdAccount, start, end) 
             "leads": d["leads"],
             "impressions": d["impressions"],
             "thumbnail_url": ad.thumbnail_url,
+            # What the audience read. Headline variants of one video share its thumbnail, so on
+            # Today the headline is what tells "ResultsH1" from "ResultsH2".
+            "headline": ad.headline,
             "status": ad.status,
             "people": people,
         })

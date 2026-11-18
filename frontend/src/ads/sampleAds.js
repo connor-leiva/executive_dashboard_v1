@@ -9,6 +9,24 @@
  * click layer is real and the chain to closed revenue is not built yet, and the view says so
  * rather than rendering an empty ladder.
  */
+import { AXCION } from "../palette.js";
+
+/* A drawn picture for some of the sample's ads, so an offline preview shows a loaded image as
+   well as the initials placeholder. Inline SVG and never a remote URL: a remote link that fails
+   HANGS rather than erroring, which is how an earlier sample showed empty boxes. The colours are
+   the default palette's own values, because an image cannot read the page's CSS variables. */
+const drawn = (ground, mark) => `data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 120\">"
+  + `<rect width="120" height="120" fill="${ground}"/>`
+  + `<circle cx="60" cy="50" r="22" fill="${mark}"/>`
+  + `<rect x="26" y="84" width="68" height="9" rx="4.5" fill="${mark}"/></svg>`)}`;
+const PIC = {
+  yoga: drawn(AXCION.evergreen, AXCION.meadow),
+  yoga2: drawn(AXCION.petalDeep, AXCION.parchment),
+  shift: drawn(AXCION.teal, AXCION.mist),
+  dallas: drawn(AXCION.daffodil, AXCION.evergreen),
+};
+
 const CAMPAIGNS = [
   { external_id: "23851", id: null, name: "Forum Dallas - VIP Guest", group: "Forum Dallas",
     daily_budget: 150, lifetime_budget: 4500,
@@ -128,19 +146,23 @@ export const sampleAdsOverview = {
     { level: "ad", external_id: "yoga-h1", name: "Video - Yoga - ResultsH1", group: "Forum Dallas",
       campaign: "Forum Dallas - VIP Guest", adset: "Yoga", spend: 420, leads: 0, seats: 0, status: "ACTIVE",
       verdict: "kill", action: "pause", metric: "seats", proposed: { status: "PAUSED" },
-      reason: "Spent $420, no seats / no enrollments" },
+      reason: "Spent $420, no seats / no enrollments",
+      thumbnail_url: PIC.yoga, headline: "Yoga that fits a Tuesday" },
     { level: "ad", external_id: "yoga-h2", name: "Video - Yoga - ResultsH2", group: "Forum Dallas",
       campaign: "Forum Dallas - VIP Guest", adset: "Yoga", spend: 180, leads: 0, seats: 0, status: "ACTIVE",
       verdict: "kill", action: "pause", metric: "seats", proposed: { status: "PAUSED" },
-      reason: "Spent $180, no seats / no enrollments" },
+      reason: "Spent $180, no seats / no enrollments",
+      thumbnail_url: PIC.yoga, headline: "An hour back in your week" },
     { level: "ad", external_id: "yoga2-h1", name: "Video - Yoga2 - ResultsH1", group: "Forum Dallas",
       campaign: "Forum Dallas - VIP Guest", adset: "Yoga", spend: 205, leads: 0, seats: 0, status: "ACTIVE",
       verdict: "kill", action: "pause", metric: "seats", proposed: { status: "PAUSED" },
-      reason: "Spent $205, no seats / no enrollments" },
+      reason: "Spent $205, no seats / no enrollments",
+      thumbnail_url: PIC.yoga2, headline: "Yoga that fits a Tuesday" },
     { level: "ad", external_id: "yoga2-low", name: "Video - Yoga2 - ResultsH1", group: "Forum Dallas",
       campaign: "Forum Dallas - VIP Guest", adset: "Yoga", spend: 12, leads: 0, seats: null, status: "ACTIVE",
       verdict: "keep", action: null, metric: "delivery", proposed: null,
-      reason: "Below the minimum delivery ($25 and 1,000 impressions) before a change." },
+      reason: "Below the minimum delivery ($25 and 1,000 impressions) before a change.",
+      thumbnail_url: PIC.yoga2, headline: "Yoga that fits a Tuesday" },
     { level: "campaign", external_id: "23854", name: "The Edge Webinar", group: "Edge Webinar",
       campaign: "The Edge Webinar", adset: null, spend: 6110, leads: 44, seats: 4, status: "ACTIVE",
       verdict: "scale", action: "set_daily_budget", metric: "cpl",
@@ -149,7 +171,8 @@ export const sampleAdsOverview = {
     { level: "ad", external_id: "a2", name: "KB-Shift-30s-motion", group: "beCollective / The Shift",
       campaign: "KB - The Shift - August2026", adset: "Motion", spend: 5180, leads: 51, seats: 0, status: "ACTIVE",
       verdict: "keep", action: null, metric: "ctr", proposed: null,
-      reason: "The numbers are inside the bands." },
+      reason: "The numbers are inside the bands.",
+      thumbnail_url: PIC.shift, headline: "Ninety days from now" },
     { level: "ad", external_id: "a3", name: "Event-Research-static-4x5", group: "Forum Dallas",
       campaign: "Forum Dallas - VIP Guest", adset: "Static", spend: 18, leads: 0, seats: null, status: "PAUSED",
       verdict: "keep", action: null, metric: "delivery", proposed: null,
@@ -300,23 +323,27 @@ export const sampleAdsCreatives = {
   connected: true,
   total: 4,
   ads: [
-    { id: "a1", name: "Forum-Dallas-1080x1080-v3", headline: "The room where it changes",
-      thumbnail_url: null, spend: 6420, impressions: 448_000, link_clicks: 5_210, leads: 88,
+    { id: "a1", external_id: "a1", name: "Forum-Dallas-1080x1080-v3", headline: "The room where it changes",
+      group: "Forum Dallas", campaign: "Forum Dallas - VIP Guest",
+      thumbnail_url: PIC.dallas, spend: 6420, impressions: 448_000, link_clicks: 5_210, leads: 88,
       ctr: rate(5210, 448000, 100), ctr_prior: rate(6400, 448000, 100),
       frequency: 2.4, fatigue: true, seats: 1, cost_per_seat: 6420,
       cpl: rate(6420, 88), url_tags: "utm_source=meta&utm_content={{ad.id}}" },
-    { id: "a2", name: "KB-Shift-30s-motion", headline: "Ninety days from now",
-      thumbnail_url: null, spend: 5180, impressions: 372_000, link_clicks: 3_640, leads: 51,
+    { id: "a2", external_id: "a2", name: "KB-Shift-30s-motion", headline: "Ninety days from now",
+      group: "beCollective / The Shift", campaign: "KB - The Shift - August2026",
+      thumbnail_url: PIC.shift, spend: 5180, impressions: 372_000, link_clicks: 3_640, leads: 51,
       ctr: rate(3640, 372000, 100), cpl: rate(5180, 51), seats: 0, cost_per_seat: null,
       url_tags: "utm_source=meta&utm_campaign=KB-Shift" },
-    // thumbnail_url stays null across the sample. A deliberately-broken URL was tried here to
-    // exercise the expired-image fallback and made the preview worse: the request HANGS rather
-    // than erroring, so the tile showed an empty box forever instead of the placeholder. The
-    // fallback renders through the same branch as the null case, which every tile here covers.
-    { id: "a3", name: "Event-Research-static-4x5", headline: "What would you call it?",
+    // a3 and a4 keep no picture, so the preview shows the initials placeholder as well. A broken
+    // REMOTE url was tried here once to exercise the expired-image fallback and made the preview
+    // worse: the request HANGS rather than erroring, so the tile showed an empty box forever. The
+    // fallback renders through the same branch as the null case, which these two cover.
+    { id: "a3", external_id: "a3", name: "Event-Research-static-4x5", headline: "What would you call it?",
+      group: "Forum Dallas", campaign: "Forum Dallas - VIP Guest",
       thumbnail_url: null, spend: 3110, impressions: 214_000, link_clicks: 1_820, leads: 19,
       ctr: rate(1820, 214000, 100), cpl: rate(3110, 19), url_tags: "utm_source=meta" },
-    { id: "a4", name: "Warm-list-carousel", headline: "You already know",
+    { id: "a4", external_id: "a4", name: "Warm-list-carousel", headline: "You already know",
+      group: "Other", campaign: "Retargeting - warm list",
       thumbnail_url: null, spend: 2040, impressions: 96_000, link_clicks: 860, leads: 0,
       ctr: rate(860, 96000, 100), cpl: null, url_tags: "utm_source=meta" },
   ],

@@ -477,7 +477,8 @@ def _alerts(totals: dict, campaigns: list[dict], unmatched: int, thresholds) -> 
 
 @router.get("/ads/creatives")
 async def creatives(account: str | None = Query(None), period: str = Query("30d"),
-                    campaign: str | None = None, sort: str = Query("spend"),
+                    campaign: str | None = None, brand: str | None = None,
+                    sort: str = Query("spend"),
                     limit: int = Query(24, le=96),
                     user: User = Depends(require_tab("ads")),
                     s: AsyncSession = Depends(get_session)):
@@ -485,6 +486,14 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
     if acct is None:
         return {"connected": False, "ads": [], "revenue_available": False}
     s_day, e_day, _ = A.ads_period(period, None, None, acct.timezone_name)
+    # Each ad carries its brand, by the same rules the overview groups campaigns with, so the
+    # tab's Brand filter works on ads too. Without it every ad row had no `group`, and picking a
+    # brand filtered the campaigns and silently left every brand's ads on screen. `brand` is
+    # applied HERE, before the limit, so a brand's view is its own highest spenders rather than
+    # whichever of the account's top ads happen to belong to it.
+    camp_rows = {c.id: c for c in (await s.execute(select(AdCampaign).where(
+        AdCampaign.tenant_id == user.tenant_id, AdCampaign.ad_account_id == acct.id))).scalars()}
+    rules = acct.group_rules or None
 
     rows = list((await s.execute(select(AdInsightDaily).where(
         AdInsightDaily.tenant_id == user.tenant_id, AdInsightDaily.ad_account_id == acct.id,
@@ -493,17 +502,26 @@ async def creatives(account: str | None = Query(None), period: str = Query("30d"
     ad_rows = {a.id: a for a in (await s.execute(select(Ad).where(
         Ad.tenant_id == user.tenant_id, Ad.ad_account_id == acct.id))).scalars()}
 
+    group_of: dict = {}
     agg: dict = {}
     for r in rows:
         a = ad_rows.get(r.ad_id)
         if a is None or (campaign and str(a.campaign_id) != campaign):
+            continue
+        if a.id not in group_of:
+            camp = camp_rows.get(a.campaign_id)
+            group_of[a.id] = (R.classify_campaign(camp.name, rules) if camp else R.FALLBACK_GROUP,
+                              camp.name if camp else None)
+        group, camp_name = group_of[a.id]
+        if brand and group != brand:
             continue
         d = agg.setdefault(a.id, {"id": str(a.id), "name": a.name, "headline": a.headline,
                                   "thumbnail_url": a.thumbnail_url, "spend": 0.0,
                                   "impressions": 0, "link_clicks": 0, "leads": 0,
                                   "frequency": None, "_freqs": [],
                                   "url_tags": a.url_tags, "status": a.status,
-                                  "adset": a.adset_name})
+                                  "adset": a.adset_name, "group": group,
+                                  "campaign": camp_name})
         d["spend"] += float(r.spend or 0)
         d["impressions"] += r.impressions or 0
         d["link_clicks"] += r.inline_link_clicks or 0

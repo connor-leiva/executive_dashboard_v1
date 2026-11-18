@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 
 import { API_BASE, postJSON } from "../../api";
 import { C, num, pct, usd } from "../adsTokens.js";
+import CreativeWall from "../CreativeWall.jsx";
 import {
-  Btn, Card, Drawer, Empty, Glyph, MoneyInput, PageTitle, Segmented, Stat, rowKeys, sentenceStatus,
+  Btn, Card, Drawer, Empty, ErrorNote, Glyph, MoneyInput, PageTitle, Segmented, Stat, Thumb, rowKeys,
+  sentenceStatus,
 } from "../ui.jsx";
 
 const COLS = {
@@ -33,8 +35,11 @@ function cell(row, key) {
   return row[key] || "—";
 }
 
-export default function Performance({ data, creatives, brand, setBrand, onDrill }) {
+export default function Performance({ data, creatives, creativesState, brand, setBrand, onDrill }) {
   const [mode, setMode] = useState("campaigns");
+  // Ads open as the gallery: the pictures are the point of looking at ads rather than campaigns.
+  const [view, setView] = useState("gallery");
+  const [gsort, setGsort] = useState("spend");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("spend");
   const [dir, setDir] = useState(-1);
@@ -62,7 +67,7 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
       cpc: clicks ? spend / clicks : null,
       cpl: leads ? spend / leads : null,
     } : null;
-    return { rows: filtered.slice().sort((a, b) => {
+    return { filtered, rows: filtered.slice().sort((a, b) => {
       const av = a[sort]; const bv = b[sort];
       if (typeof av === "string" || typeof bv === "string") return String(av || "").localeCompare(String(bv || "")) * dir;
       return ((av ?? -1) - (bv ?? -1)) * dir;
@@ -78,6 +83,8 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
 
   const brandOptions = [["", "All brands"], ...(data.groups || []).map((g) => [g.name, g.name])];
   const openKey = open && (open.external_id || open.id);
+  const fetched = (creatives?.ads || []).length;
+  const adsLoading = mode === "ads" && !!creativesState?.loading;
 
   return (
     <div className="ax-stack">
@@ -114,12 +121,29 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
       <div className="ax-row" style={{ gap: 12 }}>
         <Segmented label="Show" value={mode} onChange={setMode}
                    options={[["campaigns", "Campaigns"], ["ads", "Ads"]]} />
+        {mode === "ads" && (
+          <Segmented label="Show ads as" value={view} onChange={setView}
+                     options={[["gallery", "Gallery"], ["table", "Table"]]} />
+        )}
         <input className="ax-input ax-search" aria-label="Filter by name" value={q}
                placeholder="Filter by name" onChange={(e) => setQ(e.target.value)} />
         <Segmented label="Brand" value={brand || ""} onChange={(k) => setBrand(k || null)}
                    options={brandOptions} />
       </div>
 
+      {mode === "ads" && view === "gallery" ? (
+        <CreativeWall ads={rows.filtered} fetched={fetched} total={creatives?.total ?? fetched}
+                      filtered={rows.filtered.length !== fetched}
+                      seatsAvailable={!!creatives?.seats_available}
+                      revenueReason={creatives?.revenue_reason}
+                      sort={gsort} onSort={setGsort} openKey={openKey} onOpen={setOpen}
+                      loading={adsLoading} error={mode === "ads" ? creativesState?.error : null}
+                      onRetry={creativesState?.retry} />
+      ) : (
+      <>
+      {mode === "ads" && creativesState?.error && (
+        <ErrorNote onRetry={creativesState.retry}>Couldn&apos;t load the ads.</ErrorNote>
+      )}
       <Card flush>
         <div className="ax-scroll">
           {/* On a phone each row restacks under its own labels, and the heads become a row of
@@ -144,7 +168,9 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
             </thead>
             <tbody>
               {tableRows.length === 0 && (
-                <tr><td className="ax-cell-title" colSpan={COLS[mode].length}><Empty>Nothing matches this filter.</Empty></td></tr>
+                <tr><td className="ax-cell-title" colSpan={COLS[mode].length}>
+                  <Empty>{adsLoading ? "Loading the ads…" : "Nothing matches this filter."}</Empty>
+                </td></tr>
               )}
               {tableRows.map((row) => {
                 const on = openKey === (row.external_id || row.id);
@@ -165,6 +191,8 @@ export default function Performance({ data, creatives, brand, setBrand, onDrill 
           </table>
         </div>
       </Card>
+      </>
+      )}
 
       {open && (
         <Drawer title={open.name} onClose={() => setOpen(null)}>
@@ -228,8 +256,19 @@ function RowActions({ row, level, data }) {
 
   return (
     <div className="ax-stack">
-      {row.thumbnail_url && <img className="ax-thumb" src={row.thumbnail_url} alt="" />}
-      <p className="ax-meta">{row.group || row.headline || "Ad"}</p>
+      {/* The whole picture, letterboxed rather than cropped: this is where someone judges the
+          creative, and a 9:16 video frame cropped to a square is not the ad they ran. */}
+      {level === "ad" && <Thumb variant="hero" src={row.thumbnail_url} name={row.name} />}
+      <p className="ax-facts ax-meta">
+        <span>{row.group || (level === "ad" ? "Ad" : "Campaign")}</span>
+        {level === "ad" && row.campaign && <span>{row.campaign}</span>}
+      </p>
+      {level === "ad" && row.headline && (
+        <div>
+          <div className="ax-label">Headline</div>
+          <p className="ax-text" style={{ color: C.ink }}>{row.headline}</p>
+        </div>
+      )}
       <dl className="ax-dl">
         <div><dt>Spend</dt><dd>{usd(row.spend)}</dd></div>
         <div><dt>Leads</dt><dd>{num(row.leads)}</dd></div>

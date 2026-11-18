@@ -4,7 +4,8 @@ import { API_BASE, postJSON } from "../../api";
 import { C, num, usd } from "../adsTokens.js";
 import { accountToday, weekPace, windowPace, windowPhrase } from "../pace.js";
 import {
-  Banner, Btn, Card, Drawer, Empty, Glyph, PACE_WORD, PageTitle, Stat, foldRows, sentenceStatus, tone,
+  Banner, Btn, Card, Drawer, Empty, Glyph, PACE_WORD, PageTitle, Stat, Thumb, foldRows, sentenceStatus,
+  tone,
 } from "../ui.jsx";
 
 const VERDICT = { kill: "Turn off", keep: "Keep", scale: "Scale" };
@@ -126,7 +127,10 @@ export default function Today({ data, onSaved, onBudget }) {
                       onClick={() => setShowKeeps((v) => !v)}>
                 <Glyph name="chevron" />
                 <span className="ax-verdict" data-v="keep">Keep</span>
-                <span>
+                {/* A summary of many ads has no one picture; the empty slot keeps its text in
+                    line with the rows' names. */}
+                <span className="ax-pic-slot" aria-hidden="true" />
+                <span className="ax-dec__summary">
                   <span className="ax-dec__name">
                     {keeps.length} {keeps.length === 1 ? "ad" : "ads"} to keep
                   </span>
@@ -171,11 +175,19 @@ export default function Today({ data, onSaved, onBudget }) {
 
       {open && (
         <Drawer title={open.name} onClose={() => setOpenKey(null)}>
+          {/* The ad being turned off or scaled, whole. An ad set or campaign has no one picture. */}
+          {open.level === "ad" && <Thumb variant="hero" src={open.thumbnail_url} name={open.name} />}
           <div className="ax-stack" style={{ gap: 4 }}>
             <span className="ax-verdict" data-v={open.verdict}>{VERDICT[open.verdict] || open.verdict}</span>
             <p className="ax-text" style={{ color: C.ink }}>{open.reason}</p>
             <p className="ax-meta">{placement(open) || open.group}</p>
           </div>
+          {open.headline && (
+            <div>
+              <div className="ax-label">Headline</div>
+              <p className="ax-text" style={{ color: C.ink }}>{open.headline}</p>
+            </div>
+          )}
           <dl className="ax-dl">
             <div><dt>Spend</dt><dd>{usd(open.spend)}</dd></div>
             <div><dt>Leads</dt><dd>{num(open.leads)}</dd></div>
@@ -261,6 +273,8 @@ function DecisionGroup({ bucket, picked, setPicked, openKey, setOpenKey, keeps }
         <button type="button" className="ax-dec__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <Glyph name="chevron" />
           <span className="ax-verdict" data-v={head.verdict}>{VERDICT[head.verdict]}</span>
+          {/* Headline variants of one video share its picture, so the first stands for the group. */}
+          <Thumb variant="sm" src={head.level === "ad" ? head.thumbnail_url : null} name={head.name} />
           <span className="ax-dec__name">
             {head.name.replace(/\s*[-–—]?\s*ResultsH\d+/i, "")}
             <span className="ax-dec__group">{bucket.rows.length} variants</span>
@@ -299,6 +313,8 @@ function RowBody({ item, keeps, onOpen, nested }) {
       <span className="ax-verdict" data-v={item.verdict}>
         {nested ? "" : (VERDICT[item.verdict] || item.verdict)}
       </span>
+      {/* An ad set or campaign row has no single picture; its initials hold the place. */}
+      <Thumb variant="sm" src={item.level === "ad" ? item.thumbnail_url : null} name={item.name} />
       <span>
         <span className="ax-dec__name">{item.name}</span>
         <span className="ax-dec__group">{item.group}</span>

@@ -378,10 +378,52 @@ def test_the_wall_slice_refreshes_daily_and_the_rest_weekly():
     assert settings.ADS_CREATIVE_HOT_TTL_HOURS < settings.ADS_CREATIVE_TTL_DAYS * 24
     assert settings.ADS_CREATIVE_HOT_TTL_HOURS < 24, \
         "a TTL of a day or more lets the wall's images expire between refreshes"
-    # The hot slice must cover what the wall asks for, or the last tiles rot.
-    assert settings.ADS_CREATIVE_HOT_COUNT >= 24
+    # That the hot slice covers what the tab asks for is checked against the tab's own source in
+    # test_the_fresh_slice_covers_every_ad_the_tab_shows, not restated as a number here.
     assert settings.ADS_CREATIVE_HOT_COUNT <= settings.ADS_MAX_CREATIVE_HOPS, \
         "more hot ads than the per-sync hop cap means the tail never refreshes at all"
+
+
+def test_the_fresh_slice_covers_every_ad_the_tab_shows():
+    """The five-screen split raised the tab's creatives request from 24 to 48 and left this slice
+    at 24, so ads 25 to 48 carried images refreshed weekly, past their signed expiry. Nothing
+    failed; the number just drifted. So read the limit the tab actually asks for."""
+    import pathlib
+    import re
+
+    from app.config import settings
+    view = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" / "ads" / "AdsView.jsx"
+    found = re.search(r"useAdsCreatives\(\{[^}]*\blimit:\s*(\d+)", view.read_text(encoding="utf-8"))
+    assert found, "AdsView no longer passes a creatives limit this test can read"
+    assert settings.ADS_CREATIVE_HOT_COUNT >= int(found.group(1)), \
+        "the tab shows more ads than the daily refresh keeps fresh; the tail's images will expire"
+
+
+def test_the_fresh_slice_follows_recent_spend_not_lifetime_spend():
+    """The tab ranks ads by spend in the window on screen. Ranked by LIFETIME spend, August's
+    $99k campaign held the fresh slice and an ad launched this month, the one being looked at,
+    fell into the weekly tail. Ads with no recent spend still order by lifetime spend."""
+    from app.services import ads_sync as A
+
+    class _Row:
+        def __init__(self, ad_id, day, spend):
+            self.ad_id, self.occurred_on, self.spend = ad_id, day, spend
+
+    today = dt.date(2026, 11, 17)
+    rows = [
+        _Row("august", dt.date(2026, 8, 20), 99_000),         # biggest lifetime, nothing recent
+        _Row("this_month", dt.date(2026, 11, 12), 1_200),
+        _Row("this_month", dt.date(2026, 11, 15), 300),
+        _Row("both", dt.date(2026, 11, 1), 2_000),            # 17 days ago: inside 30
+        _Row("both", dt.date(2026, 9, 1), 5_000),
+        _Row("small_old", dt.date(2026, 7, 1), 500),
+        _Row(None, dt.date(2026, 11, 16), 40_000),            # an unlinked row ranks nothing
+    ]
+    ranked = A._rank_for_refresh(rows, today, 30)
+    assert ranked == ["both", "this_month", "august", "small_old"]
+    # The window edge: a day exactly `recent_days` back is the first one NOT counted.
+    edge = [_Row("x", dt.date(2026, 10, 18), 10), _Row("y", dt.date(2026, 10, 19), 1)]
+    assert A._rank_for_refresh(edge, today, 30) == ["y", "x"]
 
 
 def test_an_ad_holding_a_64px_thumbnail_is_stale_whatever_its_timestamp():

@@ -290,13 +290,15 @@ export const screenCss = () => `
 .adsx .ax-dec.is-on { background:${C.accentBg}; box-shadow:inset 2px 0 0 ${C.accent}; }
 .adsx .ax-dec > .ax-check { margin-top:-10px; }
 .adsx .ax-dec--nested { padding-top:var(--ax-2); padding-bottom:var(--ax-2); border-top-color:transparent; }
-.adsx .ax-dec__open { display:grid; grid-template-columns:72px minmax(0, 1fr); column-gap:var(--ax-3);
+/* Verdict, the ad's picture, then the words: you decide on an ad you can see. */
+.adsx .ax-dec__open { display:grid; grid-template-columns:72px 48px minmax(0, 1fr); column-gap:var(--ax-3);
   width:100%; padding:0; border:0; background:none; text-align:left; cursor:pointer; font:inherit;
   color:inherit; }
 .adsx .ax-dec__head { grid-column:1 / -1; display:grid;
-  grid-template-columns:20px 72px minmax(0, 1fr) auto; column-gap:var(--ax-3); align-items:start;
+  grid-template-columns:20px 72px 48px minmax(0, 1fr) auto; column-gap:var(--ax-3); align-items:start;
   width:100%; padding:0; border:0; background:none; text-align:left; cursor:pointer; font:inherit;
   color:inherit; }
+.adsx .ax-pic-slot { display:block; width:48px; }
 .adsx .ax-dec__head > svg { margin-top:2px; color:${C.quiet};
   transition:transform var(--ax-panel) var(--ax-ease); }
 .adsx .ax-dec__head[aria-expanded="true"] > svg { transform:rotate(180deg); }
@@ -311,13 +313,18 @@ export const screenCss = () => `
   white-space:nowrap; }
 .adsx .ax-empty { padding:var(--ax-pad); }
 @media (max-width:640px) {
-  /* The verdict moves above the name, so a long ad name gets the row's whole width. */
-  .adsx .ax-dec__open { grid-template-columns:minmax(0, 1fr); }
+  /* The verdict moves above, and the picture sits beside the name, so a long ad name still gets
+     most of the row. */
+  .adsx .ax-dec__open { grid-template-columns:40px minmax(0, 1fr); row-gap:var(--ax-1); }
+  .adsx .ax-dec__open > .ax-verdict { grid-column:1 / -1; }
   .adsx .ax-dec__open > .ax-verdict:empty { display:none; }
-  .adsx .ax-dec__head { grid-template-columns:20px minmax(0, 1fr) auto; }
-  .adsx .ax-dec__head > .ax-verdict { grid-column:2; grid-row:1; }
-  .adsx .ax-dec__head > :nth-child(3) { grid-column:2; grid-row:2; }
-  .adsx .ax-dec__head > .ax-dec__more { grid-column:3; grid-row:1; }
+  .adsx .ax-dec__head { grid-template-columns:20px 40px minmax(0, 1fr) auto; row-gap:var(--ax-1); }
+  .adsx .ax-dec__head > .ax-verdict { grid-column:2 / 4; grid-row:1; }
+  .adsx .ax-dec__head > .ax-pic { grid-column:2; grid-row:2; }
+  .adsx .ax-dec__head > :nth-child(4) { grid-column:3 / 5; grid-row:2; }
+  .adsx .ax-dec__head > .ax-dec__summary { grid-column:2 / 5; }
+  .adsx .ax-dec__head > .ax-dec__more { grid-column:4; grid-row:1; }
+  .adsx .ax-pic-slot { display:none; }
 }
 
 /* ── Pace bars ────────────────────────────────────────────────────────── */
@@ -377,8 +384,46 @@ export const screenCss = () => `
 .adsx .ax-dl dt { font-size:var(--ax-meta); color:${C.quiet}; }
 .adsx .ax-dl dd { margin:2px 0 0; font-family:var(--font-data); font-size:var(--ax-title);
   font-variant-numeric:tabular-nums; color:${C.ink}; }
-.adsx .ax-thumb { display:block; width:100%; max-height:180px; object-fit:cover;
-  border-radius:var(--ax-r-sm); border:1px solid ${C.hair}; }
+
+/* ── Ad pictures. The initials sit UNDER the image (Thumb, ui.jsx), so an expired link degrades
+   to them rather than to an empty box. tile: square, fills its width. sm: Today's rows. hero: the
+   whole picture letterboxed in a side panel, because a 9:16 frame cropped square is not the ad. */
+.adsx .ax-pic { position:relative; display:flex; align-items:center; justify-content:center; flex:none;
+  width:100%; aspect-ratio:1 / 1; overflow:hidden; border-radius:var(--ax-r-sm);
+  background:${C.parchment}; border:1px solid ${C.hair}; }
+.adsx .ax-pic > img { position:absolute; inset:0; display:block; width:100%; height:100%;
+  object-fit:cover; }
+.adsx .ax-pic__mark { font-family:var(--font-display); font-size:var(--ax-fig-sm); font-weight:600;
+  line-height:1; color:${C.quiet}; }
+.adsx .ax-pic--sm { width:48px; height:48px; aspect-ratio:auto; border-radius:6px; }
+.adsx .ax-pic--sm .ax-pic__mark { font-size:var(--ax-meta); }
+.adsx .ax-pic--hero { aspect-ratio:4 / 3; }
+.adsx .ax-pic--hero > img { object-fit:contain; }
+@media (max-width:640px) { .adsx .ax-pic--sm { width:40px; height:40px; } }
+
+/* ── Performance > Ads: the gallery (the creative wall) ── */
+.adsx .ax-gallery { display:grid; gap:var(--ax-4);
+  grid-template-columns:repeat(auto-fill, minmax(196px, 1fr)); }
+@media (max-width:640px) {
+  .adsx .ax-gallery { gap:var(--ax-3); grid-template-columns:repeat(auto-fill, minmax(148px, 1fr)); }
+}
+.adsx .ax-tile { display:grid; gap:var(--ax-3); align-content:start; width:100%; min-width:0;
+  padding:var(--ax-3); text-align:left; font:inherit; color:inherit; }
+.adsx .ax-tile.is-on { border-color:${C.accent}; box-shadow:inset 0 0 0 1px ${C.accent}; }
+.adsx .ax-tile__text { display:grid; gap:2px; min-width:0; }
+.adsx .ax-tile__name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600;
+  color:${C.ink}; }
+.adsx .ax-tile__headline { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; font-size:var(--ax-meta); line-height:1.45; color:${C.slate}; }
+.adsx .ax-tile__tag { justify-self:start; margin:var(--ax-1) 0 0; }
+.adsx .ax-tile__figs { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:var(--ax-2) var(--ax-3); padding-top:var(--ax-3); border-top:1px solid ${C.hair}; }
+/* Figures sit at the bottom of their row, so when one label wraps ("Meta cost / lead") the two
+   values beside each other still share a line and can be compared. */
+.adsx .ax-tile__fig { display:grid; gap:2px; min-width:0; align-content:end; }
+.adsx .ax-tile__label { font-size:var(--ax-meta); line-height:1.35; color:${C.quiet}; }
+.adsx .ax-tile__value { overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--font-data); font-variant-numeric:tabular-nums; color:${C.ink}; }
 
 /* ── Loading: the screen as a skeleton of itself, under a header that stays ── */
 .adsx .ax-sk { display:block; height:12px; border-radius:4px; background:${alpha(C.ink, 0.07)};
@@ -403,6 +448,9 @@ export const screenCss = () => `
   .adsx .ax-lift:hover { transform:translateY(-2px); border-color:${C.hairDeep};
     box-shadow:0 8px 24px ${alpha(C.ink, 0.07)}; transition-duration:180ms; }
   .adsx .ax-lift:hover .ax-stat__go { transform:translateX(3px); color:${C.ink}; }
+  /* An open tile keeps its ring through the lift. */
+  .adsx .ax-tile.is-on:hover { border-color:${C.accent};
+    box-shadow:inset 0 0 0 1px ${C.accent}, 0 8px 24px ${alpha(C.ink, 0.07)}; }
   .adsx .ax-table tr.is-link:hover td { background:${C.parchment}; transition-duration:var(--ax-in); }
   .adsx .ax-table tr.is-on:hover td { background:${C.accentBg}; }
   .adsx .ax-dec:hover { background:${C.parchment}; transition-duration:var(--ax-in); }

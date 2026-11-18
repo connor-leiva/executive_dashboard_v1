@@ -27,7 +27,10 @@ export default function AdsView({ periodKey }) {
 
   const accounts = useAdsAccounts();
   const { data, error, retry } = useAdsOverview({ account, period, basis, campaign });
-  const creatives = useAdsCreatives({ account, period, campaign, sort: "spend", limit: 48 });
+  // The limit is the most ads the tab shows with a picture, and the sync keeps that many fresh
+  // (ADS_CREATIVE_HOT_COUNT; backend test_ads_sync reads this line). The brand goes to the API so
+  // a brand's gallery is its own highest spenders, not a slice of the account's.
+  const creatives = useAdsCreatives({ account, period, campaign, brand, sort: "spend", limit: 40 });
   const writes = useAdsWrites(data?.account?.id);
 
   // The account's name outlives a reload of its numbers, so the header can keep it on screen
@@ -147,6 +150,7 @@ export default function AdsView({ periodKey }) {
       {ready && screen === "today" && <Today data={data} onSaved={retry} onBudget={() => setScreen("budget")} />}
       {ready && screen === "performance" && (
         <Performance data={data} creatives={creatives.data} brand={brand}
+                     creativesState={{ loading: creatives.loading, error: creatives.error, retry: creatives.retry }}
                      setBrand={setBrand} onDrill={openDrill} />
       )}
       {ready && screen === "budget" && <Budget data={data} onSaved={retry} />}

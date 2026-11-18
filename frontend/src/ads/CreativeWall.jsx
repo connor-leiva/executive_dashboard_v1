@@ -1,165 +1,123 @@
-/* The creative wall. SPEC-ads-module.md Part 13 and 3.9.
+/* The creative wall, now the Gallery view of Performance > Ads. SPEC-ads-module.md Part 13, 3.9.
  *
- * The ads themselves, ranked by spend. This is the one place on the tab where somebody is
- * looking at a THING rather than a number, and it is how a marketer recognises the campaign
- * they are being shown figures about.
+ * The ads themselves. This is the one place on the tab where somebody looks at a THING rather
+ * than a number, and it is how a marketer recognises the campaign the figures are about. The
+ * five-screen split (7db2f03) stopped rendering it without saying so; this is the same wall,
+ * restyled into screenStyles.js, and each tile opens the ad's side panel.
  *
  * Two facts shape it more than the layout does:
  *
- *   * Meta thumbnail URLs are SIGNED AND SHORT-LIVED (3.9). They expire, and an expired one
- *     reads as a fault in this dashboard rather than an expiry upstream. Every tile therefore
- *     renders its own placeholder UNDERNEATH the image, so missing, expired, unreachable and
- *     transparent all degrade to the same legible thing. Phase 5 caches the bytes to R2 and the
- *     problem goes away; until then this is the difference between "stale" and "broken".
+ *   * Meta thumbnail links are SIGNED AND SHORT-LIVED. Every picture draws the ad's initials
+ *     underneath itself (Thumb, ui.jsx), so an expired link reads as a placeholder rather than a
+ *     fault, and the sync re-signs the ads with the most recent spend every day
+ *     (ads_sync._rank_for_refresh, ADS_CREATIVE_HOT_COUNT).
  *
- *   * Revenue per ad is NOT here, and its absence is stated rather than left as a blank column.
- *     It needs utm_content={{ad.id}} on the ad URLs and a matching CRM field - measured at 0 of
- *     56 ads. A wall with an empty revenue column invites the reading that these ads earned
- *     nothing, which is the specific wrong conclusion this module exists to prevent.
+ *   * Revenue per ad is NOT here, and the footnote says why rather than leaving a blank figure.
+ *     It needs utm_content={{ad.id}} on the ads and a matching CRM field. A tile with an empty
+ *     revenue figure invites the reading that the ad earned nothing, which is the specific wrong
+ *     conclusion this module exists to prevent.
  */
-import { useState } from "react";
+import { num, pct, usd } from "./adsTokens.js";
+import { GALLERY_SORTS, SORT_NOTE, gallerySort } from "./creative.js";
+import { Empty, ErrorNote, Segmented, Thumb } from "./ui.jsx";
 
-import { C, FIG, FONT, HEAD, compact, pct, usd } from "./adsTokens.js";
-
-/* Initials from an ad name, for the placeholder. Meta names are structured
-   ("Video - ProductionProblem - Justin1"), so the first letter of the first two segments
-   distinguishes far better than the first two characters of the whole string. */
-function initials(name) {
-  const parts = String(name || "?").split(/[\s\-_]+/).filter(Boolean);
-  return (parts.slice(0, 2).map((p) => p[0]).join("") || "?").toUpperCase();
-}
-
-function Thumb({ src, name }) {
-  const [failed, setFailed] = useState(false);
-
-  /* The initials sit UNDERNEATH the image rather than instead of it. Swapping on `onError`
-     alone covers an expired URL that answers, and misses the one that does not: a request to an
-     unreachable host stays pending forever, no error event ever fires, and the tile holds an
-     empty box for the life of the page. Found by pointing this at a dead URL and watching it
-     hang rather than fail. Layering covers expired, missing, unreachable and transparent with
-     one rule, and a loaded opaque image covers the initials the moment it paints. */
+function Fig({ label, children }) {
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 10,
-                  background: C.surface2, border: `1px solid ${C.line}`, overflow: "hidden",
-                  display: "flex", alignItems: "center", justifyContent: "center" }}
-         title={src && !failed ? name : "No image available for this ad"}>
-      <span aria-hidden="true"
-            style={{ fontFamily: HEAD, fontSize: 20, fontWeight: 600, color: C.muted }}>
-        {initials(name)}
-      </span>
-      {/* lazy + async decode: these are now full-resolution creatives (170-300KB each, measured)
-          rather than 64px thumbnails, and two dozen of them decoding on the main thread would
-          jank the scroll they are being scrolled into. */}
-      {src && !failed && (
-        <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)}
-             style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
-                      objectFit: "cover", display: "block" }} />
-      )}
-    </div>
+    <span className="ax-tile__fig">
+      <span className="ax-tile__label">{label}</span>
+      <span className="ax-tile__value">{children}</span>
+    </span>
   );
 }
 
-/* One figure and its label. Deliberately not the Stat card from AdsView - inside a 200px tile
-   the card's padding costs more than the border earns. */
-function Cell({ label, children }) {
+function Tile({ ad, on, onOpen }) {
   return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600,
-                    color: C.muted }}>{label}</div>
-      <div style={{ fontFamily: FIG, fontVariantNumeric: "tabular-nums", fontSize: 13,
-                    color: C.ink, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden",
-                    textOverflow: "ellipsis" }}>{children}</div>
-    </div>
-  );
-}
-
-function AdTile({ ad }) {
-  return (
-    <div className="ads-tile"
-         style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
-                  padding: 12, display: "grid", gap: 10, alignContent: "start" }}>
+    <button type="button" className={`ax-card ax-tile ax-lift${on ? " is-on" : ""}`}
+            onClick={() => onOpen(ad)}>
       <Thumb src={ad.thumbnail_url} name={ad.name} />
+      <span className="ax-tile__text">
+        {/* The NAME is the operator's handle on the ad: what they called it in Ads Manager and
+            will search for. The headline is what the audience saw. Both matter, and they are
+            frequently nothing like each other. */}
+        <span className="ax-tile__name" title={ad.name}>{ad.name}</span>
+        {ad.headline && <span className="ax-tile__headline" title={ad.headline}>{ad.headline}</span>}
+        {ad.fatigue && <span className="ax-tag ax-tile__tag">Fatigue</span>}
+      </span>
+      <span className="ax-tile__figs">
+        <Fig label="Spend">{usd(ad.spend)}</Fig>
+        <Fig label="Link CTR">{pct(ad.ctr)}</Fig>
+        <Fig label="Frequency">{ad.frequency == null ? "—" : Number(ad.frequency).toFixed(2)}</Fig>
+        {/* Meta's lead count is Meta measuring itself, so the label says whose number it is. */}
+        <Fig label="Meta cost / lead">{ad.leads ? usd(ad.cpl, 2) : "—"}</Fig>
+        <Fig label="Seats">{ad.seats == null ? "—" : num(ad.seats)}</Fig>
+        <Fig label="Cost / seat">{usd(ad.cost_per_seat)}</Fig>
+      </span>
+    </button>
+  );
+}
 
-      <div style={{ minWidth: 0 }}>
-        {/* The ad NAME is the operator's handle on it - it is what they renamed in Ads Manager
-            and what they will search for. The headline is what the audience saw. Both matter,
-            and they are frequently nothing like each other. */}
-        <div title={ad.name}
-             style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.ink,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {ad.name}
+function GallerySkeleton() {
+  return (
+    <div className="ax-gallery" role="status" aria-busy="true">
+      <span className="ax-sr">Loading the ads</span>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="ax-card ax-tile" aria-hidden="true">
+          <span className="ax-sk" style={{ height: "auto", aspectRatio: "1 / 1" }} />
+          <span className="ax-sk" style={{ width: "70%" }} />
+          <span className="ax-sk" style={{ width: "45%" }} />
         </div>
-        {ad.headline && (
-          <div title={ad.headline}
-               style={{ fontFamily: FONT, fontSize: 12, color: C.slate, marginTop: 3,
-                        lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {ad.headline}
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "9px 10px",
-                    borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
-        <Cell label="Spend">{usd(ad.spend)}</Cell>
-        <Cell label="Link CTR">{pct(ad.ctr)}</Cell>
-        <Cell label="Frequency">{ad.frequency == null ? "—" : Number(ad.frequency).toFixed(2)}</Cell>
-        {ad.fatigue && <Cell label="Fatigue">CTR down as frequency rose</Cell>}
-        <Cell label="Link clicks">{compact(ad.link_clicks)}</Cell>
-        {/* Cost per lead against META's lead count, which is Meta measuring itself. Named that
-            way here for the same reason the strip names it: it is not the owned funnel. */}
-        <Cell label="Cost / lead · Meta">{ad.leads ? usd(ad.cpl) : "—"}</Cell>
-        <Cell label="Seats">{ad.seats == null ? "—" : compact(ad.seats)}</Cell>
-        <Cell label="Cost / seat">{ad.cost_per_seat == null ? "—" : usd(ad.cost_per_seat)}</Cell>
-      </div>
+      ))}
     </div>
   );
 }
 
-export default function CreativeWall({ data, loading }) {
-  const ads = data?.ads || [];
-
-  if (loading && !ads.length) {
+/* `ads` is the list after the screen's brand and name filters; `fetched` is how many the API
+   sent (the highest-spending ads in the window, up to AdsView's limit) and `total` is how many
+   delivered at all. */
+export default function CreativeWall({
+  ads, fetched, total, filtered, seatsAvailable, revenueReason,
+  sort, onSort, openKey, onOpen, loading, error, onRetry,
+}) {
+  if (error) return <ErrorNote onRetry={onRetry}>Couldn&apos;t load the ads.</ErrorNote>;
+  if (loading) return <GallerySkeleton />;
+  if (!fetched) {
+    // An empty gallery is normal for a window with no ad-level delivery, and it is not the same
+    // thing as a failed sync. Say which one this is.
     return (
-      <div style={{ fontFamily: FONT, fontSize: 13, color: C.muted, padding: "10px 0" }}>
-        Loading the creative…
-      </div>
-    );
-  }
-
-  if (!ads.length) {
-    // An empty wall is normal for a window with no ad-level delivery, and it is NOT the same as
-    // a failed sync. Say which one this is.
-    return (
-      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
-                    padding: 18, fontFamily: FONT, fontSize: 13, color: C.slate,
-                    lineHeight: 1.55 }}>
+      <Empty>
         No ads delivered in this window. Widen the period, or check the sync in Settings if you
         expected spend here.
-      </div>
+      </Empty>
     );
   }
 
+  const shown = gallerySort(ads, seatsAvailable ? sort : "spend");
+  const count = filtered
+    ? `${shown.length} of the ${fetched} highest-spending ads match.`
+    : total > fetched
+      ? `The ${fetched} highest-spending of ${total} ads that delivered.`
+      : null;
+
   return (
-    <>
-      <style>{`
-        .ads-wall { display: grid; gap: 12px;
-                    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); }
-        .ads-tile { transition: border-color .15s ease; }
-        @media (hover: hover) { .ads-tile:hover { border-color: ${C.accent}; } }
-        @media (prefers-reduced-motion: reduce) { .ads-tile { transition: none; } }
-        @media (max-width: 560px) {
-          .ads-wall { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-        }
-      `}</style>
-      <div className="ads-wall">
-        {ads.map((ad) => <AdTile key={ad.id} ad={ad} />)}
+    <div className="ax-stack">
+      <div className="ax-spread">
+        {seatsAvailable
+          ? <Segmented label="Order the gallery by" value={sort} onChange={onSort} options={GALLERY_SORTS} />
+          : <span className="ax-meta">Ranked by spend. Seats per ad need utm_content on the ads.</span>}
+        <span className="ax-facts ax-meta">
+          {seatsAvailable && <span>{SORT_NOTE[sort]}</span>}
+          {count && <span>{count}</span>}
+        </span>
       </div>
-      {data?.total > ads.length && (
-        <div style={{ fontFamily: FONT, fontSize: 12, color: C.muted, marginTop: 10 }}>
-          Showing the {ads.length} highest-spending of {data.total} ads that delivered.
+      {shown.length === 0 ? <Empty>Nothing matches this filter.</Empty> : (
+        <div className="ax-gallery">
+          {shown.map((ad) => {
+            const key = ad.external_id || ad.id;
+            return <Tile key={key} ad={ad} on={openKey === key} onOpen={onOpen} />;
+          })}
         </div>
       )}
-    </>
+      {revenueReason && <p className="ax-meta">Revenue per ad is not shown. {revenueReason}</p>}
+    </div>
   );
 }

@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { C } from "./adsTokens.js";
+import { initials } from "./creative.js";
 
 export const SCREENS = [
   { id: "today", label: "Today" },
@@ -159,6 +160,29 @@ export function Skeleton({ label = "Loading" }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/* An ad's picture. Meta's thumbnail links are signed and expire (SPEC 3.9), and an expired one
+   reads as a fault in this dashboard rather than an expiry upstream. So the ad's initials sit
+   UNDERNEATH the image instead of replacing it on error: a link to an unreachable host stays
+   pending with no error event at all, and an onError swap alone leaves an empty box for the life
+   of the page. Layering covers missing, expired, unreachable and transparent with one rule, and
+   a loaded image simply paints over the initials.
+   variant: "tile" (square, fills its width: the gallery), "sm" (48px: Today's rows), "hero" (the
+   whole picture, letterboxed: a side panel). */
+export function Thumb({ src, name, variant = "tile" }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  return (
+    <span className={`ax-pic ax-pic--${variant}`}>
+      <span className="ax-pic__mark" aria-hidden="true">{initials(name)}</span>
+      {/* lazy + async decode: these are full-resolution creatives (170-300KB each, measured in
+          August), and forty of them decoding on the main thread would jank the scroll. */}
+      {src && !failed && (
+        <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+      )}
+    </span>
   );
 }
 

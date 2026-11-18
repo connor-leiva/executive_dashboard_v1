@@ -63,7 +63,7 @@ export function useAdsWrites(account) {
   return useEndpoint(path, sampleAdsWrites, [account]);
 }
 
-export function useAdsCreatives({ account, period, campaign, sort, limit }) {
-  const path = `/ads/creatives?${qs({ account, period, campaign, sort, limit })}`;
-  return useEndpoint(path, sampleAdsCreatives, [account, period, campaign, sort, limit]);
+export function useAdsCreatives({ account, period, campaign, brand, sort, limit }) {
+  const path = `/ads/creatives?${qs({ account, period, campaign, brand, sort, limit })}`;
+  return useEndpoint(path, sampleAdsCreatives, [account, period, campaign, brand, sort, limit]);
 }
